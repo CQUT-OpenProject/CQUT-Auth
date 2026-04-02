@@ -4,8 +4,8 @@
 
 详细接口和部署说明见：
 
-- [API 文档](/Users/uednd/code/CQUT-Auth/docs/API.md)
-- [部署文档](/Users/uednd/code/CQUT-Auth/docs/DEPLOYMENT.md)
+- [API 文档](docs/API.md)
+- [部署文档](docs/DEPLOYMENT.md)
 
 ## 核心流程
 
@@ -28,7 +28,8 @@ flowchart LR
 
 ```bash
 cd deploy
-docker compose up -d --build
+cp .env.example .env
+docker compose --env-file .env up -d --build
 ```
 
 然后配置 hosts：
@@ -59,14 +60,13 @@ docker compose up -d --build
 使用前准备：
 
 1. 将证书文件放到 `deploy/certs/fullchain.pem` 和 `deploy/certs/privkey.pem`
-2. 按需修改 `deploy/env/nginx.env.example` 中的 `SERVER_NAME`
-3. 使用生产 compose 启动
+2. 复制 `deploy/.env.example` 为 `deploy/.env`
+3. 在 `deploy/.env` 中填入真实 secret、数据库口令和域名
+4. 使用生产 compose 启动
 
 ```bash
-docker compose -f deploy/docker-compose.prod.yml up -d --build
+docker compose --env-file deploy/.env -f deploy/docker-compose.prod.yml up -d --build
 ```
-
-注意：当前 `deploy/docker-compose.yml` 直接引用的是 `deploy/env/*.env.example`，不是自动复制后的 `.env` 文件。如果要改部署参数，要么直接编辑这些 example 文件，要么自行改 compose 里的 `env_file` 指向。
 
 ## 环境变量
 
@@ -77,17 +77,22 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 | `PORT` | 服务端口 | `3001` |
 | `APP_ENV` | 环境标识 | - |
 | `DEDUPE_KEY_SECRET` | 派生客户端去重标识的密钥 | - |
+| `DEMO_CLIENT_ENABLED` | 是否自动注册内置 demo client | 非生产默认 `true`，生产默认 `false` |
 | `CLIENT_ID` | 内置 demo client 凭据中的 client id | - |
 | `CLIENT_SECRET` | 内置 demo client 凭据中的 client secret | - |
 | `AUTH_PROVIDER` | 上游认证提供方，支持 `mock` 或 `cqut` | - |
 | `WORKER_MODE` | worker 运行模式，支持 `inline` 或 `external` | 开发环境 `inline`，生产环境 `external` |
 | `WORKER_INLINE_ENABLED` | 仅在 `inline` 模式生效；控制 auth-service 是否自动启动内联 worker | - |
+| `WORKER_HEARTBEAT_INTERVAL_MS` | external worker 写入健康心跳的间隔 | `5000` |
+| `WORKER_HEARTBEAT_STALE_MS` | 判定 external worker 心跳过期的阈值 | `15000` |
 | `REDIS_URL` | Redis 连接串 | - |
 | `DATABASE_URL` | PostgreSQL 连接串 | - |
 | `VERIFY_RATE_LIMIT_ENABLED` | 是否启用按 `client_id` 限流 | - |
 | `VERIFY_RATE_LIMIT_MAX` | 窗口内最大请求数 | - |
 | `VERIFY_RATE_LIMIT_WINDOW_SECONDS` | 限流窗口秒数 | - |
 | `JOB_PAYLOAD_SECRET` | 队列中凭据的加密密钥 | - |
+| `CORS_ALLOWED_ORIGINS` | 允许跨域访问 auth-service 的 Origin 列表，逗号分隔 | 默认禁用跨域 |
+| `TRUST_PROXY_HOPS` | 反向代理 hop 数 | 开发默认 `0`，生产默认 `1` |
 | `WORKER_CONCURRENCY` | worker 并发数 | - |
 | `JOB_MAX_ATTEMPTS` | 任务最大重试次数 | - |
 | `JOB_RETRY_BASE_MS` | 重试退避基数 | - |
@@ -101,13 +106,15 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 | --- | --- | --- |
 | `PORT` | demo 服务端口 | `3002` |
 | `AUTH_SERVICE_BASE_URL` | 认证服务地址 | - |
-| `DEMO_CLIENT_ID` | demo 使用的 client id | - |
-| `DEMO_CLIENT_SECRET` | demo 使用的 client secret | - |
+| `DEMO_CLIENT_ENABLED` | 是否允许 demo-site 使用服务端 demo client 凭据 | 非生产默认 `true`，生产必须显式开启 |
+| `CLIENT_ID` | demo-site 调用 auth-service 时使用的 client id | - |
+| `CLIENT_SECRET` | demo-site 调用 auth-service 时使用的 client secret | - |
 
 示例见：
 
 - [auth-service.env.example](/Users/uednd/code/CQUT-Auth/deploy/env/auth-service.env.example)
 - [demo-site.env.example](/Users/uednd/code/CQUT-Auth/deploy/env/demo-site.env.example)
+- [deploy/.env.example](/Users/uednd/code/CQUT-Auth/deploy/.env.example)
 
 ## 本地开发
 
@@ -127,6 +134,9 @@ pnpm install
 常用命令：
 
 ```bash
+# 生成 deploy/.env（若已存在则拒绝覆盖）
+pnpm generate:env
+
 # 仅启动 auth-service
 pnpm dev
 

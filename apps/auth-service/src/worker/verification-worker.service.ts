@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
+import { randomUUID } from "node:crypto";
 import { DEDUPE_SCOPE } from "@cqut/shared";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { ApiError } from "../common/api-error.js";
@@ -17,6 +18,8 @@ export class VerificationWorkerService {
   private static readonly IDLE_POLL_BASE_MS = 100;
   private static readonly IDLE_POLL_MAX_MS = 2000;
   private readonly logger = new Logger(VerificationWorkerService.name);
+  private readonly workerId = randomUUID();
+  private readonly startedAt = new Date().toISOString();
   private running = true;
   private startPromise: Promise<void> | null = null;
 
@@ -39,10 +42,11 @@ export class VerificationWorkerService {
     this.startPromise = (async () => {
       await this.requeueStalledJobs();
       await this.refreshQueueBacklog();
+      await this.recordHeartbeat();
       const workers = Array.from({ length: this.config.workerConcurrency }, (_, index) =>
         this.runLoop(index + 1)
       );
-      await Promise.all(workers);
+      await Promise.all([this.runHeartbeatLoop(), ...workers]);
     })();
 
     try {
@@ -109,6 +113,26 @@ export class VerificationWorkerService {
           })
         );
         await sleep(1000);
+      }
+    }
+  }
+
+  private async runHeartbeatLoop() {
+    while (this.running) {
+      try {
+        await sleep(this.config.workerHeartbeatIntervalMs);
+        if (!this.running) {
+          break;
+        }
+        await this.recordHeartbeat();
+      } catch (error) {
+        this.logger.error(
+          JSON.stringify({
+            event: "worker_heartbeat_failed",
+            worker_id: this.workerId,
+            error: error instanceof Error ? error.message : "unknown error"
+          })
+        );
       }
     }
   }
@@ -257,6 +281,10 @@ export class VerificationWorkerService {
 
   private async refreshQueueBacklog() {
     this.metrics.setQueueBacklog(await this.postgres.countQueuedVerificationJobs());
+  }
+
+  private async recordHeartbeat() {
+    await this.postgres.recordWorkerHeartbeat(this.workerId, this.startedAt, new Date().toISOString());
   }
 
   private getIdleDelayMs(idleAttempts: number) {

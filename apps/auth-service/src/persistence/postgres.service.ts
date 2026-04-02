@@ -9,6 +9,7 @@ export class PostgresService implements OnModuleInit {
   private readonly clients = new Map<string, ClientConfig>();
   private readonly jobs = new Map<string, VerificationJob>();
   private readonly requests = new Map<string, VerificationRequest>();
+  private readonly workerHeartbeats = new Map<string, string>();
   private pool: Pool | undefined;
 
   constructor(@Inject(AppConfigService) private readonly config: AppConfigService) {}
@@ -96,6 +97,13 @@ export class PostgresService implements OnModuleInit {
     await this.pool.query(`
       create index if not exists idx_verification_jobs_status_available_at
       on verification_jobs (status, available_at);
+    `);
+    await this.pool.query(`
+      create table if not exists worker_heartbeats (
+        worker_id text primary key,
+        started_at timestamptz not null,
+        last_seen_at timestamptz not null
+      );
     `);
   }
 
@@ -418,6 +426,44 @@ export class PostgresService implements OnModuleInit {
       "select count(*)::integer as count from verification_jobs where status = 'queued'"
     );
     return Number(result.rows[0]?.count ?? 0);
+  }
+
+  async recordWorkerHeartbeat(workerId: string, startedAt: string, lastSeenAt: string) {
+    this.workerHeartbeats.set(workerId, lastSeenAt);
+    if (!this.pool) {
+      return;
+    }
+    await this.pool.query(
+      `
+      insert into worker_heartbeats (worker_id, started_at, last_seen_at)
+      values ($1, $2::timestamptz, $3::timestamptz)
+      on conflict (worker_id) do update
+      set last_seen_at = excluded.last_seen_at;
+      `,
+      [workerId, startedAt, lastSeenAt]
+    );
+  }
+
+  async hasFreshWorkerHeartbeat(staleAfter: string) {
+    if (this.pool) {
+      const result = await this.pool.query(
+        `
+        select 1
+        from worker_heartbeats
+        where last_seen_at >= $1::timestamptz
+        limit 1
+        `,
+        [staleAfter]
+      );
+      return (result.rowCount ?? 0) > 0;
+    }
+
+    for (const lastSeenAt of this.workerHeartbeats.values()) {
+      if (lastSeenAt >= staleAfter) {
+        return true;
+      }
+    }
+    return false;
   }
 
   hasDatabase() {

@@ -15,6 +15,10 @@ export class AppConfigService {
     return this.configService.get("APP_ENV", "development");
   }
 
+  get isProduction(): boolean {
+    return this.appEnv === "production";
+  }
+
   get startupStrictDependencies(): boolean {
     const explicit = this.configService.get<string>("STARTUP_STRICT_DEPENDENCIES");
     if (explicit !== undefined) {
@@ -57,7 +61,7 @@ export class AppConfigService {
   }
 
   get dedupeKeySecret(): string {
-    return this.configService.get("DEDUPE_KEY_SECRET", "dev-dedupe-key-secret");
+    return this.requireSecret("DEDUPE_KEY_SECRET");
   }
 
   get transactionExpiresInSeconds(): number {
@@ -81,7 +85,7 @@ export class AppConfigService {
   }
 
   get jobPayloadSecret(): string {
-    return this.configService.get("JOB_PAYLOAD_SECRET", "dev-job-payload-secret");
+    return this.requireSecret("JOB_PAYLOAD_SECRET");
   }
 
   get workerConcurrency(): number {
@@ -104,12 +108,28 @@ export class AppConfigService {
     return Number(this.configService.get("PROVIDER_TOTAL_TIMEOUT_MS", 20000));
   }
 
+  get workerHeartbeatIntervalMs(): number {
+    return Number(this.configService.get("WORKER_HEARTBEAT_INTERVAL_MS", 5000));
+  }
+
+  get workerHeartbeatStaleMs(): number {
+    return Number(this.configService.get("WORKER_HEARTBEAT_STALE_MS", 15000));
+  }
+
   get demoClientId(): string {
     return this.configService.get("CLIENT_ID", "site_demo");
   }
 
   get demoClientSecret(): string {
-    return this.configService.get("CLIENT_SECRET", "dev-secret-change-me");
+    return this.requireSecret("CLIENT_SECRET");
+  }
+
+  get demoClientEnabled(): boolean {
+    const explicit = this.configService.get<string>("DEMO_CLIENT_ENABLED");
+    if (explicit !== undefined) {
+      return explicit.toLowerCase() === "true";
+    }
+    return !this.isProduction;
   }
 
   get redisUrl(): string | undefined {
@@ -118,5 +138,48 @@ export class AppConfigService {
 
   get databaseUrl(): string | undefined {
     return this.configService.get<string>("DATABASE_URL");
+  }
+
+  get corsAllowedOrigins(): string[] {
+    const raw = this.configService.get<string>("CORS_ALLOWED_ORIGINS");
+    if (!raw) {
+      return [];
+    }
+    return raw
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+  }
+
+  get trustProxyHops(): number {
+    const raw = this.configService.get<string>("TRUST_PROXY_HOPS");
+    if (raw === undefined || raw === "") {
+      return this.isProduction ? 1 : 0;
+    }
+    const parsed = Number(raw);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+      throw new Error("TRUST_PROXY_HOPS must be a non-negative integer");
+    }
+    return parsed;
+  }
+
+  private requireSecret(key: string) {
+    const value = this.configService.get<string>(key);
+    if (!value || this.isPlaceholder(value)) {
+      throw new Error(`${key} is required and must not use a placeholder value`);
+    }
+    return value;
+  }
+
+  private isPlaceholder(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) {
+      return true;
+    }
+    return (
+      normalized.endsWith("change-me") ||
+      normalized.startsWith("<") ||
+      normalized.includes("set-in-deploy-env")
+    );
   }
 }

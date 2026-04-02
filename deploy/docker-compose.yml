@@ -6,12 +6,12 @@ services:
       context: ..
       dockerfile: apps/auth-service/Dockerfile
     env_file:
-      - ./env/auth-service.env.example
+      - ./.env
     environment:
       PORT: 3001
-      WORKER_MODE: external
-      REDIS_URL: redis://redis:6379
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/cqut_auth
+      WORKER_MODE: ${WORKER_MODE:-external}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
     depends_on:
       redis:
         condition: service_healthy
@@ -33,12 +33,12 @@ services:
       dockerfile: apps/auth-service/Dockerfile
     command: ["node", "apps/auth-service/dist/worker.js"]
     env_file:
-      - ./env/auth-service.env.example
+      - ./.env
     environment:
       PORT: 3001
-      WORKER_MODE: external
-      REDIS_URL: redis://redis:6379
-      DATABASE_URL: postgres://postgres:postgres@postgres:5432/cqut_auth
+      WORKER_MODE: ${WORKER_MODE:-external}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
     depends_on:
       redis:
         condition: service_healthy
@@ -53,10 +53,10 @@ services:
       context: ..
       dockerfile: apps/demo-site/Dockerfile
     env_file:
-      - ./env/demo-site.env.example
+      - ./.env
     environment:
       PORT: 3002
-      AUTH_SERVICE_BASE_URL: http://auth-service:3001
+      AUTH_SERVICE_BASE_URL: ${AUTH_SERVICE_BASE_URL:-http://auth-service:3001}
     depends_on:
       auth-service:
         condition: service_healthy
@@ -87,9 +87,9 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: cqut_auth
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
@@ -105,6 +105,8 @@ services:
 
   nginx:
     image: nginx:1.29-alpine
+    env_file:
+      - ./.env
     ports:
       - "80:80"
     volumes:

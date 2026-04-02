@@ -9,9 +9,17 @@
     "dev:auth": "pnpm --filter @cqut/auth-service dev",
     "dev:worker": "pnpm --filter @cqut/auth-service dev:worker",
     "dev:demo": "pnpm --filter @cqut/demo-site dev",
+    "generate:env": "node scripts/generate-deploy-env.mjs",
+    "generate:env:stdout": "node scripts/generate-deploy-env.mjs --stdout",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "format": "prettier --write ."
+  },
+  "pnpm": {
+    "overrides": {
+      "lodash": "^4.18.0",
+      "path-to-regexp": "^8.4.0"
+    }
   },
   "devDependencies": {
     "prettier": "^3.6.2",

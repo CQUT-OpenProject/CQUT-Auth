@@ -8,6 +8,7 @@ import { AuthService } from "./auth/auth.service.js";
 import { DedupeKeyService } from "./auth/dedupe-key.service.js";
 import { VerifyRateLimitService } from "./auth/verify-rate-limit.service.js";
 import { ClientService } from "./clients/client.service.js";
+import { ApiExceptionFilter } from "./common/api-exception.filter.js";
 import { RateLimitFilter } from "./common/rate-limit.filter.js";
 import { JobPayloadCryptoService } from "./common/job-payload-crypto.service.js";
 import { MetricsService } from "./common/metrics.service.js";
@@ -30,6 +31,10 @@ import { VerificationWorkerService } from "./worker/verification-worker.service.
     {
       provide: APP_FILTER,
       useClass: RateLimitFilter
+    },
+    {
+      provide: APP_FILTER,
+      useClass: ApiExceptionFilter
     }
   ]
 })

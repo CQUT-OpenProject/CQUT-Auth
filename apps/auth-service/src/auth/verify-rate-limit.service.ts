@@ -21,7 +21,7 @@ export class VerifyRateLimitService {
     @Inject(RedisService) private readonly redis: RedisService
   ) {}
 
-  async consume(clientId: string): Promise<RateLimitDecision> {
+  async consume(clientId: string, sourceIp: string): Promise<RateLimitDecision> {
     if (!this.config.verifyRateLimitEnabled) {
       return { allowed: true, retryAfterSeconds: 0 };
     }
@@ -32,21 +32,19 @@ export class VerifyRateLimitService {
       return { allowed: true, retryAfterSeconds: 0 };
     }
 
+    const rateLimitKey = `rate-limit:verify:${clientId}:${sourceIp}`;
     if (this.redis.hasRedis()) {
-      return this.consumeRedis(clientId, limit, windowSeconds);
+      return this.consumeRedis(rateLimitKey, limit, windowSeconds);
     }
-    return this.consumeMemory(clientId, limit, windowSeconds);
+    return this.consumeMemory(rateLimitKey, limit, windowSeconds);
   }
 
   private async consumeRedis(
-    clientId: string,
+    key: string,
     limit: number,
     windowSeconds: number
   ): Promise<RateLimitDecision> {
-    const counter = await this.redis.incrementFixedWindowCounter(
-      `rate-limit:verify:${clientId}`,
-      windowSeconds
-    );
+    const counter = await this.redis.incrementFixedWindowCounter(key, windowSeconds);
     if (counter.count <= limit) {
       return { allowed: true, retryAfterSeconds: 0 };
     }

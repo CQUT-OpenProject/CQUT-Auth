@@ -23,6 +23,7 @@ test("GET /demo serves the demo page shell", async () => {
   const response = await request(app).get("/demo");
 
   assert.equal(response.status, 200);
+  assert.equal(response.headers["content-security-policy"]?.includes("script-src 'self'"), true);
   assert.match(response.text, /id="verify-form"/);
   assert.match(response.text, /\/demo\/assets\/style\.css/);
   assert.match(response.text, /Raw JSON/);
@@ -66,6 +67,53 @@ test("POST /demo/api/verify forwards account and password with server credential
     password: "mock-password",
     scope: ["student.verify"]
   });
+});
+
+test("POST /demo/api/verify uses CLIENT_ID and CLIENT_SECRET from env", async () => {
+  const previousClientId = process.env["CLIENT_ID"];
+  const previousClientSecret = process.env["CLIENT_SECRET"];
+  try {
+    process.env["CLIENT_ID"] = "env_demo";
+    process.env["CLIENT_SECRET"] = "env-secret";
+
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const app = createDemoApp({
+      authServiceBaseUrl: "http://auth-service:3001",
+      fetchImpl: async (url, init) => {
+        calls.push(init === undefined ? { url: String(url) } : { url: String(url), init });
+        return jsonResponse(
+          {
+            request_id: "req_env",
+            status: "pending",
+            expires_at: "2026-04-01T10:00:00.000Z"
+          },
+          { status: 202 }
+        );
+      }
+    });
+
+    const response = await request(app).post("/demo/api/verify").send({
+      account: "20240001",
+      password: "mock-password"
+    });
+
+    assert.equal(response.status, 202);
+    assert.equal(
+      (calls[0]?.init?.headers as Record<string, string>)["Authorization"],
+      `Basic ${Buffer.from("env_demo:env-secret").toString("base64")}`
+    );
+  } finally {
+    if (previousClientId === undefined) {
+      delete process.env["CLIENT_ID"];
+    } else {
+      process.env["CLIENT_ID"] = previousClientId;
+    }
+    if (previousClientSecret === undefined) {
+      delete process.env["CLIENT_SECRET"];
+    } else {
+      process.env["CLIENT_SECRET"] = previousClientSecret;
+    }
+  }
 });
 
 test("POST /demo/api/verify includes student.dedupe when toggle is enabled", async () => {
@@ -139,6 +187,7 @@ test("GET /demo/api/result/:requestId relays result body and retry-after header"
 
 test("demo api returns 502 when auth service is unreachable", async () => {
   const app = createDemoApp({
+    clientSecret: "demo-secret",
     fetchImpl: async () => {
       throw new Error("unreachable");
     }
@@ -151,6 +200,26 @@ test("demo api returns 502 when auth service is unreachable", async () => {
 
   assert.equal(response.status, 502);
   assert.equal(response.body.error, "upstream_unavailable");
+});
+
+test("demo api returns 503 when demo client is disabled", async () => {
+  process.env["DEMO_CLIENT_ENABLED"] = "false";
+  const app = createDemoApp();
+  const response = await request(app).post("/demo/api/verify").send({
+    account: "20240001",
+    password: "mock-password"
+  });
+  delete process.env["DEMO_CLIENT_ENABLED"];
+
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error, "server_error");
+});
+
+test("demo-site requires explicit demo client enablement in production", async () => {
+  process.env["APP_ENV"] = "production";
+  delete process.env["DEMO_CLIENT_ENABLED"];
+  assert.throws(() => createDemoApp(), /DEMO_CLIENT_ENABLED must be true/);
+  delete process.env["APP_ENV"];
 });
 
 test("browser flow auto polls and renders succeeded state", async () => {

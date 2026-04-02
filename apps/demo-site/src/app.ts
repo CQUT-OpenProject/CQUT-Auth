@@ -22,22 +22,63 @@ const DEFAULT_SCOPE = ["student.verify"] as const;
 const DEDUPE_SCOPE = "student.dedupe";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_PUBLIC_DIR = join(__dirname, "..", "public");
+const DEFAULT_CSP = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'self'"
+].join("; ");
 
 function buildBasicAuth(clientId: string, clientSecret: string) {
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`, "utf8").toString("base64")}`;
 }
 
 function getRuntimeConfig(options: DemoSiteOptions) {
-  return {
+  const appEnv = process.env["APP_ENV"] ?? process.env["NODE_ENV"] ?? "development";
+  const demoClientEnabled = (() => {
+    const explicit = process.env["DEMO_CLIENT_ENABLED"];
+    if (explicit !== undefined) {
+      return explicit.toLowerCase() === "true";
+    }
+    return appEnv !== "production";
+  })();
+
+  const runtime = {
+    appEnv,
+    demoClientEnabled,
     authServiceBaseUrl: (options.authServiceBaseUrl ?? process.env["AUTH_SERVICE_BASE_URL"] ?? "http://localhost:3001").replace(
       /\/$/,
       ""
     ),
-    clientId: options.clientId ?? process.env["DEMO_CLIENT_ID"] ?? "site_demo",
-    clientSecret: options.clientSecret ?? process.env["DEMO_CLIENT_SECRET"] ?? "dev-secret-change-me",
+    clientId: options.clientId ?? process.env["CLIENT_ID"] ?? "site_demo",
+    clientSecret: options.clientSecret ?? process.env["CLIENT_SECRET"],
     fetchImpl: options.fetchImpl ?? fetch,
     publicDir: options.publicDir ?? DEFAULT_PUBLIC_DIR
   };
+
+  if (runtime.appEnv === "production") {
+    if (!runtime.demoClientEnabled) {
+      throw new Error("DEMO_CLIENT_ENABLED must be true when demo-site runs in production");
+    }
+    if (!runtime.clientSecret || isPlaceholder(runtime.clientSecret)) {
+      throw new Error("CLIENT_SECRET is required and must not use a placeholder value in production");
+    }
+  }
+
+  if (runtime.demoClientEnabled && runtime.clientSecret && isPlaceholder(runtime.clientSecret)) {
+    throw new Error("CLIENT_SECRET must not use a placeholder value");
+  }
+
+  return runtime;
+}
+
+function isPlaceholder(value: string) {
+  const normalized = value.trim().toLowerCase();
+  return normalized.endsWith("change-me") || normalized.startsWith("<");
 }
 
 function sendProxyResponse(
@@ -99,7 +140,18 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
   const app = express();
 
   app.disable("x-powered-by");
-  app.use(express.json());
+  app.set("trust proxy", Number(process.env["TRUST_PROXY_HOPS"] ?? (runtime.appEnv === "production" ? "1" : "0")));
+  app.use((request, response, next) => {
+    response.setHeader("X-Content-Type-Options", "nosniff");
+    response.setHeader("X-Frame-Options", "SAMEORIGIN");
+    response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    response.setHeader("Content-Security-Policy", DEFAULT_CSP);
+    if (request.path.startsWith("/demo/api/")) {
+      response.setHeader("Cache-Control", "no-store");
+    }
+    next();
+  });
+  app.use(express.json({ limit: "16kb" }));
   app.use("/demo/assets", express.static(join(runtime.publicDir, "assets")));
 
   const renderDemoPage: express.RequestHandler = (_request, response) => {
@@ -110,9 +162,9 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
   app.get("/demo/", renderDemoPage);
 
   app.post("/demo/api/verify", async (request, response) => {
-    if (!runtime.clientId || !runtime.clientSecret) {
+    if (!runtime.demoClientEnabled || !runtime.clientId || !runtime.clientSecret) {
       return sendProxyResponse(response, {
-        status: 500,
+        status: 503,
         body: {
           error: "server_error",
           error_description: "demo client credentials are not configured"
@@ -158,9 +210,9 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
   });
 
   app.get("/demo/api/result/:requestId", async (request, response) => {
-    if (!runtime.clientId || !runtime.clientSecret) {
+    if (!runtime.demoClientEnabled || !runtime.clientId || !runtime.clientSecret) {
       return sendProxyResponse(response, {
-        status: 500,
+        status: 503,
         body: {
           error: "server_error",
           error_description: "demo client credentials are not configured"

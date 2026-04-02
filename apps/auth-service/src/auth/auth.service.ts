@@ -12,6 +12,7 @@ import { VerifyRateLimitService } from "./verify-rate-limit.service.js";
 
 type VerifyInput = {
   client: ClientConfig;
+  sourceIp: string;
   account: string;
   password: string;
   scope: string[];
@@ -29,7 +30,7 @@ export class AuthService {
   ) {}
 
   async submitVerify(input: VerifyInput) {
-    const rateLimitDecision = await this.verifyRateLimit.consume(input.client.clientId);
+    const rateLimitDecision = await this.verifyRateLimit.consume(input.client.clientId, input.sourceIp);
     if (!rateLimitDecision.allowed) {
       throw new RateLimitError(rateLimitDecision.retryAfterSeconds);
     }

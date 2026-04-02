@@ -3,9 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import request from "supertest";
 import { SUPPORTED_SCOPES } from "@cqut/shared";
+import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
+import { json, urlencoded } from "express";
 import { AppModule } from "../src/app.module.js";
 import { DedupeKeyService } from "../src/auth/dedupe-key.service.js";
+import { ApiError } from "../src/common/api-error.js";
+import { AppConfigService } from "../src/config/app-config.service.js";
 import { PostgresService } from "../src/persistence/postgres.service.js";
 import { sha256 } from "../src/common/utils.js";
 import { VerificationWorkerService } from "../src/worker/verification-worker.service.js";
@@ -13,19 +17,40 @@ import { VerificationWorkerService } from "../src/worker/verification-worker.ser
 async function createApp(overrides: Record<string, string> = {}) {
   process.env["APP_ENV"] = "development";
   process.env["AUTH_PROVIDER"] = "mock";
+  process.env["DEMO_CLIENT_ENABLED"] = "true";
   process.env["CLIENT_ID"] = "site_demo";
-  process.env["CLIENT_SECRET"] = "dev-secret-change-me";
+  process.env["CLIENT_SECRET"] = "test-client-secret";
+  process.env["DEDUPE_KEY_SECRET"] = "test-dedupe-secret";
   process.env["WORKER_MODE"] = "inline";
   process.env["WORKER_INLINE_ENABLED"] = "false";
-  process.env["JOB_PAYLOAD_SECRET"] = "job-secret";
+  process.env["JOB_PAYLOAD_SECRET"] = "test-job-secret";
   process.env["VERIFY_RATE_LIMIT_ENABLED"] = "true";
   process.env["VERIFY_RATE_LIMIT_MAX"] = "10";
   process.env["VERIFY_RATE_LIMIT_WINDOW_SECONDS"] = "60";
   process.env["STARTUP_STRICT_DEPENDENCIES"] = "false";
+  process.env["TRUST_PROXY_HOPS"] = "0";
   delete process.env["DATABASE_URL"];
   delete process.env["REDIS_URL"];
   Object.assign(process.env, overrides);
-  const app = await NestFactory.create(AppModule, { logger: false });
+  const app = await NestFactory.create(AppModule, { logger: false, bodyParser: false });
+  const config = app.get(AppConfigService);
+  const expressApp = app.getHttpAdapter().getInstance();
+  expressApp.disable("x-powered-by");
+  expressApp.set("trust proxy", config.trustProxyHops);
+  expressApp.use(json({ limit: "16kb" }));
+  expressApp.use(urlencoded({ extended: false, limit: "16kb", parameterLimit: 20 }));
+  app.useGlobalPipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      stopAtFirstError: true,
+      exceptionFactory(errors) {
+        const firstError = errors[0];
+        const firstConstraint = firstError ? Object.values(firstError.constraints ?? {})[0] : undefined;
+        return new ApiError("invalid_request", typeof firstConstraint === "string" ? firstConstraint : "invalid request");
+      }
+    })
+  );
   await app.init();
   return app;
 }
@@ -41,7 +66,7 @@ async function registerClient(app: Awaited<ReturnType<typeof createApp>>, client
   });
 }
 
-function basicAuth(clientId = "site_demo", clientSecret = "dev-secret-change-me") {
+function basicAuth(clientId = "site_demo", clientSecret = "test-client-secret") {
   return `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`;
 }
 
@@ -145,11 +170,11 @@ test("Basic Auth is required and old body credentials are ignored", async () => 
   const http = request(app.getHttpServer());
 
   const authFailure = await http.post("/verify").send({
-    client_id: "site_demo",
-    client_secret: "dev-secret-change-me",
-    account: "20240001",
-    password: "mock-password",
-    scope: ["student.verify"]
+      client_id: "site_demo",
+      client_secret: "test-client-secret",
+      account: "20240001",
+      password: "mock-password",
+      scope: ["student.verify"]
   });
   assert.equal(authFailure.status, 401);
   assert.equal(authFailure.body.error, "invalid_client");
@@ -168,7 +193,7 @@ test("Basic Auth is required and old body credentials are ignored", async () => 
 
   const resultFailure = await http
     .get(`/result/${accepted.body.request_id}`)
-    .query({ client_id: "site_demo", client_secret: "dev-secret-change-me" });
+    .query({ client_id: "site_demo", client_secret: "test-client-secret" });
   assert.equal(resultFailure.status, 401);
   assert.equal(resultFailure.body.error, "invalid_client");
 
@@ -213,7 +238,7 @@ test("legacy authorize route is removed", async () => {
   await app.close();
 });
 
-test("POST /verify is rate limited per client_id", async () => {
+test("POST /verify is rate limited per client_id and source ip", async () => {
   const app = await createApp();
   const http = request(app.getHttpServer());
 
@@ -285,6 +310,69 @@ test("POST /verify rate limit is isolated by client_id", async () => {
     });
   assert.equal(secondClient.status, 202);
 
+  await app.close();
+});
+
+test("POST /verify rate limit is isolated by source ip", async () => {
+  const app = await createApp({
+    VERIFY_RATE_LIMIT_MAX: "1",
+    TRUST_PROXY_HOPS: "1"
+  });
+  const http = request(app.getHttpServer());
+
+  const first = await http
+    .post("/verify")
+    .set("Authorization", basicAuth())
+    .set("X-Forwarded-For", "203.0.113.10")
+    .send({
+      account: "20240001",
+      password: "mock-password",
+      scope: ["student.verify"]
+    });
+  assert.equal(first.status, 202);
+
+  const limited = await http
+    .post("/verify")
+    .set("Authorization", basicAuth())
+    .set("X-Forwarded-For", "203.0.113.10")
+    .send({
+      account: "20240002",
+      password: "mock-password",
+      scope: ["student.verify"]
+    });
+  assert.equal(limited.status, 429);
+
+  const secondIp = await http
+    .post("/verify")
+    .set("Authorization", basicAuth())
+    .set("X-Forwarded-For", "203.0.113.11")
+    .send({
+      account: "20240003",
+      password: "mock-password",
+      scope: ["student.verify"]
+    });
+  assert.equal(secondIp.status, 202);
+
+  await app.close();
+});
+
+test("demo client is not auto-registered when explicitly disabled", async () => {
+  const app = await createApp({
+    DEMO_CLIENT_ENABLED: "false"
+  });
+  const http = request(app.getHttpServer());
+
+  const response = await http
+    .post("/verify")
+    .set("Authorization", basicAuth())
+    .send({
+      account: "20240001",
+      password: "mock-password",
+      scope: ["student.verify"]
+    });
+
+  assert.equal(response.status, 401);
+  assert.equal(response.body.error, "invalid_client");
   await app.close();
 });
 
@@ -391,6 +479,60 @@ test("health endpoints report memory readiness in inline mode", async () => {
   assert.equal(ready.body.status, "ready");
   assert.equal(ready.body.database, "memory");
   assert.equal(ready.body.worker_mode, "inline");
+  assert.equal(ready.body.worker, "embedded");
+
+  await app.close();
+});
+
+test("health endpoints return 503 in external mode when worker heartbeat is unavailable", async () => {
+  const app = await createApp({
+    WORKER_MODE: "inline",
+    WORKER_INLINE_ENABLED: "false",
+    VERIFY_RATE_LIMIT_ENABLED: "false"
+  });
+  const http = request(app.getHttpServer());
+  const config = app.get(AppConfigService);
+  const postgres = app.get(PostgresService);
+
+  Object.defineProperty(config, "workerMode", {
+    configurable: true,
+    get: () => "external"
+  });
+  postgres.checkReadiness = async () => true;
+  postgres.hasFreshWorkerHeartbeat = async () => false;
+
+  const ready = await http.get("/health/ready");
+  assert.equal(ready.status, 503);
+  assert.equal(ready.body.status, "not_ready");
+  assert.equal(ready.body.database, "postgres");
+  assert.equal(ready.body.worker_mode, "external");
+  assert.equal(ready.body.worker, "unavailable");
+
+  await app.close();
+});
+
+test("health endpoints report ready in external mode when worker heartbeat is fresh", async () => {
+  const app = await createApp({
+    WORKER_MODE: "inline",
+    WORKER_INLINE_ENABLED: "false",
+    VERIFY_RATE_LIMIT_ENABLED: "false"
+  });
+  const http = request(app.getHttpServer());
+  const config = app.get(AppConfigService);
+  const postgres = app.get(PostgresService);
+
+  Object.defineProperty(config, "workerMode", {
+    configurable: true,
+    get: () => "external"
+  });
+  postgres.checkReadiness = async () => true;
+  postgres.hasFreshWorkerHeartbeat = async () => true;
+
+  const ready = await http.get("/health/ready");
+  assert.equal(ready.status, 200);
+  assert.equal(ready.body.status, "ready");
+  assert.equal(ready.body.worker_mode, "external");
+  assert.equal(ready.body.worker, "ready");
 
   await app.close();
 });

@@ -18,6 +18,19 @@ export class ClientService implements OnModuleInit {
 
   async onModuleInit() {
     this.postgres.logFallback();
+    if (!this.config.demoClientEnabled) {
+      this.logger.log(
+        JSON.stringify({
+          event: "client_registry_ready",
+          worker_mode: this.config.workerMode,
+          database: this.postgres.hasDatabase() ? "postgres" : "memory",
+          redis: this.redis.hasRedis() ? "redis" : "memory",
+          demo_client: "disabled"
+        })
+      );
+      return;
+    }
+
     const client: ClientConfig = {
       clientId: this.config.demoClientId,
       clientSecretHash: sha256(this.config.demoClientSecret),
@@ -31,7 +44,8 @@ export class ClientService implements OnModuleInit {
         event: "client_registry_ready",
         worker_mode: this.config.workerMode,
         database: this.postgres.hasDatabase() ? "postgres" : "memory",
-        redis: this.redis.hasRedis() ? "redis" : "memory"
+        redis: this.redis.hasRedis() ? "redis" : "memory",
+        demo_client: "enabled"
       })
     );
   }

@@ -25,12 +25,18 @@ export class HealthController {
     const databaseReady = await this.postgres.checkReadiness();
     const redisRequired = this.redis.isRequiredForReadiness();
     const redisReady = redisRequired ? await this.redis.checkReadiness() : true;
+    const workerReady =
+      this.config.workerMode === "external"
+        ? await this.postgres.hasFreshWorkerHeartbeat(
+            new Date(Date.now() - this.config.workerHeartbeatStaleMs).toISOString()
+          )
+        : true;
     const databaseMode = databaseReady
       ? "postgres"
       : this.config.databaseRequired
         ? "unavailable"
         : "memory";
-    const ready = (databaseReady || databaseMode === "memory") && redisReady;
+    const ready = (databaseReady || databaseMode === "memory") && redisReady && workerReady;
 
     response.status(ready ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE);
 
@@ -38,6 +44,7 @@ export class HealthController {
       status: ready ? "ready" : "not_ready",
       env: this.config.appEnv,
       worker_mode: this.config.workerMode,
+      worker: this.config.workerMode === "external" ? (workerReady ? "ready" : "unavailable") : "embedded",
       provider: this.config.authProvider,
       database: databaseMode,
       redis: redisReady ? "ready" : redisRequired ? "unavailable" : "optional"

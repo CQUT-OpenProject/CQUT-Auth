@@ -7,8 +7,10 @@ import {
   HttpStatus,
   Inject,
   Param,
-  Post
+  Post,
+  Req
 } from "@nestjs/common";
+import type { Request } from "express";
 import { ApiError } from "../common/api-error.js";
 import { ClientService } from "../clients/client.service.js";
 import { AuthService } from "./auth.service.js";
@@ -24,13 +26,18 @@ export class AuthController {
 
   @Post("/verify")
   @HttpCode(HttpStatus.ACCEPTED)
-  async verify(@Headers("authorization") authorization: string | undefined, @Body() body: VerifyRequestDto) {
+  async verify(
+    @Headers("authorization") authorization: string | undefined,
+    @Req() request: Request,
+    @Body() body: VerifyRequestDto
+  ) {
     const client = await this.clientService.authenticateBasicHeader(authorization);
     if (!client) {
       throw new ApiError("invalid_client", "client authentication failed");
     }
     return this.authService.submitVerify({
       client,
+      sourceIp: request.ip ?? request.socket.remoteAddress ?? "unknown",
       account: body.account,
       password: body.password,
       scope: body.scope ?? []
