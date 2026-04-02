@@ -1,0 +1,17 @@
+node_modules
+.pnpm-store
+dist
+.next
+coverage
+.DS_Store
+.env
+.env.local
+.env.*.local
+apps/auth-service/.env
+apps/example-site/.env.local
+deploy/.env
+*.log
+tmp
+data
+.codex/
+.serena/

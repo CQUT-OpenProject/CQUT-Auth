@@ -1,0 +1,20 @@
+{
+  "name": "cqut-auth",
+  "private": true,
+  "version": "1.0.0",
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @cqut/auth-service dev",
+    "dev:auth": "pnpm --filter @cqut/auth-service dev",
+    "dev:worker": "pnpm --filter @cqut/auth-service dev:worker",
+    "dev:demo": "pnpm --filter @cqut/demo-site dev",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.6.2",
+    "typescript": "^6.0.2"
+  }
+}

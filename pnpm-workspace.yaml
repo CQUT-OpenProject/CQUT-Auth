@@ -1,0 +1,4 @@
+packages:
+  - apps/auth-service
+  - apps/demo-site
+  - packages/shared
