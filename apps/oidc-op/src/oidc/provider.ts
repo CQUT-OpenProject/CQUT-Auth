@@ -12,7 +12,7 @@ import { OIDC_CLAIMS, OIDC_SCOPES } from "@cqut/shared";
 import { exportJWK, generateKeyPair } from "jose";
 import Provider from "oidc-provider";
 import type { OidcOpConfig } from "../config.js";
-import type { OidcStore, OidcClientRecord, OidcSigningKeyRecord } from "../persistence/store.js";
+import type { OidcPersistence, OidcClientRecord, OidcSigningKeyRecord } from "../persistence/contracts.js";
 import { createAdapter } from "./adapter.js";
 import { randomId, parseScope, escapeHtml, sha256 } from "../utils.js";
 
@@ -77,7 +77,7 @@ function renderAutoLogoutPage(form: string) {
   </html>`;
 }
 
-async function ensureSigningKey(store: OidcStore, config: OidcOpConfig) {
+async function ensureSigningKey(store: OidcPersistence, config: OidcOpConfig) {
   const existing = await store.listSigningKeys(["active", "retiring"]);
   if (existing.length > 0) {
     return existing;
@@ -89,7 +89,7 @@ async function ensureSigningKey(store: OidcStore, config: OidcOpConfig) {
   return [created];
 }
 
-export async function generateSigningKey(store: OidcStore): Promise<OidcSigningKeyRecord> {
+export async function generateSigningKey(store: OidcPersistence): Promise<OidcSigningKeyRecord> {
   const kid = randomId("kid");
   const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
   const publicJwk = await exportJWK(publicKey);
@@ -119,7 +119,7 @@ export async function generateSigningKey(store: OidcStore): Promise<OidcSigningK
   return record;
 }
 
-export async function seedDemoClient(store: OidcStore, config: OidcOpConfig) {
+export async function seedDemoClient(store: OidcPersistence, config: OidcOpConfig) {
   if (!config.demoClientEnabled) {
     return;
   }
@@ -141,7 +141,7 @@ export async function seedDemoClient(store: OidcStore, config: OidcOpConfig) {
   });
 }
 
-export async function createOidcServices(config: OidcOpConfig, store: OidcStore): Promise<OidcServices> {
+export async function createOidcServices(config: OidcOpConfig, store: OidcPersistence): Promise<OidcServices> {
   await seedDemoClient(store, config);
   await ensureSigningKey(store, config);
 

@@ -1,6 +1,6 @@
-import type { OidcStore } from "../persistence/store.js";
+import type { OidcArtifactRepository } from "../persistence/contracts.js";
 
-export function createAdapter(store: OidcStore) {
+export function createAdapter(store: OidcArtifactRepository) {
   return class PostgresAdapter {
     readonly modelName: string;
 

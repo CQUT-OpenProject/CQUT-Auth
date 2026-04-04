@@ -2,7 +2,7 @@ import { IdentityCoreError } from "@cqut/identity-core";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
 import type { RateLimitService } from "../persistence/rate-limit.service.js";
-import type { OidcStore } from "../persistence/store.js";
+import type { OidcArtifactRepository } from "../persistence/contracts.js";
 import type { OidcServices } from "../oidc/provider.js";
 import { escapeHtml, isValidEmail, parseCookies, randomId } from "../utils.js";
 
@@ -126,7 +126,7 @@ export function createInteractionRouter(
   config: OidcOpConfig,
   provider: any,
   services: OidcServices,
-  store: OidcStore,
+  store: OidcArtifactRepository,
   rateLimitService: RateLimitService
 ): express.Router {
   const router = express.Router();

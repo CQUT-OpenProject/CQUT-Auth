@@ -13,6 +13,8 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       OIDC_ISSUER: ${OIDC_ISSUER:-http://verify.local}
       OIDC_COOKIE_SECURE: ${OIDC_COOKIE_SECURE:-false}
+      OIDC_ARTIFACT_CLEANUP_ENABLED: ${OIDC_ARTIFACT_CLEANUP_ENABLED:-true}
+      OIDC_ARTIFACT_CLEANUP_CRON: "${OIDC_ARTIFACT_CLEANUP_CRON:-*/5 * * * *}"
     depends_on:
       redis:
         condition: service_healthy
@@ -36,6 +38,9 @@ services:
       - ./.env
     environment:
       PORT: 3002
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DEMO_SESSION_TTL_SECONDS: ${DEMO_SESSION_TTL_SECONDS:-7200}
+      DEMO_SESSION_KEY_PREFIX: ${DEMO_SESSION_KEY_PREFIX:-demo:sess:}
       OIDC_ISSUER: ${OIDC_ISSUER:-http://verify.local}
       OIDC_DISCOVERY_URL: ${OIDC_DISCOVERY_URL:-http://oidc-op:3003/.well-known/openid-configuration}
       OIDC_DEMO_CLIENT_ID: ${OIDC_DEMO_CLIENT_ID:-demo-site}
@@ -69,7 +74,8 @@ services:
       - internal
 
   postgres:
-    image: postgres:16-alpine
+    image: ghcr.io/citusdata/pg_cron:16
+    command: postgres -c shared_preload_libraries=pg_cron -c cron.database_name=${POSTGRES_DB:?POSTGRES_DB is required}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}

@@ -21,6 +21,8 @@ export type OidcOpConfig = {
   accessTokenTtlSeconds: number;
   idTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
+  artifactCleanupEnabled: boolean;
+  artifactCleanupCron: string;
   loginRateLimitMax: number;
   loginRateLimitWindowSeconds: number;
   loginFailureLimit: number;
@@ -60,6 +62,13 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     env["OIDC_DEMO_CLIENT_ENABLED"] !== undefined
       ? env["OIDC_DEMO_CLIENT_ENABLED"] === "true"
       : !isProduction;
+  const artifactCleanupEnabledRaw = env["OIDC_ARTIFACT_CLEANUP_ENABLED"];
+  const artifactCleanupEnabled =
+    artifactCleanupEnabledRaw !== undefined ? artifactCleanupEnabledRaw === "true" : true;
+  if (!artifactCleanupEnabled) {
+    throw new Error("OIDC_ARTIFACT_CLEANUP_ENABLED must be true");
+  }
+  const artifactCleanupCron = env["OIDC_ARTIFACT_CLEANUP_CRON"] ?? "*/5 * * * *";
   return {
     port,
     appEnv,
@@ -83,6 +92,8 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     accessTokenTtlSeconds: Number(env["OIDC_ACCESS_TOKEN_TTL_SECONDS"] ?? 60 * 5),
     idTokenTtlSeconds: Number(env["OIDC_ID_TOKEN_TTL_SECONDS"] ?? 60 * 5),
     refreshTokenTtlSeconds: Number(env["OIDC_REFRESH_TTL_SECONDS"] ?? 60 * 60 * 24 * 30),
+    artifactCleanupEnabled,
+    artifactCleanupCron,
     loginRateLimitMax: Number(env["OIDC_LOGIN_RATE_LIMIT_MAX"] ?? 10),
     loginRateLimitWindowSeconds: Number(env["OIDC_LOGIN_RATE_LIMIT_WINDOW_SECONDS"] ?? 60),
     loginFailureLimit: Number(env["OIDC_LOGIN_FAILURE_LIMIT"] ?? 5),

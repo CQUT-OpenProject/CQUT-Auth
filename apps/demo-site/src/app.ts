@@ -3,6 +3,7 @@ import { randomBytes, createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { renderAppShell, renderMessagePage } from "./render/page.js";
+import { RedisDemoSessionStore, type DemoSessionStore, type DemoSession } from "./session-store.js";
 
 type FetchLike = typeof fetch;
 
@@ -15,6 +16,10 @@ type DemoSiteOptions = {
   demoBaseUrl?: string;
   fetchImpl?: FetchLike;
   publicDir?: string;
+  redisUrl?: string;
+  sessionTtlSeconds?: number;
+  sessionKeyPrefix?: string;
+  sessionStore?: DemoSessionStore;
 };
 
 type DiscoveryDocument = {
@@ -23,18 +28,6 @@ type DiscoveryDocument = {
   token_endpoint: string;
   userinfo_endpoint: string;
   issuer?: string;
-};
-
-type DemoSession = {
-  sessionId: string;
-  pendingAuth?: {
-    state: string;
-    nonce: string;
-    codeVerifier: string;
-  } | undefined;
-  idToken?: string | undefined;
-  accessToken?: string | undefined;
-  userInfo?: Record<string, unknown> | undefined;
 };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -109,6 +102,10 @@ function getRuntimeConfig(options: DemoSiteOptions) {
     demoBaseUrl: (options.demoBaseUrl ?? process.env["DEMO_BASE_URL"] ?? "http://localhost:3002").replace(/\/$/, ""),
     fetchImpl: options.fetchImpl ?? fetch,
     publicDir: options.publicDir ?? DEFAULT_PUBLIC_DIR,
+    redisUrl: options.redisUrl ?? process.env["REDIS_URL"],
+    sessionTtlSeconds: Number(options.sessionTtlSeconds ?? process.env["DEMO_SESSION_TTL_SECONDS"] ?? 60 * 60 * 2),
+    sessionKeyPrefix: options.sessionKeyPrefix ?? process.env["DEMO_SESSION_KEY_PREFIX"] ?? "demo:sess:",
+    sessionStore: options.sessionStore,
     trustProxyHops: Number(process.env["TRUST_PROXY_HOPS"] ?? (isProduction ? "1" : "0")),
     cookieSecure:
       process.env["DEMO_COOKIE_SECURE"] !== undefined
@@ -162,11 +159,21 @@ function rewriteEndpointToBase(endpoint: string, baseUrl: string, discoveryUrl: 
   return endpoint;
 }
 
-export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
+export async function createDemoApp(options: DemoSiteOptions = {}): Promise<express.Express> {
   const runtime = getRuntimeConfig(options);
   const sessionCookieName = getDemoSessionCookieName(runtime.cookieSecure);
   const discoveryCache = new Map<string, DiscoveryDocument>();
-  const sessions = new Map<string, DemoSession>();
+  if (!runtime.sessionStore && !runtime.redisUrl) {
+    throw new Error("REDIS_URL is required for demo-site session storage");
+  }
+  const sessionStore =
+    runtime.sessionStore ??
+    new RedisDemoSessionStore({
+      redisUrl: runtime.redisUrl as string,
+      ttlSeconds: runtime.sessionTtlSeconds,
+      keyPrefix: runtime.sessionKeyPrefix
+    });
+  await sessionStore.ping();
   const app = express();
 
   async function getDiscovery() {
@@ -224,16 +231,24 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
     return normalized;
   }
 
-  function getOrCreateSession(request: express.Request, response: express.Response) {
+  async function getSession(request: express.Request) {
     const cookies = parseCookies(request.headers.cookie);
     const existingId = cookies[sessionCookieName];
-    if (existingId && sessions.has(existingId)) {
-      return sessions.get(existingId)!;
+    if (!existingId) {
+      return null;
+    }
+    return sessionStore.get(existingId);
+  }
+
+  async function getOrCreateSession(request: express.Request, response: express.Response) {
+    const existing = await getSession(request);
+    if (existing) {
+      return existing;
     }
     const session: DemoSession = {
       sessionId: randomId("demo")
     };
-    sessions.set(session.sessionId, session);
+    await sessionStore.set(session);
     response.cookie(sessionCookieName, session.sessionId, {
       httpOnly: true,
       secure: runtime.cookieSecure,
@@ -254,11 +269,11 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
   });
   app.use("/demo/assets", express.static(join(runtime.publicDir, "assets")));
 
-  app.get("/demo", (request, response) => {
-    const session = getOrCreateSession(request, response);
+  app.get("/demo", async (request, response) => {
+    const session = await getSession(request);
     response.setHeader("Cache-Control", "no-store");
     response.status(200).send(
-      renderAppShell("CQUT OIDC Demo", session.userInfo
+      renderAppShell("CQUT OIDC Demo", session?.userInfo
         ? {
             kind: "authenticated",
             loginUrl: "/demo/login",
@@ -276,13 +291,14 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
   });
 
   app.get("/demo/login", async (request, response) => {
-    const session = getOrCreateSession(request, response);
+    const session = await getOrCreateSession(request, response);
     const discovery = await getDiscovery();
     const state = randomId("state");
     const nonce = randomId("nonce");
     const codeVerifier = randomCodeVerifier();
     const challenge = sha256Base64Url(codeVerifier);
     session.pendingAuth = { state, nonce, codeVerifier };
+    await sessionStore.set(session);
 
     const authorizationUrl = new URL(discovery.authorization_endpoint);
     authorizationUrl.searchParams.set("client_id", runtime.clientId);
@@ -300,7 +316,11 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
 
   app.get("/demo/callback", async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    const session = getOrCreateSession(request, response);
+    const session = await getSession(request);
+    if (!session) {
+      response.status(400).send(renderMessagePage("Invalid Callback", "Missing session."));
+      return;
+    }
     const pending = session.pendingAuth;
     const code = typeof request.query["code"] === "string" ? request.query["code"] : undefined;
     const state = typeof request.query["state"] === "string" ? request.query["state"] : undefined;
@@ -366,9 +386,9 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
       }
 
       session.pendingAuth = undefined;
-      session.accessToken = accessToken;
       session.idToken = idToken ?? undefined;
       session.userInfo = userInfoBody;
+      await sessionStore.set(session);
       response.redirect(302, "/demo");
     } catch (error) {
       response.status(502).send(
@@ -382,12 +402,19 @@ export function createDemoApp(options: DemoSiteOptions = {}): express.Express {
 
   app.get("/demo/logout", async (request, response) => {
     response.setHeader("Cache-Control", "no-store");
-    const session = getOrCreateSession(request, response);
-    const idToken = session.idToken;
-    session.pendingAuth = undefined;
-    session.accessToken = undefined;
-    session.idToken = undefined;
-    session.userInfo = undefined;
+    const cookies = parseCookies(request.headers.cookie);
+    const sessionId = cookies[sessionCookieName];
+    const session = sessionId ? await sessionStore.get(sessionId) : null;
+    const idToken = session?.idToken;
+    if (sessionId) {
+      await sessionStore.destroy(sessionId);
+      response.clearCookie(sessionCookieName, {
+        httpOnly: true,
+        secure: runtime.cookieSecure,
+        sameSite: "lax",
+        path: "/"
+      });
+    }
     if (!idToken) {
       response.redirect(302, "/demo");
       return;

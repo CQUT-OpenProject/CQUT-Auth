@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "express": "^5.1.0",
+    "ioredis": "^5.8.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

@@ -3,14 +3,15 @@ import type { Request, Response, NextFunction } from "express";
 import { readOidcOpConfig, type OidcOpConfig } from "./config.js";
 import { createOidcServices } from "./oidc/provider.js";
 import { RateLimitService } from "./persistence/rate-limit.service.js";
-import { OidcStore } from "./persistence/store.js";
+import type { OidcPersistence } from "./persistence/contracts.js";
+import { OidcPersistenceImpl } from "./persistence/persistence.js";
 import { createInteractionRouter } from "./routes/interactions.js";
 import { parseCookies } from "./utils.js";
 
 type AppState = {
   config: OidcOpConfig;
   provider: any;
-  store: OidcStore;
+  store: OidcPersistence;
   rateLimitService: RateLimitService;
 };
 
@@ -63,7 +64,7 @@ function tokenRateLimitMiddleware(config: OidcOpConfig, rateLimitService: RateLi
 
 export async function createOidcApp(env: NodeJS.ProcessEnv = process.env) {
   const config = readOidcOpConfig(env);
-  const store = new OidcStore(config);
+  const store = new OidcPersistenceImpl(config);
   await store.init();
   const rateLimitService = new RateLimitService(config);
   await rateLimitService.init();
