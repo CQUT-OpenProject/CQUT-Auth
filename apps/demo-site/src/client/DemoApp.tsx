@@ -352,20 +352,9 @@ function GuestContent({ state }: { state: Extract<DemoClientState, { kind: "gues
         <aside className="side-panel">
           <div className="panel-header plain">Notes</div>
           <div className="panel-body">
-            <p>Page is fixed. Scroll only inside this window.</p>
             <div className="button-row">
               <a className="button" href={state.loginUrl}>Sign in</a>
             </div>
-            <dl className="info-grid">
-              <dt>mode</dt>
-              <dd>OIDC RP</dd>
-              <dt>stack</dt>
-              <dd>React + esbuild</dd>
-              <dt>window</dt>
-              <dd>fixed viewport, internal scroll only</dd>
-              <dt>repo</dt>
-              <dd>CQUT Auth demo-site</dd>
-            </dl>
           </div>
         </aside>
       </div>
@@ -419,7 +408,7 @@ export function DemoApp({ initialState }: DemoAppProps) {
           <span className="menu-mark" aria-hidden="true" />
           <span>CQUT Auth</span>
           <a className="menubar-link" href={initialState.repositoryUrl} target="_blank" rel="noreferrer">
-            Repo
+            Repository
           </a>
         </div>
         <div className="menubar-group">

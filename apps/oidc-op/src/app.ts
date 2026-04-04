@@ -2,7 +2,7 @@ import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import { readOidcOpConfig, type OidcOpConfig } from "./config.js";
 import { createOidcServices } from "./oidc/provider.js";
-import { RateLimitService } from "./persistence/rate-limit.service.js";
+import { RateLimitService, RateLimitUnavailableError } from "./persistence/rate-limit.service.js";
 import type { OidcPersistence } from "./persistence/contracts.js";
 import { OidcPersistenceImpl } from "./persistence/persistence.js";
 import { createInteractionRouter } from "./routes/interactions.js";
@@ -41,11 +41,27 @@ function tokenRateLimitMiddleware(config: OidcOpConfig, rateLimitService: RateLi
       }
     }
     const ip = request.ip ?? request.socket.remoteAddress ?? "unknown";
-    const decision = await rateLimitService.consume(
-      `oidc:token:${clientId}:${ip}`,
-      config.tokenRateLimitMax,
-      config.tokenRateLimitWindowSeconds
-    );
+    let decision;
+    try {
+      decision = await rateLimitService.consume(
+        `oidc:token:${clientId}:${ip}`,
+        config.tokenRateLimitMax,
+        config.tokenRateLimitWindowSeconds
+      );
+    } catch (error) {
+      if (error instanceof RateLimitUnavailableError) {
+        response
+          .status(503)
+          .setHeader("Retry-After", "60")
+          .setHeader("Cache-Control", "no-store")
+          .json({
+            error: "service_unavailable",
+            error_description: "rate limiting backend is unavailable"
+          });
+        return;
+      }
+      return next(error);
+    }
     if (!decision.allowed) {
       response
         .status(429)
@@ -87,6 +103,14 @@ export async function createOidcApp(env: NodeJS.ProcessEnv = process.env) {
       database: store.hasDatabase() ? "postgres" : "memory",
       redis: config.redisUrl ? (redisReady ? "ready" : "unavailable") : "optional"
     });
+  });
+
+  app.get("/session/logout-auto-submit.js", (_request, response) => {
+    response
+      .status(200)
+      .setHeader("Content-Type", "application/javascript; charset=utf-8")
+      .setHeader("Cache-Control", "no-store")
+      .send('document.getElementById("op.logoutForm")?.submit();');
   });
 
   app.use("/interaction", createInteractionRouter(config, services.provider, services, store, rateLimitService));

@@ -184,7 +184,11 @@ test("logout clears local session and redirects to end_session_endpoint", async 
   assert.equal(logout.status, 302);
   const logoutUrl = new URL(logout.headers["location"] as string, "http://localhost:3003");
   assert.equal(logoutUrl.pathname, "/session/end");
-  assert.equal(logoutUrl.searchParams.get("post_logout_redirect_uri"), "http://localhost:3002/demo");
+  assert.equal(logoutUrl.searchParams.get("post_logout_redirect_uri"), "http://localhost:3002/demo/logout-complete");
+
+  const logoutComplete = await agent.get("/demo/logout-complete");
+  assert.equal(logoutComplete.status, 200);
+  assert.match(logoutComplete.text, /Signed Out/);
 
   const page = await agent.get("/demo");
   assert.match(page.text, /data-state="[^"]*%22kind%22%3A%22guest%22/);

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import request from "supertest";
 import { createOidcApp } from "../src/app.js";
+import { readOidcOpConfig } from "../src/config.js";
 import { sha256Base64Url } from "../src/utils.js";
 
 const TEST_REDIRECT_URI = "http://localhost:3002/demo/callback";
@@ -16,17 +17,21 @@ function extractCsrf(html: string) {
   return match[1];
 }
 
-async function createTestApp() {
-  process.env["APP_ENV"] = "test";
-  process.env["AUTH_PROVIDER"] = "mock";
-  process.env["OIDC_COOKIE_SECURE"] = "false";
-  process.env["OIDC_ISSUER"] = "http://127.0.0.1:3003";
-  process.env["OIDC_KEY_ENCRYPTION_SECRET"] = "test-oidc-key-secret";
-  process.env["OIDC_DEMO_CLIENT_ID"] = "demo-site";
-  process.env["OIDC_DEMO_CLIENT_SECRET"] = "demo-site-secret";
-  process.env["OIDC_DEMO_REDIRECT_URI"] = TEST_REDIRECT_URI;
-  process.env["OIDC_DEMO_POST_LOGOUT_REDIRECT_URI"] = "http://localhost:3002/demo";
-  return createOidcApp(process.env);
+async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    APP_ENV: "test",
+    AUTH_PROVIDER: "mock",
+    OIDC_COOKIE_SECURE: "false",
+    OIDC_ISSUER: "http://127.0.0.1:3003",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+    OIDC_DEMO_CLIENT_ID: "demo-site",
+    OIDC_DEMO_CLIENT_SECRET: "demo-site-secret",
+    OIDC_DEMO_REDIRECT_URI: TEST_REDIRECT_URI,
+    OIDC_DEMO_POST_LOGOUT_REDIRECT_URI: "http://localhost:3002/demo",
+    ...overrides
+  };
+  return createOidcApp(env);
 }
 
 async function followInternalRedirects(agent: any, response: request.Response) {
@@ -192,4 +197,34 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
   assert.equal(reuse.body.error, "invalid_grant");
 
   await state.store.close();
+});
+
+test("token endpoint returns 503 when rate limiter is fail-closed and redis is unavailable", async () => {
+  const { app, state } = await createTestApp({
+    REDIS_URL: "redis://127.0.0.1:1",
+    OIDC_RATE_LIMIT_FAIL_CLOSED: "true"
+  });
+  const response = await request(app)
+    .post("/token")
+    .set("Authorization", basicAuth("demo-site", "demo-site-secret"))
+    .type("form")
+    .send({ grant_type: "client_credentials" });
+
+  assert.equal(response.status, 503);
+  assert.equal(response.body.error, "service_unavailable");
+  await state.store.close();
+});
+
+test("config rejects when session idle ttl exceeds absolute session ttl", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig({
+        APP_ENV: "test",
+        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+        OIDC_SESSION_TTL_SECONDS: "60",
+        OIDC_SESSION_IDLE_TTL_SECONDS: "120",
+        OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+      }),
+    /OIDC_SESSION_IDLE_TTL_SECONDS must be less than or equal to OIDC_SESSION_TTL_SECONDS/
+  );
 });

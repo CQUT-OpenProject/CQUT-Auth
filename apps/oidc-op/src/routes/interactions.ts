@@ -1,7 +1,7 @@
 import { IdentityCoreError } from "@cqut/identity-core";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
-import type { RateLimitService } from "../persistence/rate-limit.service.js";
+import { RateLimitUnavailableError, type RateLimitService } from "../persistence/rate-limit.service.js";
 import type { OidcArtifactRepository } from "../persistence/contracts.js";
 import type { OidcServices } from "../oidc/provider.js";
 import { escapeHtml, isValidEmail, parseCookies, randomId } from "../utils.js";
@@ -122,6 +122,13 @@ function loginFailureKey(ip: string, account: string) {
   return `oidc:login-failure:${ip}:${account}`;
 }
 
+function serviceUnavailableView() {
+  return renderPage(
+    "Service Unavailable",
+    `<p class="error">Rate limiting service is temporarily unavailable. Please retry shortly.</p>`
+  );
+}
+
 export function createInteractionRouter(
   config: OidcOpConfig,
   provider: any,
@@ -167,11 +174,20 @@ export function createInteractionRouter(
       const account = typeof request.body?.account === "string" ? request.body.account.trim() : "";
       const password = typeof request.body?.password === "string" ? request.body.password : "";
       const ip = request.ip ?? request.socket.remoteAddress ?? "unknown";
-      const precheck = await rateLimitService.consume(
-        loginAttemptKey(ip, account || "unknown"),
-        config.loginRateLimitMax,
-        config.loginRateLimitWindowSeconds
-      );
+      let precheck;
+      try {
+        precheck = await rateLimitService.consume(
+          loginAttemptKey(ip, account || "unknown"),
+          config.loginRateLimitMax,
+          config.loginRateLimitWindowSeconds
+        );
+      } catch (error) {
+        if (error instanceof RateLimitUnavailableError) {
+          response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
+          return;
+        }
+        throw error;
+      }
       if (!precheck.allowed) {
         response.status(429).send(renderPage("Too Many Attempts", `<p class="error">Try again in ${precheck.retryAfterSeconds} seconds.</p>`));
         return;
@@ -185,7 +201,11 @@ export function createInteractionRouter(
           ip,
           ...(request.get("user-agent") ? { userAgent: request.get("user-agent") as string } : {})
         });
-        await rateLimitService.reset(loginFailureKey(ip, account || "unknown"));
+        await rateLimitService.reset(loginFailureKey(ip, account || "unknown")).catch((error) => {
+          if (!(error instanceof RateLimitUnavailableError)) {
+            throw error;
+          }
+        });
         if (!principal.email) {
           await store.saveInteractionLogin(uid, {
             principal,
@@ -209,11 +229,20 @@ export function createInteractionRouter(
           { mergeWithLastSubmission: false }
         );
       } catch (error) {
-        const failure = await rateLimitService.consume(
-          loginFailureKey(ip, account || "unknown"),
-          config.loginFailureLimit,
-          config.loginFailureWindowSeconds
-        );
+        let failure;
+        try {
+          failure = await rateLimitService.consume(
+            loginFailureKey(ip, account || "unknown"),
+            config.loginFailureLimit,
+            config.loginFailureWindowSeconds
+          );
+        } catch (consumeError) {
+          if (consumeError instanceof RateLimitUnavailableError) {
+            response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
+            return;
+          }
+          throw consumeError;
+        }
         if (!failure.allowed) {
           response.status(429).send(renderPage("Too Many Failures", `<p class="error">Too many failed sign-in attempts. Retry in ${failure.retryAfterSeconds} seconds.</p>`));
           return;

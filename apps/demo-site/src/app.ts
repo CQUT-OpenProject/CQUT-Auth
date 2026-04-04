@@ -416,22 +416,29 @@ export async function createDemoApp(options: DemoSiteOptions = {}): Promise<expr
       });
     }
     if (!idToken) {
-      response.redirect(302, "/demo");
+      response.redirect(302, "/demo/logout-complete");
       return;
     }
     try {
       const discovery = await getDiscovery();
       if (!discovery.end_session_endpoint) {
-        response.redirect(302, "/demo");
+        response.redirect(302, "/demo/logout-complete");
         return;
       }
       const logoutUrl = new URL(discovery.end_session_endpoint);
       logoutUrl.searchParams.set("id_token_hint", idToken);
-      logoutUrl.searchParams.set("post_logout_redirect_uri", `${runtime.demoBaseUrl}/demo`);
+      logoutUrl.searchParams.set("post_logout_redirect_uri", `${runtime.demoBaseUrl}/demo/logout-complete`);
       response.redirect(302, logoutUrl.toString());
     } catch {
-      response.redirect(302, "/demo");
+      response.redirect(302, "/demo/logout-complete");
     }
+  });
+
+  app.get("/demo/logout-complete", (_request, response) => {
+    response.setHeader("Cache-Control", "no-store");
+    response.status(200).send(
+      renderMessagePage("Signed Out", "You have signed out successfully.")
+    );
   });
 
   return app;

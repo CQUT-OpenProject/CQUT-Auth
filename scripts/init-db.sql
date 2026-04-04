@@ -18,6 +18,9 @@ create table if not exists subject_identities (
   unique(provider, identity_key)
 );
 
+create index if not exists idx_subject_identities_subject_id_updated_at_desc
+on subject_identities (subject_id, updated_at desc);
+
 create table if not exists subject_profiles (
   subject_id text primary key references subjects(subject_id),
   preferred_username text,

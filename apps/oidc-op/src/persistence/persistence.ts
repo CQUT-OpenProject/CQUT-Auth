@@ -38,7 +38,13 @@ export class OidcPersistenceImpl implements OidcPersistence {
     this.oidcClientRepository = new OidcClientRepositoryImpl(poolProvider);
     this.oidcArtifactRepository = new OidcArtifactRepositoryImpl(
       poolProvider,
-      config.interactionTtlSeconds
+      config.interactionTtlSeconds,
+      {
+        enabled: config.artifactOpportunisticCleanupEnabled,
+        sampleRate: config.artifactOpportunisticCleanupSampleRate,
+        batchSize: config.artifactOpportunisticCleanupBatchSize,
+        minIntervalSeconds: config.artifactOpportunisticCleanupIntervalSeconds
+      }
     );
     this.signingKeyRepository = new SigningKeyRepositoryImpl(poolProvider, this.jwkCipherService);
   }
@@ -232,6 +238,10 @@ export class OidcPersistenceImpl implements OidcPersistence {
         updated_at timestamptz not null default now(),
         unique(provider, identity_key)
       );
+    `);
+    await this.pool.query(`
+      create index if not exists idx_subject_identities_subject_id_updated_at_desc
+      on subject_identities (subject_id, updated_at desc);
     `);
     await this.pool.query(`
       create table if not exists subject_profiles (

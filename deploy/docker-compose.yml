@@ -74,7 +74,9 @@ services:
       - internal
 
   postgres:
-    image: ghcr.io/citusdata/pg_cron:16
+    build:
+      context: .
+      dockerfile: postgres/Dockerfile
     command: postgres -c shared_preload_libraries=pg_cron -c cron.database_name=${POSTGRES_DB:?POSTGRES_DB is required}
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}

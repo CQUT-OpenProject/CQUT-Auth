@@ -38,7 +38,14 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
       );
 
       const serviceUrl = "http://202.202.145.132:80/";
-      const delegated = await client.get("https://sid.cqut.edu.cn/cas/clientredirect", {
+      const loginPayload = {
+        loginType: "login",
+        name: input.account,
+        pwd: getSecretParam(input.password),
+        universityId: "100005",
+        verifyCode: null
+      };
+      const delegatedPromise = client.get("https://sid.cqut.edu.cn/cas/clientredirect", {
         params: {
           client_name: "adapter",
           service: serviceUrl
@@ -50,6 +57,17 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
           Referer: serviceUrl
         }
       });
+      const optimisticLoginPromise = client
+        .post("https://uis.cqut.edu.cn/center-auth-server/sso/doLogin", loginPayload, {
+          headers: {
+            "Content-Type": "application/json, application/json;charset=UTF-8",
+            Referer: serviceUrl
+          }
+        })
+        .then((response) => ({ response }))
+        .catch((error: unknown) => ({ error }));
+
+      const delegated = await delegatedPromise;
       if (delegated.status >= 500) {
         throw new RetryableProviderError("delegated service is unavailable");
       }
@@ -59,22 +77,24 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         throw new IdentityCoreError("verification_failed", "failed to obtain delegated service");
       }
 
-      const loginResponse = await client.post(
-        "https://uis.cqut.edu.cn/center-auth-server/sso/doLogin",
-        {
-          loginType: "login",
-          name: input.account,
-          pwd: getSecretParam(input.password),
-          universityId: "100005",
-          verifyCode: null
-        },
-        {
-          headers: {
-            "Content-Type": "application/json, application/json;charset=UTF-8",
-            Referer: finalUrl
-          }
-        }
-      );
+      // Run delegated redirect and login in parallel first. If upstream enforces
+      // a stricter referer/session sequence, retry once with delegated finalUrl.
+      const optimisticLoginResult = await optimisticLoginPromise;
+      const optimisticLoginResponse =
+        "response" in optimisticLoginResult ? optimisticLoginResult.response : undefined;
+      const loginResponse =
+        optimisticLoginResponse && optimisticLoginResponse.status < 400 && optimisticLoginResponse.data?.code === 200
+          ? optimisticLoginResponse
+          : await client.post(
+              "https://uis.cqut.edu.cn/center-auth-server/sso/doLogin",
+              loginPayload,
+              {
+                headers: {
+                  "Content-Type": "application/json, application/json;charset=UTF-8",
+                  Referer: finalUrl
+                }
+              }
+            );
       if (loginResponse.status >= 500) {
         throw new RetryableProviderError("campus login service is unavailable");
       }

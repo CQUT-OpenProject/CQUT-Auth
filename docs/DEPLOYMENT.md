@@ -40,8 +40,15 @@ OIDC_SESSION_TTL_SECONDS=28800
 OIDC_SESSION_IDLE_TTL_SECONDS=7200
 OIDC_INTERACTION_TTL_SECONDS=900
 OIDC_REFRESH_TTL_SECONDS=2592000
+OIDC_RATE_LIMIT_FAIL_CLOSED=true
+OIDC_RATE_LIMIT_MEMORY_MAX_KEYS=10000
+OIDC_RATE_LIMIT_MEMORY_CLEANUP_INTERVAL_SECONDS=60
 OIDC_ARTIFACT_CLEANUP_ENABLED=true
 OIDC_ARTIFACT_CLEANUP_CRON="*/5 * * * *"
+OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_ENABLED=true
+OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_SAMPLE_RATE=0.01
+OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_BATCH_SIZE=200
+OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_INTERVAL_SECONDS=30
 OIDC_DEMO_CLIENT_ID=demo-site
 OIDC_DEMO_CLIENT_SECRET=<set-in-deploy-env>
 OIDC_DEMO_REDIRECT_URI=https://auth.xxx.com/demo/callback
@@ -53,8 +60,12 @@ OIDC_DEMO_POST_LOGOUT_REDIRECT_URI=https://auth.xxx.com/demo
 - `OIDC_ISSUER` 必须是公网浏览器可访问地址
 - `OIDC_KEY_ENCRYPTION_SECRET` 用于加密私钥 JWK
 - `OIDC_COOKIE_KEYS` 用于 OP cookie 签名，支持多 key 轮换
+- `OIDC_SESSION_IDLE_TTL_SECONDS` 不可大于 `OIDC_SESSION_TTL_SECONDS`
+- `OIDC_RATE_LIMIT_FAIL_CLOSED=true` 时，Redis 故障会让受保护入口返回 `503`，而不是放行
+- `OIDC_RATE_LIMIT_MEMORY_MAX_KEYS` 与 `OIDC_RATE_LIMIT_MEMORY_CLEANUP_INTERVAL_SECONDS` 控制内存兜底上限与清理频率
 - `OIDC_ARTIFACT_CLEANUP_ENABLED` 必须为 `true`（关闭会导致启动失败）
 - `OIDC_ARTIFACT_CLEANUP_CRON` 控制过期 artifact 清理频率（默认每 5 分钟）
+- `OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_*` 控制请求路径上的低频批量清理（与 cron 互补）
 
 ### demo-site
 
@@ -106,6 +117,16 @@ DEMO_SESSION_KEY_PREFIX=demo:sess:
 - `pg_cron` 扩展
 - `oidc_artifacts(expires_at)` 索引
 - `oidc_artifacts_expired_cleanup` 定时任务（每 5 分钟）
+
+新增 subject identity 查询索引迁移：
+
+```sql
+\i scripts/migrations/add-subject-identity-latest-index.sql
+```
+
+该脚本会幂等创建：
+
+- `subject_identities(subject_id, updated_at desc)` 索引
 
 ## 本地 Docker
 

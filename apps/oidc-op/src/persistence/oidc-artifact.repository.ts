@@ -15,12 +15,23 @@ type ArtifactRecord = {
   createdAt: string;
 };
 
+type OpportunisticCleanupOptions = {
+  enabled: boolean;
+  sampleRate: number;
+  batchSize: number;
+  minIntervalSeconds: number;
+};
+
 export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
   private readonly artifacts = new Map<string, ArtifactRecord>();
+  private readonly logger = console;
+  private cleanupInFlight: Promise<void> | undefined;
+  private lastCleanupAt = 0;
 
   constructor(
     private readonly poolProvider: () => Pool | undefined,
-    private readonly interactionTtlSeconds: number
+    private readonly interactionTtlSeconds: number,
+    private readonly cleanupOptions: OpportunisticCleanupOptions
   ) {}
 
   async upsertArtifact(
@@ -29,6 +40,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     payload: Record<string, unknown>,
     expiresIn: number
   ): Promise<void> {
+    this.maybeCleanupExpiredArtifacts();
     const pool = this.poolProvider();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
@@ -98,6 +110,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
   }
 
   async findArtifact(id: string): Promise<Record<string, unknown> | undefined> {
+    this.maybeCleanupExpiredArtifacts();
     const record = await this.readArtifactById(id);
     return record ? this.mapArtifactPayload(record) : undefined;
   }
@@ -127,11 +140,13 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
   }
 
   async findArtifactByUid(uid: string): Promise<Record<string, unknown> | undefined> {
+    this.maybeCleanupExpiredArtifacts();
     const record = await this.readArtifactByColumn("uid", uid);
     return record ? this.mapArtifactPayload(record) : undefined;
   }
 
   async findArtifactByUserCode(userCode: string): Promise<Record<string, unknown> | undefined> {
+    this.maybeCleanupExpiredArtifacts();
     const record = await this.readArtifactByColumn("user_code", userCode);
     return record ? this.mapArtifactPayload(record) : undefined;
   }
@@ -247,5 +262,48 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
           }
         : {})
     };
+  }
+
+  private maybeCleanupExpiredArtifacts() {
+    const pool = this.poolProvider();
+    if (!pool || !this.cleanupOptions.enabled) {
+      return;
+    }
+    if (this.cleanupInFlight) {
+      return;
+    }
+    if (Math.random() > this.cleanupOptions.sampleRate) {
+      return;
+    }
+    const now = Date.now();
+    if (now - this.lastCleanupAt < this.cleanupOptions.minIntervalSeconds * 1000) {
+      return;
+    }
+    this.lastCleanupAt = now;
+    this.cleanupInFlight = pool
+      .query(
+        `
+        with doomed as (
+          select id
+          from oidc_artifacts
+          where expires_at is not null and expires_at <= now()
+          order by expires_at asc
+          limit $1
+        )
+        delete from oidc_artifacts as oa
+        using doomed
+        where oa.id = doomed.id
+        `,
+        [this.cleanupOptions.batchSize]
+      )
+      .then(() => undefined)
+      .catch((error) => {
+        this.logger.warn(
+          `opportunistic oidc artifact cleanup failed: ${error instanceof Error ? error.message : "unknown error"}`
+        );
+      })
+      .finally(() => {
+        this.cleanupInFlight = undefined;
+      });
   }
 }

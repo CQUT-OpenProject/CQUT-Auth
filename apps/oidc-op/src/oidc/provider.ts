@@ -47,6 +47,22 @@ function providerClientMetadata(client: OidcClientRecord) {
   return metadata;
 }
 
+function buildDemoPostLogoutRedirectUris(primary: string): string[] {
+  const uris = new Set<string>([primary]);
+  try {
+    const url = new URL(primary);
+    const normalizedPath = url.pathname.replace(/\/+$/, "") || "/";
+    if (normalizedPath === "/demo") {
+      uris.add(`${url.origin}/demo/logout-complete`);
+    } else if (normalizedPath === "/demo/logout-complete") {
+      uris.add(`${url.origin}/demo`);
+    }
+  } catch {
+    // Ignore invalid custom URI and keep primary value only.
+  }
+  return [...uris];
+}
+
 function constantTimeHashMatch(actual: string, expectedHash: string): boolean {
   const actualHash = sha256(actual);
   const left = Buffer.from(actualHash, "utf8");
@@ -71,8 +87,10 @@ function renderAutoLogoutPage(form: string) {
     </head>
     <body>
       ${form}
-      <script>document.getElementById("op.logoutForm")?.submit();</script>
-      <noscript><button form="op.logoutForm" type="submit" name="logout" value="yes">Continue logout</button></noscript>
+      <p>Signing you out...</p>
+      <p>If the page does not continue automatically, use the button below.</p>
+      <button form="op.logoutForm" type="submit" name="logout" value="yes">Continue logout</button>
+      <script src="/session/logout-auto-submit.js" defer></script>
     </body>
   </html>`;
 }
@@ -130,7 +148,7 @@ export async function seedDemoClient(store: OidcPersistence, config: OidcOpConfi
     applicationType: "web",
     tokenEndpointAuthMethod: "client_secret_basic",
     redirectUris: [config.demoRedirectUri],
-    postLogoutRedirectUris: [config.demoPostLogoutRedirectUri],
+    postLogoutRedirectUris: buildDemoPostLogoutRedirectUris(config.demoPostLogoutRedirectUri),
     grantTypes: ["authorization_code", "refresh_token"],
     responseTypes: ["code"],
     scopeWhitelist: [...OIDC_SCOPES],
@@ -176,6 +194,7 @@ export async function createOidcServices(config: OidcOpConfig, store: OidcPersis
   const clients = (await store.listActiveOidcClients()).map(providerClientMetadata);
   const jwks = { keys: await store.loadPrivateSigningJwks(["active", "retiring"]) };
   const sessionCookieName = config.cookieSecure ? "__Host-op_sid" : "op_sid";
+  const effectiveSessionIdleTtlSeconds = Math.min(config.sessionIdleTtlSeconds, config.sessionTtlSeconds);
   const provider = new Provider(normalizeIssuer(config.issuer), {
     adapter: createAdapter(store),
     clients,
@@ -208,7 +227,7 @@ export async function createOidcServices(config: OidcOpConfig, store: OidcPersis
         sameSite: "lax",
         path: "/",
         secure: config.cookieSecure,
-        maxAge: config.sessionTtlSeconds * 1000
+        maxAge: effectiveSessionIdleTtlSeconds * 1000
       },
       short: {
         httpOnly: true,
@@ -324,7 +343,7 @@ export async function createOidcServices(config: OidcOpConfig, store: OidcPersis
       IdToken: () => config.idTokenTtlSeconds,
       Interaction: () => config.interactionTtlSeconds,
       RefreshToken: () => config.refreshTokenTtlSeconds,
-      Session: () => config.sessionTtlSeconds
+      Session: () => effectiveSessionIdleTtlSeconds
     }
   });
 
