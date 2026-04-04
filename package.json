@@ -5,9 +5,8 @@
   "packageManager": "pnpm@10.32.1",
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter @cqut/auth-service dev",
-    "dev:auth": "pnpm --filter @cqut/auth-service dev",
-    "dev:worker": "pnpm --filter @cqut/auth-service dev:worker",
+    "dev": "pnpm --filter @cqut/oidc-op dev",
+    "dev:oidc": "pnpm --filter @cqut/oidc-op dev",
     "dev:demo": "pnpm --filter @cqut/demo-site dev",
     "generate:env": "node scripts/generate-deploy-env.mjs",
     "generate:env:stdout": "node scripts/generate-deploy-env.mjs --stdout",

@@ -1,49 +1,82 @@
-create table if not exists clients (
+create table if not exists subjects (
+  subject_id text primary key,
+  status text not null default 'active',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists subject_identities (
+  id bigserial primary key,
+  subject_id text not null references subjects(subject_id),
+  provider text not null,
+  school_uid text not null,
+  identity_key text not null,
+  current_student_status text,
+  school text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(provider, identity_key)
+);
+
+create table if not exists subject_profiles (
+  subject_id text primary key references subjects(subject_id),
+  preferred_username text,
+  display_name text,
+  email text,
+  email_verified boolean not null default false,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists oidc_clients (
   client_id text primary key,
-  client_secret_hash text not null,
-  allowed_scopes jsonb not null,
-  status text not null,
+  client_secret_hash text,
+  application_type text not null,
+  token_endpoint_auth_method text not null,
+  redirect_uris jsonb not null,
+  post_logout_redirect_uris jsonb not null default '[]'::jsonb,
+  grant_types jsonb not null,
+  response_types jsonb not null,
+  scope_whitelist jsonb not null,
+  require_pkce boolean not null default true,
+  status text not null default 'active',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists oidc_artifacts (
+  id text primary key,
+  kind text not null,
+  grant_id text,
+  uid text,
+  user_code text,
+  client_id text,
+  subject_id text,
+  payload jsonb not null,
+  expires_at timestamptz,
+  consumed_at timestamptz,
   created_at timestamptz not null default now()
 );
 
-create table if not exists verification_requests (
-  request_id text primary key,
-  client_id text not null,
-  scope jsonb not null,
+create index if not exists idx_oidc_artifacts_kind_expires_at
+on oidc_artifacts (kind, expires_at);
+
+create index if not exists idx_oidc_artifacts_uid
+on oidc_artifacts (uid);
+
+create index if not exists idx_oidc_artifacts_user_code
+on oidc_artifacts (user_code);
+
+create index if not exists idx_oidc_artifacts_grant_id
+on oidc_artifacts (grant_id);
+
+create table if not exists oidc_signing_keys (
+  kid text primary key,
+  alg text not null,
+  use text not null default 'sig',
+  public_jwk jsonb not null,
+  private_jwk_ciphertext text not null,
   status text not null,
-  verified boolean,
-  student_status text,
-  school text,
-  dedupe_key text,
-  internal_identity_hash text,
-  error text,
-  error_description text,
-  created_at timestamptz not null,
-  started_at timestamptz,
-  completed_at timestamptz,
-  expires_at timestamptz not null
+  created_at timestamptz not null default now(),
+  activated_at timestamptz,
+  retired_at timestamptz
 );
-
-create index if not exists idx_verification_requests_client_created_at
-on verification_requests (client_id, created_at desc);
-
-create index if not exists idx_verification_requests_expires_at
-on verification_requests (expires_at);
-
-create table if not exists verification_jobs (
-  job_id text primary key,
-  request_id text not null unique,
-  client_id text not null,
-  provider text not null,
-  payload_ciphertext text,
-  status text not null,
-  attempt_count integer not null default 0,
-  available_at timestamptz not null,
-  created_at timestamptz not null,
-  started_at timestamptz,
-  completed_at timestamptz,
-  last_error text
-);
-
-create index if not exists idx_verification_jobs_status_available_at
-on verification_jobs (status, available_at);

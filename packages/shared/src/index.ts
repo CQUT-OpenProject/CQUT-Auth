@@ -4,6 +4,21 @@ export const DEDUPE_SCOPE = "student.dedupe";
 export const SUPPORTED_SCOPES = ["student.verify", "student.dedupe"] as const;
 export type SupportedScope = (typeof SUPPORTED_SCOPES)[number];
 
+export const OIDC_SCOPES = ["openid", "profile", "email", "offline_access", "student"] as const;
+export const DEFAULT_OIDC_SCOPES = ["openid", "profile"] as const;
+export type OidcScope = (typeof OIDC_SCOPES)[number];
+
+export const OIDC_CLAIMS = [
+  "sub",
+  "preferred_username",
+  "name",
+  "email",
+  "email_verified",
+  "school",
+  "student_status"
+] as const;
+export type OidcClaim = (typeof OIDC_CLAIMS)[number];
+
 export const STUDENT_STATUS = [
   "active_student",
   "not_student",

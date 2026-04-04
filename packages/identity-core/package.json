@@ -1,0 +1,28 @@
+{
+  "name": "@cqut/identity-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "pnpm --filter @cqut/shared build && tsc -p tsconfig.json",
+    "lint": "pnpm --filter @cqut/shared build && tsc -p tsconfig.json --noEmit",
+    "test": "find dist -name '*.test.js' -exec node --test {} +"
+  },
+  "dependencies": {
+    "@cqut/shared": "workspace:*",
+    "axios": "^1.12.2",
+    "axios-cookiejar-support": "^6.0.4",
+    "tough-cookie": "^5.1.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.6.0"
+  }
+}

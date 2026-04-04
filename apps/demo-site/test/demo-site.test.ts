@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { JSDOM } from "jsdom";
 import request from "supertest";
 import { createDemoApp } from "../src/app.js";
 
@@ -18,374 +16,155 @@ function jsonResponse(
   });
 }
 
-test("GET /demo serves the demo page shell", async () => {
-  const app = createDemoApp();
+test("GET /demo renders sign-in page before authentication", async () => {
+  const app = createDemoApp({
+    fetchImpl: async () =>
+      jsonResponse({
+        authorization_endpoint: "http://localhost:3003/auth",
+        token_endpoint: "http://localhost:3003/token",
+        userinfo_endpoint: "http://localhost:3003/userinfo",
+        end_session_endpoint: "http://localhost:3003/session/end"
+      })
+  });
   const response = await request(app).get("/demo");
 
   assert.equal(response.status, 200);
-  assert.equal(response.headers["content-security-policy"]?.includes("script-src 'self'"), true);
-  assert.match(response.text, /id="verify-form"/);
-  assert.match(response.text, /\/demo\/assets\/style\.css/);
-  assert.match(response.text, /Raw JSON/);
+  assert.match(response.text, /id="root"/);
+  assert.match(response.text, /\/demo\/assets\/app\.js/);
+  assert.match(response.text, /data-state="[^"]*%22kind%22%3A%22guest%22/);
+  assert.match(response.text, /data-state="[^"]*%22loginUrl%22%3A%22%2Fdemo%2Flogin%22/);
 });
 
-test("POST /demo/api/verify forwards account and password with server credentials", async () => {
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
+test("GET /demo/login redirects to authorization endpoint with PKCE parameters", async () => {
+  const calls: string[] = [];
   const app = createDemoApp({
-    authServiceBaseUrl: "http://auth-service:3001",
-    clientId: "site_demo",
-    clientSecret: "demo-secret",
-    fetchImpl: async (url, init) => {
-      calls.push(init === undefined ? { url: String(url) } : { url: String(url), init });
-      return jsonResponse(
-        {
-          request_id: "req_123",
-          status: "pending",
-          expires_at: "2026-04-01T10:00:00.000Z"
-        },
-        { status: 202 }
-      );
+    oidcIssuer: "http://localhost:3003",
+    demoBaseUrl: "http://localhost:3002",
+    fetchImpl: async (url) => {
+      calls.push(String(url));
+      return jsonResponse({
+        authorization_endpoint: "http://localhost:3003/auth",
+        token_endpoint: "http://localhost:3003/token",
+        userinfo_endpoint: "http://localhost:3003/userinfo",
+        end_session_endpoint: "http://localhost:3003/session/end"
+      });
     }
   });
 
-  const response = await request(app).post("/demo/api/verify").send({
-    account: "20240001",
-    password: "mock-password"
-  });
-
-  assert.equal(response.status, 202);
-  assert.equal(calls.length, 1);
-  const firstCall = calls[0];
-  assert.ok(firstCall);
-  assert.equal(firstCall.url, "http://auth-service:3001/verify");
-  assert.equal(
-    (firstCall.init?.headers as Record<string, string>)["Authorization"],
-    `Basic ${Buffer.from("site_demo:demo-secret").toString("base64")}`
-  );
-  assert.deepEqual(JSON.parse(String(firstCall.init?.body)), {
-    account: "20240001",
-    password: "mock-password",
-    scope: ["student.verify"]
-  });
+  const response = await request(app).get("/demo/login");
+  assert.equal(response.status, 302);
+  assert.equal(calls[0], "http://localhost:3003/.well-known/openid-configuration");
+  const redirect = new URL(response.headers["location"] as string, "http://localhost:3003");
+  assert.equal(redirect.pathname, "/auth");
+  assert.equal(redirect.searchParams.get("client_id"), "demo-site");
+  assert.equal(redirect.searchParams.get("response_type"), "code");
+  assert.equal(redirect.searchParams.get("prompt"), "consent");
+  assert.equal(redirect.searchParams.get("code_challenge_method"), "S256");
+  assert.equal(redirect.searchParams.get("redirect_uri"), "http://localhost:3002/demo/callback");
 });
 
-test("POST /demo/api/verify uses CLIENT_ID and CLIENT_SECRET from env", async () => {
-  const previousClientId = process.env["CLIENT_ID"];
-  const previousClientSecret = process.env["CLIENT_SECRET"];
-  try {
-    process.env["CLIENT_ID"] = "env_demo";
-    process.env["CLIENT_SECRET"] = "env-secret";
-
-    const calls: Array<{ url: string; init?: RequestInit }> = [];
-    const app = createDemoApp({
-      authServiceBaseUrl: "http://auth-service:3001",
+test("callback exchanges code, fetches userinfo, and renders authenticated session", async () => {
+  const agent = request.agent(
+    createDemoApp({
+      oidcIssuer: "http://localhost:3003",
+      demoBaseUrl: "http://localhost:3002",
       fetchImpl: async (url, init) => {
-        calls.push(init === undefined ? { url: String(url) } : { url: String(url), init });
-        return jsonResponse(
-          {
-            request_id: "req_env",
-            status: "pending",
-            expires_at: "2026-04-01T10:00:00.000Z"
-          },
-          { status: 202 }
-        );
-      }
-    });
-
-    const response = await request(app).post("/demo/api/verify").send({
-      account: "20240001",
-      password: "mock-password"
-    });
-
-    assert.equal(response.status, 202);
-    assert.equal(
-      (calls[0]?.init?.headers as Record<string, string>)["Authorization"],
-      `Basic ${Buffer.from("env_demo:env-secret").toString("base64")}`
-    );
-  } finally {
-    if (previousClientId === undefined) {
-      delete process.env["CLIENT_ID"];
-    } else {
-      process.env["CLIENT_ID"] = previousClientId;
-    }
-    if (previousClientSecret === undefined) {
-      delete process.env["CLIENT_SECRET"];
-    } else {
-      process.env["CLIENT_SECRET"] = previousClientSecret;
-    }
-  }
-});
-
-test("POST /demo/api/verify includes student.dedupe when toggle is enabled", async () => {
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
-  const app = createDemoApp({
-    authServiceBaseUrl: "http://auth-service:3001",
-    clientId: "site_demo",
-    clientSecret: "demo-secret",
-    fetchImpl: async (url, init) => {
-      calls.push(init === undefined ? { url: String(url) } : { url: String(url), init });
-      return jsonResponse(
-        {
-          request_id: "req_456",
-          status: "pending",
-          expires_at: "2026-04-01T10:00:00.000Z"
-        },
-        { status: 202 }
-      );
-    }
-  });
-
-  const response = await request(app).post("/demo/api/verify").send({
-    account: "20240001",
-    password: "mock-password",
-    include_dedupe: true
-  });
-
-  assert.equal(response.status, 202);
-  assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
-    account: "20240001",
-    password: "mock-password",
-    scope: ["student.verify", "student.dedupe"]
-  });
-});
-
-test("GET /demo/api/result/:requestId relays result body and retry-after header", async () => {
-  const calls: Array<{ url: string; init?: RequestInit }> = [];
-  const app = createDemoApp({
-    authServiceBaseUrl: "http://auth-service:3001",
-    clientId: "site_demo",
-    clientSecret: "demo-secret",
-    fetchImpl: async (url, init) => {
-      calls.push(init === undefined ? { url: String(url) } : { url: String(url), init });
-      return jsonResponse(
-        {
-          error: "rate_limited",
-          error_description: "verification rate limit exceeded",
-          retry_after_seconds: 52
-        },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": "52"
-          }
+        const target = String(url);
+        if (target.endsWith("/.well-known/openid-configuration")) {
+          return jsonResponse({
+            authorization_endpoint: "http://localhost:3003/auth",
+            token_endpoint: "http://localhost:3003/token",
+            userinfo_endpoint: "http://localhost:3003/userinfo",
+            end_session_endpoint: "http://localhost:3003/session/end"
+          });
         }
-      );
-    }
-  });
-
-  const response = await request(app).get("/demo/api/result/req_123");
-
-  assert.equal(response.status, 429);
-  assert.equal(response.headers["retry-after"], "52");
-  assert.equal(response.body.error, "rate_limited");
-  assert.equal(calls[0]?.url, "http://auth-service:3001/result/req_123");
-  assert.equal(
-    ((calls[0]?.init?.headers ?? {}) as Record<string, string>)["Authorization"],
-    `Basic ${Buffer.from("site_demo:demo-secret").toString("base64")}`
-  );
-});
-
-test("demo api returns 502 when auth service is unreachable", async () => {
-  const app = createDemoApp({
-    clientSecret: "demo-secret",
-    fetchImpl: async () => {
-      throw new Error("unreachable");
-    }
-  });
-
-  const response = await request(app).post("/demo/api/verify").send({
-    account: "20240001",
-    password: "mock-password"
-  });
-
-  assert.equal(response.status, 502);
-  assert.equal(response.body.error, "upstream_unavailable");
-});
-
-test("demo api returns 503 when demo client is disabled", async () => {
-  process.env["DEMO_CLIENT_ENABLED"] = "false";
-  const app = createDemoApp();
-  const response = await request(app).post("/demo/api/verify").send({
-    account: "20240001",
-    password: "mock-password"
-  });
-  delete process.env["DEMO_CLIENT_ENABLED"];
-
-  assert.equal(response.status, 503);
-  assert.equal(response.body.error, "server_error");
-});
-
-test("demo-site requires explicit demo client enablement in production", async () => {
-  process.env["APP_ENV"] = "production";
-  delete process.env["DEMO_CLIENT_ENABLED"];
-  assert.throws(() => createDemoApp(), /DEMO_CLIENT_ENABLED must be true/);
-  delete process.env["APP_ENV"];
-});
-
-test("browser flow auto polls and renders succeeded state", async () => {
-  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  const script = await readFile(new URL("../public/assets/app.js", import.meta.url), "utf8");
-  const responses = [
-    jsonResponse(
-      {
-        request_id: "req_demo",
-        status: "pending",
-        expires_at: "2026-04-01T10:00:00.000Z"
-      },
-      { status: 201 }
-    ),
-    jsonResponse(
-      {
-        request_id: "req_demo",
-        status: "running",
-        expires_at: "2026-04-01T10:00:00.000Z"
-      },
-      { status: 200 }
-    ),
-    jsonResponse(
-      {
-        request_id: "req_demo",
-        status: "succeeded",
-        verified: true,
-        student_status: "active_student",
-        school: "cqut",
-        completed_at: "2026-04-01T10:00:02.000Z"
-      },
-      { status: 200 }
-    )
-  ];
-
-  const dom = new JSDOM(html, {
-    runScripts: "outside-only",
-    url: "http://localhost/demo"
-  });
-  const { window } = dom;
-  Object.defineProperty(window, "__CQUT_DEMO_CONFIG__", {
-    configurable: true,
-    value: {
-      pollIntervalMs: 5
-    }
-  });
-  window.fetch = async () => {
-    const next = responses.shift();
-    assert.ok(next, "unexpected fetch");
-    return next;
-  };
-  window.eval(script);
-  window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-
-  (window.document.getElementById("account-input") as HTMLInputElement).value = "20240001";
-  (window.document.getElementById("password-input") as HTMLInputElement).value = "mock-password";
-  window.document.getElementById("verify-form")!.dispatchEvent(
-    new window.Event("submit", { bubbles: true, cancelable: true })
-  );
-
-  await new Promise((resolve) => setTimeout(resolve, 40));
-
-  assert.equal(window.document.getElementById("state-badge")!.textContent, "SUCCEEDED");
-  assert.match(window.document.getElementById("raw-response")!.textContent, /"status": "succeeded"/);
-  assert.equal(window.document.getElementById("student-status")!.textContent, "active_student");
-  dom.window.close();
-});
-
-test("browser flow sends dedupe toggle and renders dedupe_key", async () => {
-  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  const script = await readFile(new URL("../public/assets/app.js", import.meta.url), "utf8");
-  const requestBodies: string[] = [];
-  const responses = [
-    jsonResponse(
-      {
-        request_id: "req_demo",
-        status: "pending",
-        expires_at: "2026-04-01T10:00:00.000Z"
-      },
-      { status: 202 }
-    ),
-    jsonResponse(
-      {
-        request_id: "req_demo",
-        status: "succeeded",
-        verified: true,
-        student_status: "active_student",
-        school: "cqut",
-        dedupe_key: "ddk_demo_value",
-        completed_at: "2026-04-01T10:00:02.000Z"
-      },
-      { status: 200 }
-    )
-  ];
-
-  const dom = new JSDOM(html, {
-    runScripts: "outside-only",
-    url: "http://localhost/demo"
-  });
-  const { window } = dom;
-  Object.defineProperty(window, "__CQUT_DEMO_CONFIG__", {
-    configurable: true,
-    value: {
-      pollIntervalMs: 5
-    }
-  });
-  window.fetch = async (_url, init) => {
-    if (init?.body) {
-      requestBodies.push(String(init.body));
-    }
-    const next = responses.shift();
-    assert.ok(next, "unexpected fetch");
-    return next;
-  };
-  window.eval(script);
-  window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-
-  (window.document.getElementById("account-input") as HTMLInputElement).value = "20240001";
-  (window.document.getElementById("password-input") as HTMLInputElement).value = "mock-password";
-  (window.document.getElementById("dedupe-toggle") as HTMLInputElement).checked = true;
-  window.document.getElementById("verify-form")!.dispatchEvent(
-    new window.Event("submit", { bubbles: true, cancelable: true })
-  );
-
-  await new Promise((resolve) => setTimeout(resolve, 25));
-
-  assert.match(requestBodies[0] ?? "", /"include_dedupe":true/);
-  assert.equal(window.document.getElementById("dedupe-key")!.textContent, "ddk_demo_value");
-  dom.window.close();
-});
-
-test("browser flow renders rate_limited response on submit", async () => {
-  const html = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
-  const script = await readFile(new URL("../public/assets/app.js", import.meta.url), "utf8");
-  const dom = new JSDOM(html, {
-    runScripts: "outside-only",
-    url: "http://localhost/demo"
-  });
-  const { window } = dom;
-  window.fetch = async () =>
-    jsonResponse(
-      {
-        error: "rate_limited",
-        error_description: "verification rate limit exceeded",
-        retry_after_seconds: 60
-      },
-      {
-        status: 429,
-        headers: {
-          "Retry-After": "60"
+        if (target.endsWith("/token")) {
+          assert.equal(init?.method, "POST");
+          const headers = init?.headers as Record<string, string>;
+          assert.match(headers["Authorization"] as string, /^Basic /);
+          return jsonResponse({
+            access_token: "access-token",
+            id_token: "id-token",
+            token_type: "Bearer",
+            expires_in: 300
+          });
         }
+        if (target.endsWith("/userinfo")) {
+          return jsonResponse({
+            sub: "subj_demo",
+            preferred_username: "20240001",
+            name: "CQUT User 20240001",
+            email: "demo@example.com",
+            email_verified: false,
+            school: "cqut",
+            student_status: "active_student"
+          });
+        }
+        throw new Error(`unexpected fetch target: ${target}`);
       }
-    );
-  window.eval(script);
-  window.document.dispatchEvent(new window.Event("DOMContentLoaded"));
-
-  (window.document.getElementById("account-input") as HTMLInputElement).value = "20240001";
-  (window.document.getElementById("password-input") as HTMLInputElement).value = "mock-password";
-  window.document.getElementById("verify-form")!.dispatchEvent(
-    new window.Event("submit", { bubbles: true, cancelable: true })
+    })
   );
 
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  const login = await agent.get("/demo/login");
+  assert.equal(login.status, 302);
+  const redirect = new URL(login.headers["location"] as string, "http://localhost:3003");
+  const state = redirect.searchParams.get("state") ?? "";
+  assert.ok(state);
 
-  assert.equal(window.document.getElementById("state-badge")!.textContent, "RATE_LIMITED");
-  assert.match(window.document.getElementById("state-detail")!.textContent, /rate limit/i);
-  assert.equal(window.document.getElementById("retry-after")!.textContent, "60");
-  dom.window.close();
+  const callback = await agent.get(`/demo/callback?code=code-123&state=${encodeURIComponent(state as string)}`);
+  assert.equal(callback.status, 302);
+  assert.equal(callback.headers["location"], "/demo");
+
+  const page = await agent.get("/demo");
+  assert.equal(page.status, 200);
+  assert.match(page.text, /data-state="[^"]*%22kind%22%3A%22authenticated%22/);
+  assert.match(page.text, /CQUT%20User%2020240001/);
+  assert.match(page.text, /demo%40example\.com/);
+  assert.match(page.text, /student_status/);
+});
+
+test("logout clears local session and redirects to end_session_endpoint", async () => {
+  const agent = request.agent(
+    createDemoApp({
+      oidcIssuer: "http://localhost:3003",
+      demoBaseUrl: "http://localhost:3002",
+      fetchImpl: async (url) => {
+        const target = String(url);
+        if (target.endsWith("/.well-known/openid-configuration")) {
+          return jsonResponse({
+            authorization_endpoint: "http://localhost:3003/auth",
+            token_endpoint: "http://localhost:3003/token",
+            userinfo_endpoint: "http://localhost:3003/userinfo",
+            end_session_endpoint: "http://localhost:3003/session/end"
+          });
+        }
+        if (target.endsWith("/token")) {
+          return jsonResponse({
+            access_token: "access-token",
+            id_token: "id-token"
+          });
+        }
+        if (target.endsWith("/userinfo")) {
+          return jsonResponse({
+            sub: "subj_demo"
+          });
+        }
+        throw new Error(`unexpected fetch target: ${target}`);
+      }
+    })
+  );
+
+  const login = await agent.get("/demo/login");
+  const redirect = new URL(login.headers["location"] as string, "http://localhost:3003");
+  const state = redirect.searchParams.get("state") ?? "";
+  await agent.get(`/demo/callback?code=code-123&state=${encodeURIComponent(state as string)}`);
+
+  const logout = await agent.get("/demo/logout");
+  assert.equal(logout.status, 302);
+  const logoutUrl = new URL(logout.headers["location"] as string, "http://localhost:3003");
+  assert.equal(logoutUrl.pathname, "/session/end");
+  assert.equal(logoutUrl.searchParams.get("post_logout_redirect_uri"), "http://localhost:3002/demo");
+
+  const page = await agent.get("/demo");
+  assert.match(page.text, /data-state="[^"]*%22kind%22%3A%22guest%22/);
 });

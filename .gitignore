@@ -1,17 +1,31 @@
-node_modules
-.pnpm-store
-dist
-.next
-coverage
-.DS_Store
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+build/
+coverage/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# app bundles (generated)
+apps/*/public/assets/
+
+# env and local config
 .env
 .env.local
 .env.*.local
-apps/auth-service/.env
 apps/example-site/.env.local
 deploy/.env
+
+# logs and temp
 *.log
-tmp
-data
+tmp/
+data/
+
+# OS/editor/tooling
+.DS_Store
 .codex/
 .serena/

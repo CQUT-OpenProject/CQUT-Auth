@@ -14,9 +14,9 @@ const printToStdout = args.includes("--stdout");
 
 const replacements = {
   POSTGRES_PASSWORD: randomToken(24),
-  DEDUPE_KEY_SECRET: randomToken(32),
-  JOB_PAYLOAD_SECRET: randomToken(32),
-  CLIENT_SECRET: randomToken(32)
+  OIDC_KEY_ENCRYPTION_SECRET: randomToken(32),
+  OIDC_COOKIE_KEYS: `${randomToken(32)},${randomToken(32)}`,
+  OIDC_DEMO_CLIENT_SECRET: randomToken(32)
 };
 
 const template = readFileSync(templatePath, "utf8");

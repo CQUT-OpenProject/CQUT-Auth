@@ -1,4 +1,5 @@
 packages:
-  - apps/auth-service
+  - apps/oidc-op
   - apps/demo-site
+  - packages/identity-core
   - packages/shared

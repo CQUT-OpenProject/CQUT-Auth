@@ -1,316 +1,119 @@
 # API
 
-本文档描述当前仓库中已经实现并对外暴露的接口，分为两层：
+当前仓库对外公开 OpenID Connect Provider 与 OIDC 示例 RP：
 
-- `auth-service`：核心验证服务
-- `demo-site`：示例站点代理层
+- `oidc-op`: 标准 OpenID Connect Provider
+- `demo-site`: OIDC 登录示例站
 
-## Overview
+legacy `/api/*` 已退役，统一返回 `404 Not Found`。
 
-当前主流程是查询式验证：
-
-1. 业务服务端通过 Basic Auth 向 `auth-service` 发起 `POST /verify`
-2. 服务端得到 `request_id`
-3. 业务服务端通过 Basic Auth 轮询 `GET /result/:requestId`
-4. demo-site 以网页方式演示这条服务端链路
-
-## auth-service
+## OIDC OP
 
 基础信息：
 
-- 默认地址：`http://localhost:3001`
-- 生产反代后：`http://verify.local/api`
-- 生产 HTTPS 域名建议：`https://auth.xxx.com/api`
+- 默认本地地址：`http://localhost:3003`
+- 推荐公网地址：`https://auth.xxx.com`
 
-### `POST /verify`
-
-发起新的学生身份验证任务。
-
-请求头：
+### Discovery
 
 ```http
-Authorization: Basic base64(client_id:client_secret)
-Content-Type: application/json
-Accept: application/json
+GET /.well-known/openid-configuration
 ```
 
-请求体：
+MVP 公开的关键元数据：
 
-```json
-{
-  "account": "12XXXXXXXXX",
-  "password": "******",
-  "scope": ["student.verify", "student.dedupe"]
-}
-```
+- `issuer`
+- `authorization_endpoint`
+- `token_endpoint`
+- `userinfo_endpoint`
+- `jwks_uri`
+- `response_types_supported=["code"]`
+- `grant_types_supported=["authorization_code","refresh_token"]`
+- `subject_types_supported=["public"]`
+- `id_token_signing_alg_values_supported=["RS256"]`
+- `code_challenge_methods_supported=["S256"]`
 
-字段说明：
-
-- `account`：校园账号
-- `password`：校园密码
-- `scope`：可选；若不传则默认退回 `["student.verify"]`
-
-当前支持 scope：
-
-- `student.verify`
-- `student.dedupe`
-
-成功响应：
-
-```json
-{
-  "request_id": "req_xxx",
-  "status": "pending",
-  "expires_at": "2026-04-02T12:00:00.000Z"
-}
-```
-
-状态码：
-
-- `202`：任务已入队
-- `400`：请求参数错误
-- `401` / `403`：客户端认证失败或验证失败
-- `429`：命中限流
-
-错误响应示例：
-
-```json
-{
-  "error": "invalid_client",
-  "error_description": "client authentication failed"
-}
-```
-
-### `GET /result/:requestId`
-
-按请求 ID 查询验证结果。
-
-请求：
+### Authorization Endpoint
 
 ```http
-GET /result/req_xxx
+GET /auth
+```
+
+仅支持：
+
+- `response_type=code`
+- `code_challenge_method=S256`
+- `scope` 取值：`openid profile email student offline_access`
+
+首次登录流程：
+
+1. 浏览器跳转 `/auth`
+2. OP 跳转 `/interaction/:uid`
+3. 用户输入校园账号密码
+4. 若本地 profile 缺邮箱，则跳转 `/interaction/:uid/profile`
+5. OP 自动完成 consent，返回 `code`
+
+### Token Endpoint
+
+```http
+POST /token
 Authorization: Basic base64(client_id:client_secret)
-Accept: application/json
+Content-Type: application/x-www-form-urlencoded
 ```
 
-#### `pending` / `running`
+支持：
 
-```json
-{
-  "request_id": "req_xxx",
-  "status": "pending",
-  "expires_at": "2026-04-02T12:00:00.000Z"
-}
+- `grant_type=authorization_code`
+- `grant_type=refresh_token`
+
+refresh token 默认启用 rotation，旧 refresh token 重用会返回 `invalid_grant`。
+
+### UserInfo Endpoint
+
+```http
+GET /userinfo
+Authorization: Bearer <access_token>
 ```
 
-或：
+返回 claims：
 
-```json
-{
-  "request_id": "req_xxx",
-  "status": "running",
-  "expires_at": "2026-04-02T12:00:00.000Z"
-}
-```
-
-#### `succeeded`
-
-```json
-{
-  "request_id": "req_xxx",
-  "status": "succeeded",
-  "verified": true,
-  "student_status": "active_student",
-  "school": "cqut",
-  "dedupe_key": "ddk_xxx",
-  "completed_at": "2026-04-02T12:00:03.000Z"
-}
-```
+- `sub`
+- `preferred_username`
+- `name`
+- `email`
+- `email_verified`
+- `school`
+- `student_status`
 
 说明：
 
-- `dedupe_key` 只有在请求 scope 包含 `student.dedupe` 且验证成功时才会返回
+- `sub` 使用内部永久 `subject_id`
+- `email_verified` 在当前版本始终为 `false`
 
-#### `failed`
+### JWKS
 
-```json
-{
-  "request_id": "req_xxx",
-  "status": "failed",
-  "error": "verification_failed",
-  "error_description": "campus credentials rejected",
-  "completed_at": "2026-04-02T12:00:03.000Z"
-}
+```http
+GET /jwks
 ```
 
-#### 常见错误
+当前仅发布 `RS256` 签名公钥。
 
-```json
-{
-  "error": "rate_limited",
-  "error_description": "verification rate limit exceeded",
-  "retry_after_seconds": 52
-}
+### RP-Initiated Logout
+
+```http
+GET /session/end
 ```
 
-当命中限流时：
+可携带：
 
-- 状态码为 `429`
-- 响应头会带 `Retry-After`
-- 响应体可能带 `retry_after_seconds`
-
-### `GET /health/live`
-
-存活探针。
-
-### `GET /health/ready`
-
-返回服务健康状态及当前运行模式。
-
-成功响应：
-
-```json
-{
-  "status": "ready",
-  "env": "development",
-  "worker_mode": "inline",
-  "worker": "embedded",
-  "provider": "mock",
-  "database": "memory",
-  "redis": "optional"
-}
-```
-
-字段说明：
-
-- `env`：来自 `APP_ENV`
-- `worker_mode`：当前 worker 运行模式，`inline` 或 `external`
-- `worker`：`embedded`、`ready` 或 `unavailable`
-- `provider`：当前 provider，通常是 `mock` 或 `cqut`
-- `database`：`postgres`、`memory` 或 `unavailable`
-- `redis`：`ready`、`optional` 或 `unavailable`
-
-返回语义：
-
-- 依赖满足时返回 `200`
-- 依赖未满足时返回 `503`
-- `WORKER_MODE=external` 时，只有独立 `auth-worker` 心跳存在才会返回 `ready`
+- `id_token_hint`
+- `post_logout_redirect_uri`
 
 ## demo-site
 
-基础信息：
+当前公开路由：
 
-- 默认地址：`http://localhost:3002`
-- 生产反代后：`http://verify.local/demo`
-
-demo-site 是服务端代理层，不是纯静态页面。浏览器端不直接发送 `client_id` / `client_secret`。
-
-### `GET /demo`
-
-返回示例页面壳与前端构建产物：
-
-- `/demo`
-- `/demo/assets/app.js`
-- `/demo/assets/style.css`
-
-### `POST /demo/api/verify`
-
-浏览器提交账号密码给 demo-site，由 demo-site 再转发到 auth-service。
-
-请求体：
-
-```json
-{
-  "account": "12XXXXXXXXX",
-  "password": "******"
-}
-```
-
-demo-site 会在服务端使用自己的配置生成 Basic Auth，并补充默认 scope：
-
-- `Authorization: Basic base64(CLIENT_ID:CLIENT_SECRET)`
-- `scope: ["student.verify"]`
-
-成功响应与 auth-service 的 `POST /verify` 一致。
-
-错误特性：
-
-- 会透传 auth-service 的状态码与 JSON body
-- 会保留 `Retry-After`
-- 额外加 `Cache-Control: no-store`
-
-### `GET /demo/api/result/:requestId`
-
-浏览器通过 demo-site 轮询结果，demo-site 服务端再携带 demo client 凭据向 auth-service 查询。
-
-成功响应与 auth-service 的 `GET /result/:requestId` 一致。
-
-## curl 示例
-
-### 直接调用 auth-service
-
-发起验证：
-
-```bash
-export CLIENT_ID='site_demo'
-export CLIENT_SECRET='<set-in-local-env>'
-
-curl -X POST http://verify.local/api/verify \
-  -u "${CLIENT_ID}:${CLIENT_SECRET}" \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json' \
-  -d '{
-    "account": "20240001",
-    "password": "your-password",
-    "scope": ["student.verify"]
-  }'
-```
-
-轮询结果：
-
-```bash
-curl http://localhost:3001/result/req_xxx \
-  -u "${CLIENT_ID}:${CLIENT_SECRET}" \
-  -H 'Accept: application/json'
-```
-
-### 调用 demo-site 代理层
-
-发起验证：
-
-```bash
-curl -X POST http://localhost:3002/demo/api/verify \
-  -H 'Content-Type: application/json' \
-  -H 'Accept: application/json' \
-  -d '{
-    "account": "12XXXXXXXXX",
-    "password": "your-password"
-  }'
-```
-
-轮询结果:
-
-```bash
-curl "http://localhost:3002/demo/api/result/req_xxx"
-```
-
-## Errors
-
-当前错误对象统一为：
-
-```json
-{
-  "error": "invalid_request",
-  "error_description": "..."
-}
-```
-
-当前代码中可见的常用错误码包括：
-
-- `invalid_request`
-- `invalid_client`
-- `invalid_scope`
-- `rate_limited`
-- `verification_failed`
-- `server_error`
-- `upstream_unavailable`（demo-site 代理层自有）
+- `GET /demo`
+- `GET /demo/login`
+- `GET /demo/callback`
+- `GET /demo/logout`

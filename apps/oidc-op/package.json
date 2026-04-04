@@ -1,0 +1,31 @@
+{
+  "name": "@cqut/oidc-op",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter @cqut/shared build && pnpm --filter @cqut/identity-core build && tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/main.ts",
+    "lint": "pnpm --filter @cqut/shared build && pnpm --filter @cqut/identity-core build && tsc -p tsconfig.json --noEmit",
+    "test": "pnpm --filter @cqut/shared build && pnpm --filter @cqut/identity-core build && tsx --test test/**/*.test.ts",
+    "seed:client": "tsx src/scripts/seed-oidc-client.ts",
+    "seed:key": "tsx src/scripts/seed-oidc-signing-key.ts"
+  },
+  "dependencies": {
+    "@cqut/identity-core": "workspace:*",
+    "@cqut/shared": "workspace:*",
+    "express": "^5.1.0",
+    "ioredis": "^5.8.1",
+    "jose": "^6.2.2",
+    "oidc-provider": "^9.7.1",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.6.0",
+    "@types/pg": "^8.15.5",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.20.6"
+  }
+}
