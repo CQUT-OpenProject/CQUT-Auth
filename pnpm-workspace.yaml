@@ -1,0 +1,4 @@
+packages:
+  - apps/oidc-op
+  - packages/identity-core
+  - packages/shared

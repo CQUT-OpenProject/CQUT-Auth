@@ -1,0 +1,102 @@
+name: cqut-auth
+
+services:
+  oidc-op:
+    build:
+      context: ..
+      dockerfile: apps/oidc-op/Dockerfile
+    env_file:
+      - ./.env
+    environment:
+      PORT: 3003
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://${SERVER_NAME}}
+      OIDC_COOKIE_SECURE: ${OIDC_COOKIE_SECURE:-true}
+      OIDC_ARTIFACT_CLEANUP_ENABLED: ${OIDC_ARTIFACT_CLEANUP_ENABLED:-true}
+      OIDC_ARTIFACT_CLEANUP_CRON: "${OIDC_ARTIFACT_CLEANUP_CRON:-*/5 * * * *}"
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health/ready >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+    networks:
+      - internal
+
+  postgres:
+    image: ghcr.io/citusdata/pg_cron:16
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_cron
+      -c cron.database_name=${POSTGRES_DB:?POSTGRES_DB is required}
+      -c autovacuum_naptime=30s
+      -c autovacuum_vacuum_scale_factor=0.02
+      -c autovacuum_analyze_scale_factor=0.02
+      -c autovacuum_vacuum_cost_limit=2000
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    restart: unless-stopped
+    networks:
+      - internal
+
+  nginx:
+    image: nginx:1.29-alpine
+    env_file:
+      - ./.env
+    ports:
+      - "${OIDC_HTTP_PORT:-80}:80"
+      - "${OIDC_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./nginx/site.prod.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      oidc-op:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --no-check-certificate https://127.0.0.1/.well-known/openid-configuration >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - internal
+
+volumes:
+  redis_data:
+  postgres_data:
+
+networks:
+  internal:
