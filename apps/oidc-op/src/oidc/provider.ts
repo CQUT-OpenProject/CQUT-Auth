@@ -689,6 +689,7 @@ export async function createOidcServices(
         })
     }
   });
+  provider.proxy = true;
   installClientSecretDigestValidation(provider);
   const stopSigningKeyRefresh = startSigningKeyRefreshLoop(
     provider,

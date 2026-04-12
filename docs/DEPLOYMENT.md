@@ -15,7 +15,7 @@
 
 说明：
 
-- `/demo` 不在本仓部署范围内
+- Demo 站点不在本仓部署范围内
 - 示例站点需由 `CQUT-Auth-Demo` 仓单独部署
 
 ## 目录说明
@@ -75,9 +75,9 @@ APP_ENV=production
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=<random-secret>
 POSTGRES_DB=cqut_auth
-OIDC_ISSUER=https://auth.example.com
+OIDC_ISSUER=https://auth.example.com:8443
 OIDC_HTTP_PORT=80
-OIDC_HTTPS_PORT=443
+OIDC_HTTPS_PORT=8443
 OIDC_COOKIE_SECURE=true
 OIDC_KEY_ENCRYPTION_SECRET=<random-secret>
 OIDC_ARTIFACT_ENCRYPTION_SECRET=<random-secret>
@@ -103,7 +103,7 @@ TLS_KEY_PATH=/etc/nginx/certs/privkey.pem
 端口补充：
 
 - `OIDC_HTTP_PORT` 默认 `80`，用于映射 nginx 的 `80` 端口
-- `OIDC_HTTPS_PORT` 默认 `443`，用于映射 nginx 的 `443` 端口（生产 compose）
+- `OIDC_HTTPS_PORT` 默认 `8443`，用于映射 nginx 的 `443` 端口（生产 compose）
 - 若宿主机端口已占用，可改为其他端口（例如 `OIDC_HTTP_PORT=8080`），并同步更新 `OIDC_ISSUER`
 
 ## 数据库初始化
@@ -240,7 +240,7 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 5. 验证服务
 
 ```bash
-curl https://auth.example.com/.well-known/openid-configuration
+curl https://auth.example.com:8443/.well-known/openid-configuration
 ```
 
 ## 运行检查
@@ -277,7 +277,8 @@ docker compose -f deploy/docker-compose.yml up -d --build
 要求：
 
 - `OIDC_ISSUER=http://127.0.0.1`
-- `deploy/oidc-clients.json` 中 `redirectUris` / `postLogoutRedirectUris` 使用 `http://localhost:3002/...`
+- `deploy/oidc-clients.json` 中 `redirectUris` 使用 `http://localhost:3002/callback`
+- `deploy/oidc-clients.json` 中 `postLogoutRedirectUris` 使用 `http://localhost:3002/logout-complete`
 
 说明：
 

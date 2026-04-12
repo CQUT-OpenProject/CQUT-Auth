@@ -134,15 +134,15 @@ function writeClientsConfig(targetPath) {
   const baseClient = parsedTemplate.clients[0];
   const redirectUri =
     profile === "test"
-      ? "http://localhost:3002/demo/callback"
+      ? "http://localhost:3002/callback"
       : profile === "local"
-        ? "https://localhost:3002/demo/callback"
+        ? "https://localhost:3002/callback"
         : "https://demo.xxx.com/callback";
   const postLogoutRedirectUri =
     profile === "test"
-      ? "http://localhost:3002/demo/logout-complete"
+      ? "http://localhost:3002/logout-complete"
       : profile === "local"
-        ? "https://localhost:3002/demo/logout-complete"
+        ? "https://localhost:3002/logout-complete"
         : "https://demo.xxx.com/logout-complete";
 
   const renderedClients = {
