@@ -83,10 +83,7 @@ OIDC_KEY_ENCRYPTION_SECRET=<random-secret>
 OIDC_ARTIFACT_ENCRYPTION_SECRET=<random-secret>
 OIDC_COOKIE_KEYS=<random-secret>,<random-secret>
 OIDC_CSRF_SIGNING_SECRET=<random-secret>
-OIDC_DEMO_CLIENT_ID=demo-site
-OIDC_DEMO_CLIENT_SECRET=<random-secret>
-OIDC_DEMO_REDIRECT_URI=https://demo.example.com/demo/callback
-OIDC_DEMO_POST_LOGOUT_REDIRECT_URI=https://demo.example.com/demo/logout-complete
+OIDC_CLIENTS_CONFIG_PATH=/app/config/oidc-clients.json
 CQUT_UIS_BASE_URL=https://uis.cqut.edu.cn
 CQUT_CAS_APPLICATION_CODE=officeHallApplicationCode
 CQUT_CAS_SERVICE_URL=https://uis.cqut.edu.cn/ump/common/login/authSourceAuth/auth?applicationCode=officeHallApplicationCode
@@ -99,7 +96,7 @@ TLS_KEY_PATH=/etc/nginx/certs/privkey.pem
 
 - `OIDC_ARTIFACT_ENCRYPTION_SECRET` 必须不同于 `OIDC_KEY_ENCRYPTION_SECRET`
 - 生产环境下以上密钥应使用高熵随机值，且长度不少于 32 字符
-- `OIDC_DEMO_CLIENT_ENABLED=true` 时，`OIDC_DEMO_CLIENT_SECRET` 必填
+- 业务站客户端必须在 `deploy/oidc-clients.json` 中配置
 - `APP_ENV=production` 时必须启用外部 `postgres` 与 `redis`
 - `APP_ENV=production` 时不得使用内存存储
 
@@ -280,8 +277,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 要求：
 
 - `OIDC_ISSUER=http://127.0.0.1`
-- `OIDC_DEMO_REDIRECT_URI=http://localhost:3002/demo/callback`
-- `OIDC_DEMO_POST_LOGOUT_REDIRECT_URI=http://localhost:3002/demo/logout-complete`
+- `deploy/oidc-clients.json` 中 `redirectUris` / `postLogoutRedirectUris` 使用 `http://localhost:3002/...`
 
 说明：
 
@@ -294,7 +290,7 @@ docker compose -f deploy/docker-compose.yml up -d --build
 
 - 检查 `client_id` / `client_secret`
 - 检查客户端是否使用 `client_secret_basic`
-- 检查 Demo 与 OIDC 两边的环境变量是否一致
+- 检查 Demo 与 OIDC 的客户端配置是否一致（`deploy/oidc-clients.json` 与 Demo 应用配置）
 
 `/token` 返回 `invalid_grant`
 

@@ -44,11 +44,7 @@ export type OidcOpConfig = {
   artifactOpportunisticCleanupBatchSize: number;
   artifactOpportunisticCleanupIntervalSeconds: number;
   signingKeyRefreshIntervalSeconds: number;
-  demoClientEnabled: boolean;
-  demoClientId: string;
-  demoClientSecret: string | undefined;
-  demoRedirectUri: string;
-  demoPostLogoutRedirectUri: string;
+  oidcClientsConfigPath: string;
   autoSeedSigningKey: boolean;
 };
 
@@ -123,30 +119,13 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   const redisUrl = env["REDIS_URL"];
   const allowInMemoryStore = env["OIDC_ALLOW_IN_MEMORY_STORE"] === "true" || appEnv === "test";
   const issuer = env["OIDC_ISSUER"] ?? (appEnv === "test" ? `http://127.0.0.1:${port}` : `https://localhost:${port}`);
-  const demoRedirectUri =
-    env["OIDC_DEMO_REDIRECT_URI"] ??
-    (appEnv === "test" ? "http://localhost:3002/demo/callback" : "https://localhost:3002/demo/callback");
-  const demoPostLogoutRedirectUri =
-    env["OIDC_DEMO_POST_LOGOUT_REDIRECT_URI"] ??
-    (appEnv === "test"
-      ? "http://localhost:3002/demo/logout-complete"
-      : "https://localhost:3002/demo/logout-complete");
   assertHttpsOrTestLoopbackHttp(issuer, "OIDC_ISSUER", appEnv);
-  assertHttpsOrTestLoopbackHttp(demoRedirectUri, "OIDC_DEMO_REDIRECT_URI", appEnv);
-  assertHttpsOrTestLoopbackHttp(demoPostLogoutRedirectUri, "OIDC_DEMO_POST_LOGOUT_REDIRECT_URI", appEnv);
   const cookieKeysRaw = env["OIDC_COOKIE_KEYS"];
   const parsedCookieKeys = cookieKeysRaw
     ? cookieKeysRaw.split(",").map((value) => value.trim()).filter(Boolean)
     : [];
   const cookieKeys = parsedCookieKeys.length > 0 ? parsedCookieKeys : [keyEncryptionSecret];
-  const demoClientEnabled =
-    env["OIDC_DEMO_CLIENT_ENABLED"] !== undefined
-      ? env["OIDC_DEMO_CLIENT_ENABLED"] === "true"
-      : !isProduction;
-  const demoClientSecret = env["OIDC_DEMO_CLIENT_SECRET"];
-  if (demoClientEnabled && !demoClientSecret) {
-    throw new Error("OIDC_DEMO_CLIENT_SECRET is required when OIDC_DEMO_CLIENT_ENABLED=true");
-  }
+  const oidcClientsConfigPath = env["OIDC_CLIENTS_CONFIG_PATH"]?.trim() || "/app/config/oidc-clients.json";
   const artifactCleanupEnabledRaw = env["OIDC_ARTIFACT_CLEANUP_ENABLED"];
   const artifactCleanupEnabled =
     artifactCleanupEnabledRaw !== undefined ? artifactCleanupEnabledRaw === "true" : true;
@@ -313,11 +292,7 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     artifactOpportunisticCleanupBatchSize,
     artifactOpportunisticCleanupIntervalSeconds,
     signingKeyRefreshIntervalSeconds,
-    demoClientEnabled,
-    demoClientId: env["OIDC_DEMO_CLIENT_ID"] ?? "demo-site",
-    demoClientSecret,
-    demoRedirectUri,
-    demoPostLogoutRedirectUri,
+    oidcClientsConfigPath,
     autoSeedSigningKey:
       env["OIDC_AUTO_SEED_SIGNING_KEY"] !== undefined
         ? env["OIDC_AUTO_SEED_SIGNING_KEY"] === "true"

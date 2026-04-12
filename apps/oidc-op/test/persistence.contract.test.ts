@@ -12,7 +12,6 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     OIDC_ISSUER: "http://127.0.0.1:3003",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_DEMO_CLIENT_SECRET: "test-oidc-demo-client-secret",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
   });
   const persistence = new OidcPersistenceImpl(config);

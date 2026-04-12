@@ -124,20 +124,11 @@ GET /session/end
 
 - `post_logout_redirect_uri` 必须与客户端注册值精确匹配
 
-## Demo 客户端
+## 业务站客户端注册
 
-系统可自动注册 `demo-site` 示例客户端。
+系统在启动时从 `OIDC_CLIENTS_CONFIG_PATH` 指向的 JSON 文件批量导入客户端到 `oidc_clients` 表。
 
-默认配置：
+约定：
 
-- `application_type=web`
-- `token_endpoint_auth_method=client_secret_basic`
-- 需要显式 consent
-
-相关环境变量：
-
-- `OIDC_DEMO_CLIENT_ENABLED`
-- `OIDC_DEMO_CLIENT_ID`
-- `OIDC_DEMO_CLIENT_SECRET`
-- `OIDC_DEMO_REDIRECT_URI`
-- `OIDC_DEMO_POST_LOGOUT_REDIRECT_URI`
+- 配置文件默认为 `/app/config/oidc-clients.json`
+- 文件缺失、JSON 结构错误、字段不合法会直接导致启动失败

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 import request from "supertest";
 import { createOidcApp } from "../src/app.js";
@@ -93,6 +96,8 @@ function normalizeActionPath(action: string) {
 }
 
 async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
+  const clientsConfigPath =
+    overrides["OIDC_CLIENTS_CONFIG_PATH"] ?? (await writeTestClientsConfig({ autoConsent: true }));
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     APP_ENV: "test",
@@ -101,10 +106,7 @@ async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
     OIDC_ISSUER: "http://127.0.0.1:3003",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_DEMO_CLIENT_ID: "demo-site",
-    OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
-    OIDC_DEMO_REDIRECT_URI: TEST_REDIRECT_URI,
-    OIDC_DEMO_POST_LOGOUT_REDIRECT_URI: TEST_POST_LOGOUT_REDIRECT_URI,
+    OIDC_CLIENTS_CONFIG_PATH: clientsConfigPath,
     ...overrides
   };
   return createOidcApp(env);
@@ -115,9 +117,7 @@ function createProductionConfigEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.Pr
     APP_ENV: "production",
     AUTH_PROVIDER: "cqut",
     OIDC_ISSUER: "https://auth.example.com",
-    OIDC_DEMO_REDIRECT_URI: "https://demo.example.com/callback",
-    OIDC_DEMO_POST_LOGOUT_REDIRECT_URI: "https://demo.example.com/logout-complete",
-    OIDC_DEMO_CLIENT_ENABLED: "false",
+    OIDC_CLIENTS_CONFIG_PATH: "/app/config/oidc-clients.json",
     OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
     OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
     OIDC_COOKIE_KEYS: "prod-oidc-cookie-key-a-0123456789,prod-oidc-cookie-key-b-0123456789",
@@ -130,6 +130,35 @@ function createProductionConfigEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.Pr
     ...overrides
   };
   return env;
+}
+
+async function writeTestClientsConfig(
+  patch: Partial<{
+    clientSecretDigest: string | undefined;
+    redirectUris: string[];
+    postLogoutRedirectUris: string[];
+    autoConsent: boolean;
+    status: "active" | "disabled";
+  }> = {}
+) {
+  const directory = mkdtempSync(join(tmpdir(), "oidc-clients-"));
+  const configPath = join(directory, "oidc-clients.json");
+  const clientSecretDigest =
+    patch.clientSecretDigest ?? (await createClientSecretDigest(TEST_DEMO_CLIENT_SECRET));
+  const payload = {
+    clients: [
+      {
+        clientId: "demo-site",
+        clientSecretDigest,
+        redirectUris: patch.redirectUris ?? [TEST_REDIRECT_URI],
+        postLogoutRedirectUris: patch.postLogoutRedirectUris ?? [TEST_POST_LOGOUT_REDIRECT_URI],
+        autoConsent: patch.autoConsent ?? false,
+        status: patch.status ?? "active"
+      }
+    ]
+  };
+  writeFileSync(configPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  return configPath;
 }
 
 async function followToRedirectUriOrigin(agent: any, response: request.Response, redirectUri: string) {
@@ -1164,8 +1193,7 @@ test("config rejects when session idle ttl exceeds absolute session ttl", () => 
       readOidcOpConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
-    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
+        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
         OIDC_SESSION_TTL_SECONDS: "60",
         OIDC_SESSION_IDLE_TTL_SECONDS: "120",
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
@@ -1174,17 +1202,19 @@ test("config rejects when session idle ttl exceeds absolute session ttl", () => 
   );
 });
 
-test("config rejects missing OIDC_DEMO_CLIENT_SECRET when demo client seeding is enabled", () => {
-  assert.throws(
-    () =>
-      readOidcOpConfig({
-        APP_ENV: "test",
-        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+test("config ignores deprecated OIDC_DEMO_* variables", () => {
+  const config = readOidcOpConfig({
+    APP_ENV: "test",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
-      }),
-    /OIDC_DEMO_CLIENT_SECRET is required when OIDC_DEMO_CLIENT_ENABLED=true/
-  );
+    OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
+    OIDC_DEMO_REDIRECT_URI: "https://deprecated.example.com/callback",
+    OIDC_DEMO_POST_LOGOUT_REDIRECT_URI: "https://deprecated.example.com/logout",
+    OIDC_DEMO_CLIENT_ENABLED: "true",
+    OIDC_DEMO_CLIENT_ID: "deprecated-client-id",
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+  });
+  assert.equal(config.oidcClientsConfigPath, "/app/config/oidc-clients.json");
 });
 
 test("config rejects missing OIDC_ARTIFACT_ENCRYPTION_SECRET outside test", () => {
@@ -1194,7 +1224,6 @@ test("config rejects missing OIDC_ARTIFACT_ENCRYPTION_SECRET outside test", () =
         APP_ENV: "development",
         OIDC_ISSUER: "https://localhost:3003",
         OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
       }),
     /OIDC_ARTIFACT_ENCRYPTION_SECRET is required/
@@ -1209,7 +1238,6 @@ test("config rejects short encryption secret outside test", () => {
         OIDC_ISSUER: "https://localhost:3003",
         OIDC_KEY_ENCRYPTION_SECRET: "short-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
       }),
     /OIDC_KEY_ENCRYPTION_SECRET must be at least 32 characters/
@@ -1223,23 +1251,21 @@ test("config rejects identical artifact and key encryption secrets", () => {
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "same-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "same-secret",
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
       }),
     /OIDC_ARTIFACT_ENCRYPTION_SECRET must be different from OIDC_KEY_ENCRYPTION_SECRET/
   );
 });
 
-test("config allows missing OIDC_DEMO_CLIENT_SECRET when demo client seeding is disabled", () => {
+test("config accepts explicit OIDC_CLIENTS_CONFIG_PATH", () => {
   const config = readOidcOpConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_DEMO_CLIENT_ENABLED: "false",
+    OIDC_CLIENTS_CONFIG_PATH: "/tmp/custom-oidc-clients.json",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
   });
-  assert.equal(config.demoClientEnabled, false);
-  assert.equal(config.demoClientSecret, undefined);
+  assert.equal(config.oidcClientsConfigPath, "/tmp/custom-oidc-clients.json");
 });
 
 test("config defaults AUTH_PROVIDER to cqut", () => {
@@ -1247,12 +1273,10 @@ test("config defaults AUTH_PROVIDER to cqut", () => {
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
   });
   assert.equal(config.authProvider, "cqut");
-  assert.equal(config.demoRedirectUri, "http://localhost:3002/demo/callback");
-  assert.equal(config.demoPostLogoutRedirectUri, "http://localhost:3002/demo/logout-complete");
+  assert.equal(config.oidcClientsConfigPath, "/app/config/oidc-clients.json");
   assert.deepEqual(config.cookieKeys, ["test-oidc-key-secret"]);
   assert.equal(config.csrfSigningSecret, "test-oidc-key-secret");
   assert.equal(config.signingKeyRefreshIntervalSeconds, 30);
@@ -1264,7 +1288,6 @@ test("config allows explicitly enabling opportunistic cleanup", () => {
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
     OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_ENABLED: "true"
   });
@@ -1278,7 +1301,6 @@ test("config rejects non-positive signing key refresh interval", () => {
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
         OIDC_SIGNING_KEY_REFRESH_INTERVAL_SECONDS: "0",
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
       }),
@@ -1351,7 +1373,6 @@ test("config caps csrf token ttl to interaction ttl", () => {
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
     OIDC_INTERACTION_TTL_SECONDS: "120",
     OIDC_CSRF_TOKEN_TTL_SECONDS: "900",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
@@ -1367,43 +1388,21 @@ test("config rejects non-https issuer outside test", () => {
         OIDC_ISSUER: "http://localhost:3003",
         OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
         OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
       }),
     /OIDC_ISSUER must use https:\/\//
   );
 });
 
-test("config rejects non-https demo redirect uri outside test", () => {
-  assert.throws(
-    () =>
-      readOidcOpConfig({
-        APP_ENV: "development",
-        OIDC_ISSUER: "https://localhost:3003",
-        OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
-        OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
-        OIDC_DEMO_REDIRECT_URI: "http://localhost:3002/demo/callback",
-        OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
-      }),
-    /OIDC_DEMO_REDIRECT_URI must use https:\/\//
-  );
-});
-
-test("config allows loopback http uris in test", () => {
+test("config allows loopback http issuer in test", () => {
   const config = readOidcOpConfig({
     APP_ENV: "test",
     OIDC_ISSUER: "http://127.0.0.1:3003",
-    OIDC_DEMO_REDIRECT_URI: "http://localhost:3002/demo/callback",
-    OIDC_DEMO_POST_LOGOUT_REDIRECT_URI: "http://localhost:3002/demo/logout-complete",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
   });
   assert.equal(config.issuer, "http://127.0.0.1:3003");
-  assert.equal(config.demoRedirectUri, "http://localhost:3002/demo/callback");
-  assert.equal(config.demoPostLogoutRedirectUri, "http://localhost:3002/demo/logout-complete");
 });
 
 test("config rejects AUTH_PROVIDER=mock in production", () => {
@@ -1415,7 +1414,6 @@ test("config rejects AUTH_PROVIDER=mock in production", () => {
         AUTH_PROVIDER: "mock",
         OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
         OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
-        OIDC_DEMO_CLIENT_SECRET: TEST_DEMO_CLIENT_SECRET,
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
       }),
     /AUTH_PROVIDER=mock is not allowed in production/

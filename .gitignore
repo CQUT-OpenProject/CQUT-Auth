@@ -19,6 +19,7 @@ apps/*/public/assets/
 .env.*.local
 apps/example-site/.env.local
 deploy/.env
+deploy/oidc-clients.json
 
 # logs and temp
 *.log

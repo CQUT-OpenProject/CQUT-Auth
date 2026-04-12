@@ -16,8 +16,9 @@ import type { OidcOpConfig } from "../config.js";
 import type { OidcPersistence, OidcSigningKeyRecord } from "../persistence/contracts.js";
 import { RateLimitService, RateLimitUnavailableError } from "../persistence/rate-limit.service.js";
 import { createAdapter } from "./adapter.js";
-import { createClientSecretDigest, verifyClientSecretDigest } from "../crypto.js";
+import { verifyClientSecretDigest } from "../crypto.js";
 import { randomId, parseScope, escapeHtml } from "../utils.js";
+import { upsertOidcClientsFromConfig } from "./client-config.js";
 
 export type OidcServices = {
   provider: any;
@@ -450,38 +451,12 @@ export async function generateSigningKey(store: OidcPersistence): Promise<OidcSi
   return record;
 }
 
-export async function seedDemoClient(store: OidcPersistence, config: OidcOpConfig) {
-  if (!config.demoClientEnabled) {
-    return;
-  }
-  if (!config.demoClientSecret) {
-    throw new Error("demo client secret is required when demo client seeding is enabled");
-  }
-  const now = new Date().toISOString();
-  await store.upsertOidcClient({
-    clientId: config.demoClientId,
-    clientSecretDigest: await createClientSecretDigest(config.demoClientSecret),
-    applicationType: "web",
-    tokenEndpointAuthMethod: "client_secret_basic",
-    redirectUris: [config.demoRedirectUri],
-    postLogoutRedirectUris: [config.demoPostLogoutRedirectUri],
-    grantTypes: ["authorization_code", "refresh_token"],
-    responseTypes: ["code"],
-    scopeWhitelist: [...OIDC_SCOPES],
-    requirePkce: true,
-    autoConsent: true,
-    status: "active",
-    createdAt: now,
-    updatedAt: now
-  });
-}
-
 export async function createOidcServices(
   config: OidcOpConfig,
   store: OidcPersistence,
   rateLimitService: RateLimitService
 ): Promise<OidcServices> {
-  await seedDemoClient(store, config);
+  await upsertOidcClientsFromConfig(store, config);
   await ensureSigningKey(store, config);
 
   const providerRegistry = new ProviderRegistry(

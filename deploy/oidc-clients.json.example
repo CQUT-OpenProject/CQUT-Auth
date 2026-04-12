@@ -1,0 +1,15 @@
+{
+  "clients": [
+    {
+      "clientId": "demo-site",
+      "clientSecretDigest": "scrypt$N=16384,r=8,p=1,keylen=32$<base64url-salt>$<base64url-digest>",
+      "redirectUris": [
+        "https://demo.xxx.com/callback"
+      ],
+      "postLogoutRedirectUris": [
+        "https://demo.xxx.com/logout-complete"
+      ],
+      "autoConsent": false
+    }
+  ]
+}

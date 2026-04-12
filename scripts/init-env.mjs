@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomBytes, scryptSync } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const templatePath = resolve(projectRoot, "deploy/.env.example");
 const defaultOutputPath = resolve(projectRoot, "deploy/.env");
+const clientsTemplatePath = resolve(projectRoot, "deploy/oidc-clients.json.example");
+const defaultClientsOutputPath = resolve(projectRoot, "deploy/oidc-clients.json");
 const certDir = resolve(projectRoot, "deploy/certs");
 const defaultCertPath = resolve(certDir, "fullchain.pem");
 const defaultKeyPath = resolve(certDir, "privkey.pem");
@@ -30,6 +32,7 @@ if (skipCerts && withCerts) {
 const certHostDefault = profile === "test" ? "localhost" : "verify.local";
 const certHost = getArgValue("--cert-host") ?? certHostDefault;
 const certDays = Number(getArgValue("--cert-days") ?? "365");
+const generatedDemoClientSecret = randomToken(24);
 if (!Number.isInteger(certDays) || certDays <= 0) {
   throw new Error("--cert-days must be a positive integer");
 }
@@ -39,8 +42,7 @@ const randomReplacements = {
   OIDC_KEY_ENCRYPTION_SECRET: randomToken(32),
   OIDC_ARTIFACT_ENCRYPTION_SECRET: randomToken(32),
   OIDC_COOKIE_KEYS: `${randomToken(32)},${randomToken(32)}`,
-  OIDC_CSRF_SIGNING_SECRET: randomToken(32),
-  OIDC_DEMO_CLIENT_SECRET: randomToken(24)
+  OIDC_CSRF_SIGNING_SECRET: randomToken(32)
 };
 
 const profileReplacements = {
@@ -49,16 +51,12 @@ const profileReplacements = {
     APP_ENV: "development",
     OIDC_ISSUER: "https://verify.local",
     OIDC_COOKIE_SECURE: "true",
-    OIDC_DEMO_REDIRECT_URI: "https://localhost:3002/demo/callback",
-    OIDC_DEMO_POST_LOGOUT_REDIRECT_URI: "https://localhost:3002/demo/logout-complete",
     SERVER_NAME: "verify.local"
   },
   test: {
     APP_ENV: "test",
     OIDC_ISSUER: "http://localhost",
     OIDC_COOKIE_SECURE: "false",
-    OIDC_DEMO_REDIRECT_URI: "http://localhost:3002/demo/callback",
-    OIDC_DEMO_POST_LOGOUT_REDIRECT_URI: "http://localhost:3002/demo/logout-complete",
     SERVER_NAME: "localhost"
   }
 };
@@ -90,6 +88,10 @@ if (outputPath) {
   writeOutput(defaultOutputPath);
 }
 
+if (!printToStdout) {
+  writeClientsConfig(defaultClientsOutputPath);
+}
+
 if (shouldGenerateCertificates()) {
   generateSelfSignedCertificate();
 }
@@ -114,6 +116,45 @@ function writeOutput(targetPath) {
 
   writeFileSync(targetPath, `${rendered}\n`, { encoding: "utf8" });
   process.stdout.write(`Initialized deploy env file: ${targetPath} (profile=${profile})\n`);
+}
+
+function writeClientsConfig(targetPath) {
+  if (existsSync(targetPath) && !force) {
+    throw new Error(`Refusing to overwrite existing file: ${targetPath}. Re-run with --force if needed.`);
+  }
+  const template = readFileSync(clientsTemplatePath, "utf8");
+  const parsedTemplate = JSON.parse(template);
+  if (!parsedTemplate || !Array.isArray(parsedTemplate.clients) || parsedTemplate.clients.length === 0) {
+    throw new Error("deploy/oidc-clients.json.example must contain at least one client template");
+  }
+  const baseClient = parsedTemplate.clients[0];
+  const redirectUri =
+    profile === "test"
+      ? "http://localhost:3002/demo/callback"
+      : profile === "local"
+        ? "https://localhost:3002/demo/callback"
+        : "https://demo.xxx.com/callback";
+  const postLogoutRedirectUri =
+    profile === "test"
+      ? "http://localhost:3002/demo/logout-complete"
+      : profile === "local"
+        ? "https://localhost:3002/demo/logout-complete"
+        : "https://demo.xxx.com/logout-complete";
+
+  const renderedClients = {
+    clients: [
+      {
+        ...baseClient,
+        clientId: "demo-site",
+        clientSecretDigest: createClientSecretDigest(generatedDemoClientSecret),
+        redirectUris: [redirectUri],
+        postLogoutRedirectUris: [postLogoutRedirectUri]
+      }
+    ]
+  };
+  writeFileSync(targetPath, `${JSON.stringify(renderedClients, null, 2)}\n`, { encoding: "utf8" });
+  process.stdout.write(`Initialized OIDC clients file: ${targetPath} (profile=${profile})\n`);
+  process.stdout.write(`Demo-site client secret (write down once): ${generatedDemoClientSecret}\n`);
 }
 
 function generateSelfSignedCertificate() {
@@ -177,4 +218,24 @@ function getArgValue(flag) {
 
 function randomToken(bytes) {
   return randomBytes(bytes).toString("base64url");
+}
+
+function createClientSecretDigest(secret) {
+  const N = 16384;
+  const r = 8;
+  const p = 1;
+  const keyLength = 32;
+  const salt = randomBytes(16);
+  const digest = scryptSync(secret, salt, keyLength, {
+    N,
+    r,
+    p,
+    maxmem: 64 * 1024 * 1024
+  });
+  return [
+    "scrypt",
+    `N=${N},r=${r},p=${p},keylen=${keyLength}`,
+    salt.toString("base64url"),
+    digest.toString("base64url")
+  ].join("$");
 }
