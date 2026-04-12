@@ -27,6 +27,13 @@ export type OidcClientRecord = {
 export type PendingInteractionLogin = {
   principal: AuthenticatedPrincipal;
   authTime: number;
+  emailVerification?: {
+    email: string;
+    codeHash: string;
+    expiresAt: number;
+    attempts: number;
+    nextResendAt: number;
+  };
 };
 
 export type OidcSigningKeyRecord = {

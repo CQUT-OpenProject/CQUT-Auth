@@ -6,6 +6,7 @@ import { RateLimitService, RateLimitUnavailableError } from "./persistence/rate-
 import type { OidcPersistence } from "./persistence/contracts.js";
 import { OidcPersistenceImpl } from "./persistence/persistence.js";
 import { createInteractionRouter } from "./routes/interactions.js";
+import type { EmailSender } from "./email/email-sender.js";
 
 type AppState = {
   config: OidcOpConfig;
@@ -13,6 +14,10 @@ type AppState = {
   store: OidcPersistence;
   rateLimitService: RateLimitService;
   closeOidcServices(): Promise<void>;
+};
+
+type AppDependencies = {
+  emailSender?: EmailSender;
 };
 
 function errorHandler(error: unknown, _request: Request, response: Response, _next: NextFunction) {
@@ -26,13 +31,21 @@ function errorHandler(error: unknown, _request: Request, response: Response, _ne
     });
 }
 
-export async function createOidcApp(env: NodeJS.ProcessEnv = process.env) {
+export async function createOidcApp(
+  env: NodeJS.ProcessEnv = process.env,
+  dependencies: AppDependencies = {}
+) {
   const config = readOidcOpConfig(env);
   const store = new OidcPersistenceImpl(config);
   await store.init();
   const rateLimitService = new RateLimitService(config);
   await rateLimitService.init();
-  const services = await createOidcServices(config, store, rateLimitService);
+  const services = await createOidcServices(
+    config,
+    store,
+    rateLimitService,
+    dependencies.emailSender
+  );
 
   const app = express();
   app.disable("x-powered-by");

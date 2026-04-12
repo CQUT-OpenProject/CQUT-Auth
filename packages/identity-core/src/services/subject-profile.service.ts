@@ -34,4 +34,16 @@ export class SubjectProfileService {
       updatedAt: new Date().toISOString()
     });
   }
+
+  async setVerifiedEmail(subjectId: string, email: string): Promise<SubjectProfileRecord> {
+    const existing = await this.store.getProfile(subjectId);
+    return this.store.upsertProfile({
+      subjectId,
+      ...(existing?.preferredUsername ? { preferredUsername: existing.preferredUsername } : {}),
+      ...(existing?.displayName ? { displayName: existing.displayName } : {}),
+      email,
+      emailVerified: true,
+      updatedAt: new Date().toISOString()
+    });
+  }
 }

@@ -6,6 +6,12 @@ export type OidcOpConfig = {
   issuer: string;
   schoolCode: string;
   authProvider: string;
+  emailVerificationEnabled: boolean;
+  resendApiKey: string | undefined;
+  emailFrom: string | undefined;
+  emailVerifyCodeTtlSeconds: number;
+  emailVerifyResendCooldownSeconds: number;
+  emailVerifyMaxAttempts: number;
   providerTimeoutMs: number;
   providerTotalTimeoutMs: number;
   cqutUisBaseUrl: string;
@@ -97,6 +103,14 @@ function assertHttpsOrTestLoopbackHttp(value: string, key: string, appEnv: strin
 export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpConfig {
   const appEnv = env["APP_ENV"] ?? env["NODE_ENV"] ?? "development";
   const isProduction = appEnv === "production";
+  const emailVerificationEnabled = env["OIDC_EMAIL_VERIFICATION_ENABLED"] !== "false";
+  const resendApiKey = env["RESEND_API_KEY"]?.trim() || undefined;
+  const emailFrom = env["OIDC_EMAIL_FROM"]?.trim() || undefined;
+  const emailVerifyCodeTtlSeconds = Number(env["OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS"] ?? 600);
+  const emailVerifyResendCooldownSeconds = Number(
+    env["OIDC_EMAIL_VERIFY_RESEND_COOLDOWN_SECONDS"] ?? 60
+  );
+  const emailVerifyMaxAttempts = Number(env["OIDC_EMAIL_VERIFY_MAX_ATTEMPTS"] ?? 5);
   const keyEncryptionSecret = requireSecret(env, "OIDC_KEY_ENCRYPTION_SECRET", appEnv === "test");
   const artifactEncryptionSecret = requireSecret(
     env,
@@ -152,6 +166,18 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   }
   if (!Number.isInteger(csrfTokenTtlRaw) || csrfTokenTtlRaw <= 0) {
     throw new Error("OIDC_CSRF_TOKEN_TTL_SECONDS must be a positive integer");
+  }
+  if (!Number.isInteger(emailVerifyCodeTtlSeconds) || emailVerifyCodeTtlSeconds <= 0) {
+    throw new Error("OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS must be a positive integer");
+  }
+  if (
+    !Number.isInteger(emailVerifyResendCooldownSeconds) ||
+    emailVerifyResendCooldownSeconds <= 0
+  ) {
+    throw new Error("OIDC_EMAIL_VERIFY_RESEND_COOLDOWN_SECONDS must be a positive integer");
+  }
+  if (!Number.isInteger(emailVerifyMaxAttempts) || emailVerifyMaxAttempts <= 0) {
+    throw new Error("OIDC_EMAIL_VERIFY_MAX_ATTEMPTS must be a positive integer");
   }
   const csrfTokenTtlSeconds = Math.min(csrfTokenTtlRaw, interactionTtlSeconds);
 
@@ -243,6 +269,12 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     if (!rateLimitFailClosed) {
       throw new Error("OIDC_RATE_LIMIT_FAIL_CLOSED must be true when APP_ENV=production");
     }
+    if (emailVerificationEnabled && !resendApiKey) {
+      throw new Error("RESEND_API_KEY is required when APP_ENV=production and email verification is enabled");
+    }
+    if (emailVerificationEnabled && !emailFrom) {
+      throw new Error("OIDC_EMAIL_FROM is required when APP_ENV=production and email verification is enabled");
+    }
   }
   return {
     port,
@@ -252,6 +284,12 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     issuer,
     schoolCode: env["SCHOOL_CODE"] ?? "cqut",
     authProvider,
+    emailVerificationEnabled,
+    resendApiKey,
+    emailFrom,
+    emailVerifyCodeTtlSeconds,
+    emailVerifyResendCooldownSeconds,
+    emailVerifyMaxAttempts,
     providerTimeoutMs: Number(env["PROVIDER_TIMEOUT_MS"] ?? 10000),
     providerTotalTimeoutMs: Number(env["PROVIDER_TOTAL_TIMEOUT_MS"] ?? 20000),
     cqutUisBaseUrl: (env["CQUT_UIS_BASE_URL"] ?? "https://uis.cqut.edu.cn").replace(/\/$/, ""),

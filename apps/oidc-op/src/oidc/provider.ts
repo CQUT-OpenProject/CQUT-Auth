@@ -19,11 +19,14 @@ import { createAdapter } from "./adapter.js";
 import { verifyClientSecretDigest } from "../crypto.js";
 import { randomId, parseScope, escapeHtml } from "../utils.js";
 import { upsertOidcClientsFromConfig } from "./client-config.js";
+import type { EmailSender, SendVerificationCodeInput } from "../email/email-sender.js";
+import { ResendEmailSender } from "../email/resend-email-sender.js";
 
 export type OidcServices = {
   provider: any;
   interactiveAuthenticator: InteractiveAuthenticatorService;
   subjectProfileService: SubjectProfileService;
+  emailSender: EmailSender;
   close(): Promise<void>;
 };
 
@@ -68,6 +71,12 @@ class TokenRateLimitError extends Error {
     this.errorDescription = errorDescription;
     this.retryAfterSeconds = retryAfterSeconds;
     this.expose = true;
+  }
+}
+
+class DisabledEmailSender implements EmailSender {
+  async sendVerificationCode(_input: SendVerificationCodeInput): Promise<void> {
+    throw new Error("email verification sender is not configured");
   }
 }
 
@@ -454,7 +463,8 @@ export async function generateSigningKey(store: OidcPersistence): Promise<OidcSi
 export async function createOidcServices(
   config: OidcOpConfig,
   store: OidcPersistence,
-  rateLimitService: RateLimitService
+  rateLimitService: RateLimitService,
+  providedEmailSender?: EmailSender
 ): Promise<OidcServices> {
   await upsertOidcClientsFromConfig(store, config);
   await ensureSigningKey(store, config);
@@ -483,6 +493,14 @@ export async function createOidcServices(
   );
   const identityLinkService = new IdentityLinkService(store);
   const subjectProfileService = new SubjectProfileService(store);
+  const emailSender =
+    providedEmailSender ??
+    (config.resendApiKey && config.emailFrom
+      ? new ResendEmailSender({
+          apiKey: config.resendApiKey,
+          from: config.emailFrom
+        })
+      : new DisabledEmailSender());
   const interactiveAuthenticator = new InteractiveAuthenticatorService(
     providerRegistry,
     identityLinkService,
@@ -685,6 +703,7 @@ export async function createOidcServices(
     provider,
     interactiveAuthenticator,
     subjectProfileService,
+    emailSender,
     async close() {
       await stopSigningKeyRefresh();
     }

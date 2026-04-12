@@ -1,9 +1,9 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { IdentityCoreError } from "@cqut/identity-core";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
 import { RateLimitUnavailableError, type RateLimitService } from "../persistence/rate-limit.service.js";
-import type { OidcPersistence } from "../persistence/contracts.js";
+import type { OidcPersistence, PendingInteractionLogin } from "../persistence/contracts.js";
 import type { OidcServices } from "../oidc/provider.js";
 import { base64Url, escapeHtml, isValidEmail, parseCookies, randomId, sha256Base64Url } from "../utils.js";
 
@@ -136,7 +136,9 @@ function renderPage(title: string, body: string) {
         input { padding: 0.75rem; font-size: 1rem; }
         button { padding: 0.8rem 1rem; font-size: 1rem; }
         .error { color: #b42318; }
+        .success { color: #067647; }
         .hint { color: #475467; font-size: 0.95rem; }
+        .secondary { background: #f2f4f7; border: 1px solid #d0d5dd; }
       </style>
     </head>
     <body>
@@ -162,19 +164,107 @@ function loginView(uid: string, csrf: string, error?: string) {
   );
 }
 
-function profileView(uid: string, csrf: string, email?: string, error?: string) {
+function profileEmailView(
+  uid: string,
+  csrf: string,
+  options: {
+    email?: string;
+    error?: string;
+    notice?: string;
+    verificationEnabled: boolean;
+  }
+) {
+  const hint = options.verificationEnabled
+    ? "请输入用于 OpenID Connect 声明的邮箱地址，系统会发送验证码进行校验。"
+    : "请输入用于 OpenID Connect 声明的邮箱地址，系统会以“未验证”状态保存。";
   return renderPage(
     "补充邮箱",
     `
     <h1>补充资料</h1>
-    <p class="hint">请输入用于 OpenID Connect 声明的邮箱地址，系统会以“未验证”状态保存。</p>
-    ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
+    <p class="hint">${escapeHtml(hint)}</p>
+    ${options.notice ? `<p class="success">${escapeHtml(options.notice)}</p>` : ""}
+    ${options.error ? `<p class="error">${escapeHtml(options.error)}</p>` : ""}
     <form method="post" action="/interaction/${encodeURIComponent(uid)}/profile">
       <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
-      <input type="email" name="email" placeholder="邮箱地址" value="${escapeHtml(email ?? "")}" autocomplete="email" required>
-      <button type="submit">继续</button>
+      ${options.verificationEnabled ? '<input type="hidden" name="action" value="send_code">' : ""}
+      <input type="email" name="email" placeholder="邮箱地址" value="${escapeHtml(options.email ?? "")}" autocomplete="email" required>
+      <button type="submit">${options.verificationEnabled ? "发送验证码" : "继续"}</button>
     </form>
   `
+  );
+}
+
+function profileVerifyCodeView(
+  uid: string,
+  csrf: string,
+  options: {
+    email: string;
+    error?: string;
+    notice?: string;
+    resendCooldownSeconds?: number;
+  }
+) {
+  const resendCooldownSeconds = options.resendCooldownSeconds ?? 0;
+  const disableResend = resendCooldownSeconds > 0;
+  return renderPage(
+    "验证邮箱",
+    `
+    <h1>验证邮箱</h1>
+    <p class="hint">验证码已发送到 <strong>${escapeHtml(options.email)}</strong>，请输入 6 位数字验证码。</p>
+    ${options.notice ? `<p class="success">${escapeHtml(options.notice)}</p>` : ""}
+    ${options.error ? `<p class="error">${escapeHtml(options.error)}</p>` : ""}
+    ${
+      disableResend
+        ? `<p class="hint">可在 ${resendCooldownSeconds} 秒后重新发送验证码。</p>`
+        : "<p class=\"hint\">未收到验证码？可重新发送。</p>"
+    }
+    <form method="post" action="/interaction/${encodeURIComponent(uid)}/profile">
+      <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
+      <input type="hidden" name="action" value="verify_code">
+      <input type="text" name="code" placeholder="6位验证码" autocomplete="one-time-code" inputmode="numeric" pattern="\\d{6}" required>
+      <button type="submit">验证并继续</button>
+    </form>
+    <form method="post" action="/interaction/${encodeURIComponent(uid)}/profile">
+      <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
+      <input type="hidden" name="action" value="send_code">
+      <input type="hidden" name="email" value="${escapeHtml(options.email)}">
+      <button type="submit" class="secondary"${disableResend ? " disabled" : ""}>重新发送验证码</button>
+    </form>
+  `
+  );
+}
+
+function generateVerificationCode() {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
+}
+
+function hashEmailVerificationCode(config: OidcOpConfig, uid: string, email: string, code: string) {
+  return createHmac("sha256", config.csrfSigningSecret).update(`${uid}:${email}:${code}`).digest("hex");
+}
+
+function getResendCooldownSeconds(nextResendAt: number, now = Math.floor(Date.now() / 1000)) {
+  return Math.max(0, nextResendAt - now);
+}
+
+async function finishInteractionLogin(
+  provider: any,
+  request: Request,
+  response: Response,
+  pending: PendingInteractionLogin
+) {
+  await provider.interactionFinished(
+    request,
+    response,
+    {
+      login: {
+        accountId: pending.principal.subjectId,
+        acr: "urn:cqut:loa:1",
+        amr: ["pwd"],
+        remember: false,
+        ts: pending.authTime
+      }
+    },
+    { mergeWithLastSubmission: false }
   );
 }
 
@@ -431,7 +521,7 @@ export function createInteractionRouter(
             throw error;
           }
         });
-        if (!principal.email) {
+        if (!principal.email || (config.emailVerificationEnabled && !principal.emailVerified)) {
           await store.saveInteractionLogin(uid, {
             principal,
             authTime: Math.floor(Date.now() / 1000)
@@ -439,20 +529,10 @@ export function createInteractionRouter(
           response.redirect(302, `/interaction/${encodeURIComponent(uid)}/profile`);
           return;
         }
-        await provider.interactionFinished(
-          request,
-          response,
-          {
-            login: {
-              accountId: principal.subjectId,
-              acr: "urn:cqut:loa:1",
-              amr: ["pwd"],
-              remember: false,
-              ts: Math.floor(Date.now() / 1000)
-            }
-          },
-          { mergeWithLastSubmission: false }
-        );
+        await finishInteractionLogin(provider, request, response, {
+          principal,
+          authTime: Math.floor(Date.now() / 1000)
+        });
       } catch (error) {
         let failure;
         try {
@@ -496,7 +576,30 @@ export function createInteractionRouter(
         return;
       }
       const csrf = issueCsrfToken(response, config, uid, "profile");
-      response.status(200).send(profileView(uid, csrf, pending.principal.email));
+      if (!config.emailVerificationEnabled) {
+        response.status(200).send(
+          profileEmailView(uid, csrf, {
+            verificationEnabled: false,
+            ...(pending.principal.email ? { email: pending.principal.email } : {})
+          })
+        );
+        return;
+      }
+      if (pending.emailVerification) {
+        response.status(200).send(
+          profileVerifyCodeView(uid, csrf, {
+            email: pending.emailVerification.email,
+            resendCooldownSeconds: getResendCooldownSeconds(pending.emailVerification.nextResendAt)
+          })
+        );
+        return;
+      }
+      response.status(200).send(
+        profileEmailView(uid, csrf, {
+          verificationEnabled: true,
+          ...(pending.principal.email ? { email: pending.principal.email } : {})
+        })
+      );
     } catch (error) {
       next(error);
     }
@@ -521,28 +624,209 @@ export function createInteractionRouter(
         response.redirect(302, `/interaction/${encodeURIComponent(uid)}`);
         return;
       }
-      const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
-      if (!isValidEmail(email)) {
-        const csrf = issueCsrfToken(response, config, uid, "profile");
-        response.status(400).send(profileView(uid, csrf, email, "请输入有效的邮箱地址。"));
+      if (!config.emailVerificationEnabled) {
+        const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
+        if (!isValidEmail(email)) {
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileEmailView(uid, csrf, {
+              email,
+              error: "请输入有效的邮箱地址。",
+              verificationEnabled: false
+            })
+          );
+          return;
+        }
+        await services.subjectProfileService.setEmail(pending.principal.subjectId, email);
+        await store.deleteInteractionLogin(uid);
+        await finishInteractionLogin(provider, request, response, pending);
         return;
       }
 
-      await services.subjectProfileService.setEmail(pending.principal.subjectId, email);
-      await store.deleteInteractionLogin(uid);
-      await provider.interactionFinished(
-        request,
-        response,
-        {
-          login: {
-            accountId: pending.principal.subjectId,
-            acr: "urn:cqut:loa:1",
-            amr: ["pwd"],
-            remember: false,
-            ts: pending.authTime
+      const now = Math.floor(Date.now() / 1000);
+      const action = typeof request.body?.action === "string" ? request.body.action : "send_code";
+      if (action === "send_code") {
+        const emailRaw =
+          typeof request.body?.email === "string" ? request.body.email : pending.emailVerification?.email;
+        const email = typeof emailRaw === "string" ? emailRaw.trim().toLowerCase() : "";
+        if (!isValidEmail(email)) {
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileEmailView(uid, csrf, {
+              email,
+              error: "请输入有效的邮箱地址。",
+              verificationEnabled: true
+            })
+          );
+          return;
+        }
+        if (
+          pending.emailVerification &&
+          pending.emailVerification.email === email &&
+          pending.emailVerification.nextResendAt > now
+        ) {
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(429).send(
+            profileVerifyCodeView(uid, csrf, {
+              email,
+              error: `请在 ${pending.emailVerification.nextResendAt - now} 秒后再重试发送。`,
+              resendCooldownSeconds: pending.emailVerification.nextResendAt - now
+            })
+          );
+          return;
+        }
+
+        const code = generateVerificationCode();
+        try {
+          await services.emailSender.sendVerificationCode({
+            to: email,
+            code,
+            interactionUid: uid,
+            expiresInSeconds: config.emailVerifyCodeTtlSeconds
+          });
+        } catch (error) {
+          console.error("[oidc-op] email verification send failed", error);
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(503).send(
+            profileEmailView(uid, csrf, {
+              email,
+              error: "验证码发送失败，请稍后重试。",
+              verificationEnabled: true
+            })
+          );
+          return;
+        }
+
+        const updatedPending: PendingInteractionLogin = {
+          ...pending,
+          emailVerification: {
+            email,
+            codeHash: hashEmailVerificationCode(config, uid, email, code),
+            expiresAt: now + config.emailVerifyCodeTtlSeconds,
+            attempts: 0,
+            nextResendAt: now + config.emailVerifyResendCooldownSeconds
           }
-        },
-        { mergeWithLastSubmission: false }
+        };
+        await store.saveInteractionLogin(uid, updatedPending);
+        const csrf = issueCsrfToken(response, config, uid, "profile");
+        response.status(200).send(
+          profileVerifyCodeView(uid, csrf, {
+            email,
+            notice: "验证码已发送，请前往邮箱查看。",
+            resendCooldownSeconds: config.emailVerifyResendCooldownSeconds
+          })
+        );
+        return;
+      }
+
+      if (action === "verify_code") {
+        const verification = pending.emailVerification;
+        if (!verification) {
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileEmailView(uid, csrf, {
+              error: "请先发送验证码。",
+              verificationEnabled: true,
+              ...(pending.principal.email ? { email: pending.principal.email } : {})
+            })
+          );
+          return;
+        }
+        if (verification.expiresAt <= now) {
+          await store.saveInteractionLogin(uid, {
+            principal: pending.principal,
+            authTime: pending.authTime
+          });
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileEmailView(uid, csrf, {
+              email: verification.email,
+              error: "验证码已过期，请重新发送。",
+              verificationEnabled: true
+            })
+          );
+          return;
+        }
+        if (verification.attempts >= config.emailVerifyMaxAttempts) {
+          await store.saveInteractionLogin(uid, {
+            principal: pending.principal,
+            authTime: pending.authTime
+          });
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileEmailView(uid, csrf, {
+              email: verification.email,
+              error: "验证码尝试次数过多，请重新发送。",
+              verificationEnabled: true
+            })
+          );
+          return;
+        }
+
+        const code = typeof request.body?.code === "string" ? request.body.code.trim() : "";
+        if (!/^\d{6}$/.test(code)) {
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileVerifyCodeView(uid, csrf, {
+              email: verification.email,
+              error: "请输入 6 位数字验证码。",
+              resendCooldownSeconds: getResendCooldownSeconds(verification.nextResendAt, now)
+            })
+          );
+          return;
+        }
+        const inputHash = hashEmailVerificationCode(config, uid, verification.email, code);
+        if (!secureStringEqual(inputHash, verification.codeHash)) {
+          const nextAttempts = verification.attempts + 1;
+          if (nextAttempts >= config.emailVerifyMaxAttempts) {
+            await store.saveInteractionLogin(uid, {
+              principal: pending.principal,
+              authTime: pending.authTime
+            });
+            const csrf = issueCsrfToken(response, config, uid, "profile");
+            response.status(400).send(
+              profileEmailView(uid, csrf, {
+                email: verification.email,
+                error: "验证码尝试次数过多，请重新发送。",
+                verificationEnabled: true
+              })
+            );
+            return;
+          }
+          await store.saveInteractionLogin(uid, {
+            ...pending,
+            emailVerification: {
+              ...verification,
+              attempts: nextAttempts
+            }
+          });
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileVerifyCodeView(uid, csrf, {
+              email: verification.email,
+              error: `验证码错误，还可尝试 ${config.emailVerifyMaxAttempts - nextAttempts} 次。`,
+              resendCooldownSeconds: getResendCooldownSeconds(verification.nextResendAt, now)
+            })
+          );
+          return;
+        }
+
+        await services.subjectProfileService.setVerifiedEmail(
+          pending.principal.subjectId,
+          verification.email
+        );
+        await store.deleteInteractionLogin(uid);
+        await finishInteractionLogin(provider, request, response, pending);
+        return;
+      }
+
+      const csrf = issueCsrfToken(response, config, uid, "profile");
+      response.status(400).send(
+        profileEmailView(uid, csrf, {
+          error: "无效操作，请重试。",
+          verificationEnabled: true,
+          ...(pending.principal.email ? { email: pending.principal.email } : {})
+        })
       );
     } catch (error) {
       next(error);

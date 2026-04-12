@@ -13,6 +13,7 @@ import {
   encryptJson,
   verifyClientSecretDigest
 } from "../src/crypto.js";
+import type { EmailSender, SendVerificationCodeInput } from "../src/email/email-sender.js";
 import { computeSessionTtlSeconds, generateSigningKey } from "../src/oidc/provider.js";
 import { sha256Base64Url } from "../src/utils.js";
 
@@ -25,6 +26,33 @@ const TEST_WRONG_LOGIN_PASSWORD = "";
 const PROD_KEY_SECRET = "prod-oidc-key-secret-0123456789abcdef";
 const PROD_ARTIFACT_SECRET = "prod-oidc-artifact-secret-0123456789abcd";
 const PROD_CSRF_SECRET = "prod-oidc-csrf-secret-0123456789abcdef";
+
+class FakeEmailSender implements EmailSender {
+  readonly sentVerifications: SendVerificationCodeInput[] = [];
+
+  async sendVerificationCode(input: SendVerificationCodeInput): Promise<void> {
+    this.sentVerifications.push(input);
+  }
+
+  latestCode(interactionUid: string, to: string): string | undefined {
+    for (let index = this.sentVerifications.length - 1; index >= 0; index -= 1) {
+      const candidate = this.sentVerifications[index];
+      if (!candidate) {
+        continue;
+      }
+      if (candidate.interactionUid === interactionUid && candidate.to === to) {
+        return candidate.code;
+      }
+    }
+    return undefined;
+  }
+}
+
+function extractInteractionUid(interactionLocation: string) {
+  const match = interactionLocation.match(/^\/interaction\/([^/?#]+)/);
+  assert.ok(match?.[1]);
+  return decodeURIComponent(match[1]);
+}
 
 function extractCsrf(html: string) {
   const match = html.match(/name="csrf" value="([^"]+)"/);
@@ -96,6 +124,7 @@ function normalizeActionPath(action: string) {
 }
 
 async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
+  const emailSender = new FakeEmailSender();
   const clientsConfigPath =
     overrides["OIDC_CLIENTS_CONFIG_PATH"] ?? (await writeTestClientsConfig({ autoConsent: true }));
   const env: NodeJS.ProcessEnv = {
@@ -109,7 +138,11 @@ async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
     OIDC_CLIENTS_CONFIG_PATH: clientsConfigPath,
     ...overrides
   };
-  return createOidcApp(env);
+  const appWithState = await createOidcApp(env, { emailSender });
+  return {
+    ...appWithState,
+    emailSender
+  };
 }
 
 function createProductionConfigEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
@@ -122,6 +155,8 @@ function createProductionConfigEnv(overrides: NodeJS.ProcessEnv = {}): NodeJS.Pr
     OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
     OIDC_COOKIE_KEYS: "prod-oidc-cookie-key-a-0123456789,prod-oidc-cookie-key-b-0123456789",
     OIDC_CSRF_SIGNING_SECRET: PROD_CSRF_SECRET,
+    RESEND_API_KEY: "test-resend-api-key",
+    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
     DATABASE_URL: "postgres://127.0.0.1:5432/oidc",
     REDIS_URL: "redis://127.0.0.1:6379",
@@ -183,9 +218,10 @@ async function followToRedirectUriOrigin(agent: any, response: request.Response,
   throw new Error("expected external redirect");
 }
 
-async function runAuthorizationFlow(agent: any, state = "state-1") {
+async function runAuthorizationFlow(agent: any, emailSender: FakeEmailSender, state = "state-1") {
   const { response, codeVerifier } = await authorizeThroughProfile(
     agent,
+    emailSender,
     state,
     "openid profile email student offline_access"
   );
@@ -295,7 +331,12 @@ async function followToConsentPage(agent: any, response: request.Response) {
   return current.text;
 }
 
-async function authorizeThroughProfile(agent: any, state: string, scope = "openid profile") {
+async function authorizeThroughProfile(
+  agent: any,
+  emailSender: FakeEmailSender,
+  state: string,
+  scope = "openid profile"
+) {
   const verifier = "manual-verifier-1234567890-manual-verifier-1234567890";
   const challenge = sha256Base64Url(verifier);
   const authorize = await agent.get("/auth").query({
@@ -328,25 +369,86 @@ async function authorizeThroughProfile(agent: any, state: string, scope = "openi
   assert.match(login.headers["location"] as string, /\/interaction\/.+\/profile/);
 
   const profileLocation = login.headers["location"] as string;
+  const interactionUid = extractInteractionUid(interactionLocation);
   const profilePage = await agent.get(profileLocation);
   assert.equal(profilePage.status, 200);
   const profileCsrf = extractCsrf(profilePage.text);
-  const profile = await agent
+  const sendCode = await agent
     .post(profileLocation)
     .type("form")
     .send({
       csrf: profileCsrf,
+      action: "send_code",
       email: "demo@example.com"
     });
-  return { response: profile, codeVerifier: verifier };
+  assert.equal(sendCode.status, 200);
+  const verifyCsrf = extractCsrf(sendCode.text);
+  const sentCode = emailSender.latestCode(interactionUid, "demo@example.com");
+  assert.equal(typeof sentCode, "string");
+  const profile = await agent
+    .post(profileLocation)
+    .type("form")
+    .send({
+      csrf: verifyCsrf,
+      action: "verify_code",
+      code: sentCode
+    });
+  return { response: profile, codeVerifier: verifier, profileLocation, interactionUid };
 }
 
-async function runAuthorizationToConsent(agent: any, state: string, scope = "openid profile") {
-  const { response, codeVerifier } = await authorizeThroughProfile(agent, state, scope);
+async function runAuthorizationToConsent(
+  agent: any,
+  emailSender: FakeEmailSender,
+  state: string,
+  scope = "openid profile"
+) {
+  const { response, codeVerifier } = await authorizeThroughProfile(agent, emailSender, state, scope);
   const consentPageHtml = await followToConsentPage(agent, response);
   const consentCsrf = extractCsrf(consentPageHtml);
   const consentAction = extractConsentAction(consentPageHtml);
   return { consentAction, consentCsrf, codeVerifier };
+}
+
+async function startEmailVerification(
+  agent: any,
+  emailSender: FakeEmailSender,
+  state: string,
+  email = "demo@example.com"
+) {
+  const { interactionLocation, loginPage } = await openLoginInteraction(agent, state);
+  const interactionUid = extractInteractionUid(interactionLocation);
+  const loginCsrf = extractCsrf(loginPage.text);
+  const login = await agent
+    .post(`${interactionLocation}/login`)
+    .type("form")
+    .send({
+      csrf: loginCsrf,
+      account: TEST_LOGIN_ACCOUNT,
+      password: TEST_LOGIN_PASSWORD
+    });
+  assert.equal(login.status, 302);
+  assert.match(login.headers["location"] as string, /\/interaction\/.+\/profile/);
+  const profileLocation = login.headers["location"] as string;
+  const profilePage = await agent.get(profileLocation);
+  assert.equal(profilePage.status, 200);
+  const profileCsrf = extractCsrf(profilePage.text);
+  const sendCode = await agent
+    .post(profileLocation)
+    .type("form")
+    .send({
+      csrf: profileCsrf,
+      action: "send_code",
+      email
+    });
+  assert.equal(sendCode.status, 200);
+  const code = emailSender.latestCode(interactionUid, email);
+  assert.equal(typeof code, "string");
+  return {
+    profileLocation,
+    interactionUid,
+    code: code as string,
+    sendCode
+  };
 }
 
 async function openLoginInteraction(agent: any, state = "login-state-1") {
@@ -783,10 +885,10 @@ test("signing key refresh updates jwks within configured interval", async () => 
 });
 
 test("authorization code flow, userinfo, refresh rotation, and session reuse work", async () => {
-  const { app, state } = await createTestApp();
+  const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);
 
-  const { code, codeVerifier } = await runAuthorizationFlow(agent, "state-1");
+  const { code, codeVerifier } = await runAuthorizationFlow(agent, emailSender, "state-1");
 
   const token = await request(app)
     .post("/token")
@@ -809,7 +911,7 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
   assert.equal(userinfo.status, 200);
   assert.equal(userinfo.body.sub, userinfo.body.sub);
   assert.equal(userinfo.body.email, "demo@example.com");
-  assert.equal(userinfo.body.email_verified, false);
+  assert.equal(userinfo.body.email_verified, true);
   assert.equal(userinfo.body.status, "active_student");
   assert.equal(Object.hasOwn(userinfo.body as object, "school"), false);
   assert.equal(Object.hasOwn(userinfo.body as object, "student_status"), false);
@@ -935,10 +1037,14 @@ test("rp initiated logout rejects unregistered post_logout_redirect_uri", async 
 });
 
 test("non-whitelisted clients require explicit consent approval", async () => {
-  const { app, state } = await createTestApp();
+  const { app, state, emailSender } = await createTestApp();
   await disableDemoAutoConsent(state);
   const agent = request.agent(app);
-  const { consentAction, consentCsrf } = await runAuthorizationToConsent(agent, "manual-state-allow");
+  const { consentAction, consentCsrf } = await runAuthorizationToConsent(
+    agent,
+    emailSender,
+    "manual-state-allow"
+  );
 
   const approved = await agent
     .post(consentAction)
@@ -954,10 +1060,14 @@ test("non-whitelisted clients require explicit consent approval", async () => {
 });
 
 test("consent denial returns access_denied to client redirect uri", async () => {
-  const { app, state } = await createTestApp();
+  const { app, state, emailSender } = await createTestApp();
   await disableDemoAutoConsent(state);
   const agent = request.agent(app);
-  const { consentAction, consentCsrf } = await runAuthorizationToConsent(agent, "manual-state-deny");
+  const { consentAction, consentCsrf } = await runAuthorizationToConsent(
+    agent,
+    emailSender,
+    "manual-state-deny"
+  );
 
   const denied = await agent
     .post(consentAction)
@@ -974,10 +1084,15 @@ test("consent denial returns access_denied to client redirect uri", async () => 
 });
 
 test("prompt=none does not silently grant newly requested scopes", async () => {
-  const { app, state } = await createTestApp();
+  const { app, state, emailSender } = await createTestApp();
   await disableDemoAutoConsent(state);
   const agent = request.agent(app);
-  const { consentAction, consentCsrf } = await runAuthorizationToConsent(agent, "manual-state-initial", "openid profile");
+  const { consentAction, consentCsrf } = await runAuthorizationToConsent(
+    agent,
+    emailSender,
+    "manual-state-initial",
+    "openid profile"
+  );
 
   await agent
     .post(consentAction)
@@ -1019,6 +1134,84 @@ test("interactive login failure does not expose internal error details", async (
   assert.equal(login.status, 401);
   assert.match(login.text, /登录失败，请检查账号或密码后重试/);
   assert.doesNotMatch(login.text, /IdentityCoreError|invalid credentials/i);
+  await state.store.close();
+});
+
+test("email verification rejects wrong code after max attempts", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  const agent = request.agent(app);
+  const { profileLocation, sendCode } = await startEmailVerification(
+    agent,
+    emailSender,
+    "email-verify-wrong-code"
+  );
+
+  let csrf = extractCsrf(sendCode.text);
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    const verify = await agent
+      .post(profileLocation)
+      .type("form")
+      .send({
+        csrf,
+        action: "verify_code",
+        code: "000000"
+      });
+    assert.equal(verify.status, 400);
+    if (attempt < 5) {
+      assert.match(verify.text, /验证码错误，还可尝试/);
+      csrf = extractCsrf(verify.text);
+      continue;
+    }
+    assert.match(verify.text, /验证码尝试次数过多，请重新发送/);
+  }
+
+  await state.store.close();
+});
+
+test("email verification expires and requires resending code", async () => {
+  const { app, state, emailSender } = await createTestApp({
+    OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS: "1"
+  });
+  const agent = request.agent(app);
+  const { profileLocation, code, sendCode } = await startEmailVerification(
+    agent,
+    emailSender,
+    "email-verify-expired"
+  );
+  const verifyCsrf = extractCsrf(sendCode.text);
+  await new Promise((resolve) => setTimeout(resolve, 1200));
+  const verify = await agent
+    .post(profileLocation)
+    .type("form")
+    .send({
+      csrf: verifyCsrf,
+      action: "verify_code",
+      code
+    });
+  assert.equal(verify.status, 400);
+  assert.match(verify.text, /验证码已过期，请重新发送/);
+  await state.store.close();
+});
+
+test("email verification resend is blocked during cooldown window", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  const agent = request.agent(app);
+  const { profileLocation, sendCode } = await startEmailVerification(
+    agent,
+    emailSender,
+    "email-verify-cooldown"
+  );
+  const resendCsrf = extractCsrf(sendCode.text);
+  const resend = await agent
+    .post(profileLocation)
+    .type("form")
+    .send({
+      csrf: resendCsrf,
+      action: "send_code",
+      email: "demo@example.com"
+    });
+  assert.equal(resend.status, 429);
+  assert.match(resend.text, /秒后再重试发送/);
   await state.store.close();
 });
 
@@ -1465,5 +1658,29 @@ test("config rejects OIDC_RATE_LIMIT_FAIL_CLOSED=false in production", () => {
         })
       ),
     /OIDC_RATE_LIMIT_FAIL_CLOSED must be true when APP_ENV=production/
+  );
+});
+
+test("config rejects missing RESEND_API_KEY in production when email verification enabled", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig(
+        createProductionConfigEnv({
+          RESEND_API_KEY: undefined
+        })
+      ),
+    /RESEND_API_KEY is required when APP_ENV=production and email verification is enabled/
+  );
+});
+
+test("config rejects missing OIDC_EMAIL_FROM in production when email verification enabled", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig(
+        createProductionConfigEnv({
+          OIDC_EMAIL_FROM: undefined
+        })
+      ),
+    /OIDC_EMAIL_FROM is required when APP_ENV=production and email verification is enabled/
   );
 });

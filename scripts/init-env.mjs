@@ -51,13 +51,17 @@ const profileReplacements = {
     APP_ENV: "development",
     OIDC_ISSUER: "https://verify.local",
     OIDC_COOKIE_SECURE: "true",
-    SERVER_NAME: "verify.local"
+    SERVER_NAME: "verify.local",
+    OIDC_EMAIL_VERIFICATION_ENABLED: "true",
+    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>"
   },
   test: {
     APP_ENV: "test",
     OIDC_ISSUER: "http://localhost",
     OIDC_COOKIE_SECURE: "false",
-    SERVER_NAME: "localhost"
+    SERVER_NAME: "localhost",
+    OIDC_EMAIL_VERIFICATION_ENABLED: "true",
+    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>"
   }
 };
 
