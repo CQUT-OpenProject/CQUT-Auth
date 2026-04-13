@@ -1802,6 +1802,17 @@ test("config defaults AUTH_PROVIDER to cqut", () => {
   assert.equal(config.artifactOpportunisticCleanupEnabled, false);
 });
 
+test("config allows AUTH_PROVIDER=mock in test", () => {
+  const config = readOidcOpConfig({
+    APP_ENV: "test",
+    AUTH_PROVIDER: "mock",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+  });
+  assert.equal(config.authProvider, "mock");
+});
+
 test("config defaults email verification global rate limits to strict profile", () => {
   const config = readOidcOpConfig({
     APP_ENV: "test",
@@ -1971,7 +1982,19 @@ test("config allows loopback http issuer in test", () => {
   assert.equal(config.issuer, "http://127.0.0.1:3003");
 });
 
-test("config rejects AUTH_PROVIDER=mock in production", () => {
+test("config rejects AUTH_PROVIDER=mock outside test", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig({
+        APP_ENV: "development",
+        OIDC_ISSUER: "https://localhost:3003",
+        AUTH_PROVIDER: "mock",
+        OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
+        OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
+        OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+      }),
+    /AUTH_PROVIDER=mock is only allowed when APP_ENV=test/
+  );
   assert.throws(
     () =>
       readOidcOpConfig({
@@ -1982,7 +2005,7 @@ test("config rejects AUTH_PROVIDER=mock in production", () => {
         OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
       }),
-    /AUTH_PROVIDER=mock is not allowed in production/
+    /AUTH_PROVIDER=mock is only allowed when APP_ENV=test/
   );
 });
 

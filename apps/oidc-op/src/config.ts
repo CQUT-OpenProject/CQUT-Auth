@@ -312,8 +312,8 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     throw new Error("OIDC_ARTIFACT_CLEANUP_BATCH_SIZE must be a positive integer");
   }
   const authProvider = env["AUTH_PROVIDER"] ?? "cqut";
-  if (isProduction && authProvider === "mock") {
-    throw new Error("AUTH_PROVIDER=mock is not allowed in production");
+  if (authProvider === "mock" && appEnv !== "test") {
+    throw new Error("AUTH_PROVIDER=mock is only allowed when APP_ENV=test");
   }
   if (isProduction) {
     if (parsedCookieKeys.length === 0) {
