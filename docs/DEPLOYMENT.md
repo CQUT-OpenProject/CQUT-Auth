@@ -65,6 +65,8 @@ pnpm init-env --force --profile <production|local|test>
 
 - `--with-certs`：test 配置下也生成证书
 - `--skip-certs`：跳过证书生成
+- `--issuer <https://auth.example.com[:port]>`：覆盖生成的 `OIDC_ISSUER` 与 `SERVER_NAME`
+- `--demo-base-url <https://demo.example.com>`：同步生成 `deploy/oidc-clients.json` 中的登录回调与登出回跳地址
 
 注意：
 

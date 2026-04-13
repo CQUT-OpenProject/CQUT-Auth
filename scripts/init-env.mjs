@@ -21,6 +21,8 @@ const printToStdout = args.includes("--stdout");
 const skipCerts = args.includes("--skip-certs");
 const withCerts = args.includes("--with-certs");
 const profile = getArgValue("--profile") ?? "production";
+const demoBaseUrl = normalizeOptionalAbsoluteUrl(getArgValue("--demo-base-url"));
+const issuerOverride = normalizeOptionalAbsoluteUrl(getArgValue("--issuer"));
 
 if (!allowedProfiles.has(profile)) {
   throw new Error("--profile must be one of: production, local, test");
@@ -49,17 +51,17 @@ const profileReplacements = {
   production: {},
   local: {
     APP_ENV: "development",
-    OIDC_ISSUER: "https://verify.local",
+    OIDC_ISSUER: issuerOverride ?? "https://verify.local",
     OIDC_COOKIE_SECURE: "true",
-    SERVER_NAME: "verify.local",
+    SERVER_NAME: deriveServerName(issuerOverride ?? "https://verify.local"),
     OIDC_EMAIL_VERIFICATION_ENABLED: "true",
     OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>"
   },
   test: {
     APP_ENV: "test",
-    OIDC_ISSUER: "http://localhost",
+    OIDC_ISSUER: issuerOverride ?? "http://localhost",
     OIDC_COOKIE_SECURE: "false",
-    SERVER_NAME: "localhost",
+    SERVER_NAME: deriveServerName(issuerOverride ?? "http://localhost"),
     OIDC_EMAIL_VERIFICATION_ENABLED: "true",
     OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>"
   }
@@ -67,7 +69,13 @@ const profileReplacements = {
 
 const replacements = {
   ...randomReplacements,
-  ...profileReplacements[profile]
+  ...profileReplacements[profile],
+  ...(issuerOverride
+    ? {
+        OIDC_ISSUER: issuerOverride,
+        SERVER_NAME: deriveServerName(issuerOverride)
+      }
+    : {})
 };
 
 const template = readFileSync(templatePath, "utf8");
@@ -132,18 +140,12 @@ function writeClientsConfig(targetPath) {
     throw new Error("deploy/oidc-clients.json.example must contain at least one client template");
   }
   const baseClient = parsedTemplate.clients[0];
-  const redirectUri =
-    profile === "test"
-      ? "http://localhost:3002/callback"
-      : profile === "local"
-        ? "https://localhost:3002/callback"
-        : "https://demo.xxx.com/callback";
-  const postLogoutRedirectUri =
-    profile === "test"
-      ? "http://localhost:3002/logout-complete"
-      : profile === "local"
-        ? "https://localhost:3002/logout-complete"
-        : "https://demo.xxx.com/logout-complete";
+  const resolvedDemoBaseUrl = demoBaseUrl ?? defaultDemoBaseUrlForProfile(profile);
+  const redirectUri = new URL("/callback", ensureTrailingSlash(resolvedDemoBaseUrl)).toString();
+  const postLogoutRedirectUri = new URL(
+    "/logout-complete",
+    ensureTrailingSlash(resolvedDemoBaseUrl)
+  ).toString();
 
   const renderedClients = {
     clients: [
@@ -222,6 +224,31 @@ function getArgValue(flag) {
 
 function randomToken(bytes) {
   return randomBytes(bytes).toString("base64url");
+}
+
+function normalizeOptionalAbsoluteUrl(value) {
+  if (!value) {
+    return undefined;
+  }
+  return new URL(value).toString().replace(/\/$/, "");
+}
+
+function ensureTrailingSlash(value) {
+  return value.endsWith("/") ? value : `${value}/`;
+}
+
+function deriveServerName(issuer) {
+  return new URL(issuer).hostname;
+}
+
+function defaultDemoBaseUrlForProfile(profile) {
+  if (profile === "test") {
+    return "http://localhost:3002";
+  }
+  if (profile === "local") {
+    return "https://localhost:3002";
+  }
+  return "https://demo.xxx.com";
 }
 
 function createClientSecretDigest(secret) {
