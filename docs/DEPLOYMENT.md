@@ -27,6 +27,11 @@
 - `deploy/certs/`：TLS 证书目录
 - `scripts/init-db.sql`：数据库初始化脚本
 
+## 单一配置源约束
+
+- OIDC 仓仅保留 `deploy/.env.example` 作为唯一环境模板来源
+- 初始化与修改仅操作 `deploy/.env`（由 `deploy/.env.example` 派生）
+
 ## 环境准备
 
 需要安装：

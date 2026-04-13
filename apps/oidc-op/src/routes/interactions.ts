@@ -2,10 +2,22 @@ import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { IdentityCoreError } from "@cqut/identity-core";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
-import { RateLimitUnavailableError, type RateLimitService } from "../persistence/rate-limit.service.js";
+import {
+  RateLimitUnavailableError,
+  type RateLimitDecision,
+  type RateLimitService
+} from "../persistence/rate-limit.service.js";
 import type { OidcPersistence, PendingInteractionLogin } from "../persistence/contracts.js";
 import type { OidcServices } from "../oidc/provider.js";
-import { base64Url, escapeHtml, isValidEmail, parseCookies, randomId, sha256Base64Url } from "../utils.js";
+import {
+  base64Url,
+  escapeHtml,
+  isValidEmail,
+  parseCookies,
+  randomId,
+  sha256,
+  sha256Base64Url
+} from "../utils.js";
 
 function setNoStore(response: Response) {
   response.setHeader("Cache-Control", "no-store");
@@ -389,6 +401,68 @@ function loginFailureKey(ip: string, account: string) {
   return `oidc:login-failure:${ip}:${account}`;
 }
 
+function emailVerifySubjectRateLimitKey(subjectId: string) {
+  return `oidc:email-verify:subject:${subjectId}`;
+}
+
+function emailVerifyEmailRateLimitKey(email: string) {
+  return `oidc:email-verify:email:${sha256(email)}`;
+}
+
+function emailVerifyDomainRateLimitKey(emailDomain: string) {
+  return `oidc:email-verify:domain:${sha256(emailDomain)}`;
+}
+
+function emailVerifyIpRateLimitKey(ip: string) {
+  return `oidc:email-verify:ip:${ip}`;
+}
+
+function getEmailDomain(email: string) {
+  const at = email.lastIndexOf("@");
+  return at >= 0 ? email.slice(at + 1) : "";
+}
+
+async function consumeEmailVerifyRateLimit(
+  config: OidcOpConfig,
+  rateLimitService: RateLimitService,
+  identity: {
+    subjectId: string;
+    email: string;
+    emailDomain: string;
+    ip: string;
+  }
+): Promise<RateLimitDecision | undefined> {
+  const checks: Array<{ key: string; max: number; windowSeconds: number }> = [
+    {
+      key: emailVerifySubjectRateLimitKey(identity.subjectId),
+      max: config.emailVerifyRateLimitSubjectMax,
+      windowSeconds: config.emailVerifyRateLimitSubjectWindowSeconds
+    },
+    {
+      key: emailVerifyEmailRateLimitKey(identity.email),
+      max: config.emailVerifyRateLimitEmailMax,
+      windowSeconds: config.emailVerifyRateLimitEmailWindowSeconds
+    },
+    {
+      key: emailVerifyDomainRateLimitKey(identity.emailDomain),
+      max: config.emailVerifyRateLimitDomainMax,
+      windowSeconds: config.emailVerifyRateLimitDomainWindowSeconds
+    },
+    {
+      key: emailVerifyIpRateLimitKey(identity.ip),
+      max: config.emailVerifyRateLimitIpMax,
+      windowSeconds: config.emailVerifyRateLimitIpWindowSeconds
+    }
+  ];
+  for (const check of checks) {
+    const decision = await rateLimitService.consume(check.key, check.max, check.windowSeconds);
+    if (!decision.allowed) {
+      return decision;
+    }
+  }
+  return undefined;
+}
+
 function serviceUnavailableView() {
   return renderPage(
     "服务暂不可用",
@@ -671,6 +745,48 @@ export function createInteractionRouter(
               email,
               error: `请在 ${pending.emailVerification.nextResendAt - now} 秒后再重试发送。`,
               resendCooldownSeconds: pending.emailVerification.nextResendAt - now
+            })
+          );
+          return;
+        }
+
+        const ip = request.ip ?? request.socket.remoteAddress ?? "unknown";
+        const emailDomain = getEmailDomain(email);
+        let globalRateLimitDecision: RateLimitDecision | undefined;
+        try {
+          globalRateLimitDecision = await consumeEmailVerifyRateLimit(config, rateLimitService, {
+            subjectId: pending.principal.subjectId,
+            email,
+            emailDomain,
+            ip
+          });
+        } catch (error) {
+          if (error instanceof RateLimitUnavailableError) {
+            response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
+            return;
+          }
+          throw error;
+        }
+        if (globalRateLimitDecision && !globalRateLimitDecision.allowed) {
+          const retryAfterSeconds = globalRateLimitDecision.retryAfterSeconds;
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.setHeader("Retry-After", String(retryAfterSeconds));
+          const errorMessage = `发送过于频繁，请在 ${retryAfterSeconds} 秒后再试。`;
+          if (pending.emailVerification && pending.emailVerification.email === email) {
+            response.status(429).send(
+              profileVerifyCodeView(uid, csrf, {
+                email,
+                error: errorMessage,
+                resendCooldownSeconds: retryAfterSeconds
+              })
+            );
+            return;
+          }
+          response.status(429).send(
+            profileEmailView(uid, csrf, {
+              email,
+              error: errorMessage,
+              verificationEnabled: true
             })
           );
           return;

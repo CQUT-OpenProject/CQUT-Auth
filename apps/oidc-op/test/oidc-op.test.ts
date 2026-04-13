@@ -415,6 +415,23 @@ async function startEmailVerification(
   state: string,
   email = "demo@example.com"
 ) {
+  const { interactionUid, profileLocation, sendCode } = await sendEmailVerificationCode(
+    agent,
+    state,
+    email
+  );
+  assert.equal(sendCode.status, 200);
+  const code = emailSender.latestCode(interactionUid, email);
+  assert.equal(typeof code, "string");
+  return {
+    profileLocation,
+    interactionUid,
+    code: code as string,
+    sendCode
+  };
+}
+
+async function sendEmailVerificationCode(agent: any, state: string, email: string) {
   const { interactionLocation, loginPage } = await openLoginInteraction(agent, state);
   const interactionUid = extractInteractionUid(interactionLocation);
   const loginCsrf = extractCsrf(loginPage.text);
@@ -440,13 +457,9 @@ async function startEmailVerification(
       action: "send_code",
       email
     });
-  assert.equal(sendCode.status, 200);
-  const code = emailSender.latestCode(interactionUid, email);
-  assert.equal(typeof code, "string");
   return {
-    profileLocation,
     interactionUid,
-    code: code as string,
+    profileLocation,
     sendCode
   };
 }
@@ -1215,6 +1228,86 @@ test("email verification resend is blocked during cooldown window", async () => 
   await state.store.close();
 });
 
+test("email verification global rate limit blocks by subjectId across interactions", async () => {
+  const { app, state, emailSender } = await createTestApp({
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "1",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "10"
+  });
+  const agent = request.agent(app);
+  const first = await sendEmailVerificationCode(agent, "email-verify-subject-limit-first", "first@alpha.example.com");
+  assert.equal(first.sendCode.status, 200);
+  assert.equal(emailSender.sentVerifications.length, 1);
+
+  const second = await sendEmailVerificationCode(agent, "email-verify-subject-limit-second", "second@beta.example.com");
+  assert.equal(second.sendCode.status, 429);
+  assert.equal(second.sendCode.headers["retry-after"], "600");
+  assert.match(second.sendCode.text, /发送过于频繁/);
+  assert.equal(emailSender.sentVerifications.length, 1);
+  await state.store.close();
+});
+
+test("email verification global rate limit blocks by target email across interactions", async () => {
+  const { app, state, emailSender } = await createTestApp({
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "1",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "10"
+  });
+  const agent = request.agent(app);
+  const first = await sendEmailVerificationCode(agent, "email-verify-email-limit-first", "victim@example.com");
+  assert.equal(first.sendCode.status, 200);
+  assert.equal(emailSender.sentVerifications.length, 1);
+
+  const second = await sendEmailVerificationCode(agent, "email-verify-email-limit-second", "victim@example.com");
+  assert.equal(second.sendCode.status, 429);
+  assert.equal(second.sendCode.headers["retry-after"], "600");
+  assert.match(second.sendCode.text, /发送过于频繁/);
+  assert.equal(emailSender.sentVerifications.length, 1);
+  await state.store.close();
+});
+
+test("email verification global rate limit blocks by target domain across interactions", async () => {
+  const { app, state, emailSender } = await createTestApp({
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "1",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "10"
+  });
+  const agent = request.agent(app);
+  const first = await sendEmailVerificationCode(agent, "email-verify-domain-limit-first", "first@target.example.com");
+  assert.equal(first.sendCode.status, 200);
+  assert.equal(emailSender.sentVerifications.length, 1);
+
+  const second = await sendEmailVerificationCode(agent, "email-verify-domain-limit-second", "second@target.example.com");
+  assert.equal(second.sendCode.status, 429);
+  assert.equal(second.sendCode.headers["retry-after"], "600");
+  assert.match(second.sendCode.text, /发送过于频繁/);
+  assert.equal(emailSender.sentVerifications.length, 1);
+  await state.store.close();
+});
+
+test("email verification global rate limit blocks by source ip across interactions", async () => {
+  const { app, state, emailSender } = await createTestApp({
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "1"
+  });
+  const agent = request.agent(app);
+  const first = await sendEmailVerificationCode(agent, "email-verify-ip-limit-first", "first@ip-a.example.com");
+  assert.equal(first.sendCode.status, 200);
+  assert.equal(emailSender.sentVerifications.length, 1);
+
+  const second = await sendEmailVerificationCode(agent, "email-verify-ip-limit-second", "second@ip-b.example.com");
+  assert.equal(second.sendCode.status, 429);
+  assert.equal(second.sendCode.headers["retry-after"], "600");
+  assert.match(second.sendCode.text, /发送过于频繁/);
+  assert.equal(emailSender.sentVerifications.length, 1);
+  await state.store.close();
+});
+
 test("OIDC error page returns generic message only", async () => {
   const { app, state } = await createTestApp();
   const response = await request(app).get("/auth");
@@ -1474,6 +1567,53 @@ test("config defaults AUTH_PROVIDER to cqut", () => {
   assert.equal(config.csrfSigningSecret, "test-oidc-key-secret");
   assert.equal(config.signingKeyRefreshIntervalSeconds, 30);
   assert.equal(config.artifactOpportunisticCleanupEnabled, false);
+});
+
+test("config defaults email verification global rate limits to strict profile", () => {
+  const config = readOidcOpConfig({
+    APP_ENV: "test",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+  });
+  assert.equal(config.emailVerifyRateLimitSubjectMax, 4);
+  assert.equal(config.emailVerifyRateLimitSubjectWindowSeconds, 600);
+  assert.equal(config.emailVerifyRateLimitEmailMax, 2);
+  assert.equal(config.emailVerifyRateLimitEmailWindowSeconds, 600);
+  assert.equal(config.emailVerifyRateLimitDomainMax, 12);
+  assert.equal(config.emailVerifyRateLimitDomainWindowSeconds, 600);
+  assert.equal(config.emailVerifyRateLimitIpMax, 12);
+  assert.equal(config.emailVerifyRateLimitIpWindowSeconds, 600);
+});
+
+test("config rejects non-positive email verification global rate limit values", () => {
+  const baseEnv: NodeJS.ProcessEnv = {
+    APP_ENV: "test",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+  };
+  const keys = [
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX",
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_WINDOW_SECONDS",
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX",
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_WINDOW_SECONDS",
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX",
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_WINDOW_SECONDS",
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX",
+    "OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_WINDOW_SECONDS"
+  ] as const;
+
+  for (const key of keys) {
+    assert.throws(
+      () =>
+        readOidcOpConfig({
+          ...baseEnv,
+          [key]: "0"
+        }),
+      new RegExp(`${key} must be a positive integer`)
+    );
+  }
 });
 
 test("config allows explicitly enabling opportunistic cleanup", () => {

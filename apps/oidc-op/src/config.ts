@@ -12,6 +12,14 @@ export type OidcOpConfig = {
   emailVerifyCodeTtlSeconds: number;
   emailVerifyResendCooldownSeconds: number;
   emailVerifyMaxAttempts: number;
+  emailVerifyRateLimitSubjectMax: number;
+  emailVerifyRateLimitSubjectWindowSeconds: number;
+  emailVerifyRateLimitEmailMax: number;
+  emailVerifyRateLimitEmailWindowSeconds: number;
+  emailVerifyRateLimitDomainMax: number;
+  emailVerifyRateLimitDomainWindowSeconds: number;
+  emailVerifyRateLimitIpMax: number;
+  emailVerifyRateLimitIpWindowSeconds: number;
   providerTimeoutMs: number;
   providerTotalTimeoutMs: number;
   cqutUisBaseUrl: string;
@@ -111,6 +119,28 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     env["OIDC_EMAIL_VERIFY_RESEND_COOLDOWN_SECONDS"] ?? 60
   );
   const emailVerifyMaxAttempts = Number(env["OIDC_EMAIL_VERIFY_MAX_ATTEMPTS"] ?? 5);
+  const emailVerifyRateLimitSubjectMax = Number(
+    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX"] ?? 4
+  );
+  const emailVerifyRateLimitSubjectWindowSeconds = Number(
+    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_WINDOW_SECONDS"] ?? 600
+  );
+  const emailVerifyRateLimitEmailMax = Number(
+    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX"] ?? 2
+  );
+  const emailVerifyRateLimitEmailWindowSeconds = Number(
+    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_WINDOW_SECONDS"] ?? 600
+  );
+  const emailVerifyRateLimitDomainMax = Number(
+    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX"] ?? 12
+  );
+  const emailVerifyRateLimitDomainWindowSeconds = Number(
+    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_WINDOW_SECONDS"] ?? 600
+  );
+  const emailVerifyRateLimitIpMax = Number(env["OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX"] ?? 12);
+  const emailVerifyRateLimitIpWindowSeconds = Number(
+    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_WINDOW_SECONDS"] ?? 600
+  );
   const keyEncryptionSecret = requireSecret(env, "OIDC_KEY_ENCRYPTION_SECRET", appEnv === "test");
   const artifactEncryptionSecret = requireSecret(
     env,
@@ -178,6 +208,46 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   }
   if (!Number.isInteger(emailVerifyMaxAttempts) || emailVerifyMaxAttempts <= 0) {
     throw new Error("OIDC_EMAIL_VERIFY_MAX_ATTEMPTS must be a positive integer");
+  }
+  if (!Number.isInteger(emailVerifyRateLimitSubjectMax) || emailVerifyRateLimitSubjectMax <= 0) {
+    throw new Error("OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX must be a positive integer");
+  }
+  if (
+    !Number.isInteger(emailVerifyRateLimitSubjectWindowSeconds) ||
+    emailVerifyRateLimitSubjectWindowSeconds <= 0
+  ) {
+    throw new Error(
+      "OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_WINDOW_SECONDS must be a positive integer"
+    );
+  }
+  if (!Number.isInteger(emailVerifyRateLimitEmailMax) || emailVerifyRateLimitEmailMax <= 0) {
+    throw new Error("OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX must be a positive integer");
+  }
+  if (
+    !Number.isInteger(emailVerifyRateLimitEmailWindowSeconds) ||
+    emailVerifyRateLimitEmailWindowSeconds <= 0
+  ) {
+    throw new Error("OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_WINDOW_SECONDS must be a positive integer");
+  }
+  if (!Number.isInteger(emailVerifyRateLimitDomainMax) || emailVerifyRateLimitDomainMax <= 0) {
+    throw new Error("OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX must be a positive integer");
+  }
+  if (
+    !Number.isInteger(emailVerifyRateLimitDomainWindowSeconds) ||
+    emailVerifyRateLimitDomainWindowSeconds <= 0
+  ) {
+    throw new Error(
+      "OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_WINDOW_SECONDS must be a positive integer"
+    );
+  }
+  if (!Number.isInteger(emailVerifyRateLimitIpMax) || emailVerifyRateLimitIpMax <= 0) {
+    throw new Error("OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX must be a positive integer");
+  }
+  if (
+    !Number.isInteger(emailVerifyRateLimitIpWindowSeconds) ||
+    emailVerifyRateLimitIpWindowSeconds <= 0
+  ) {
+    throw new Error("OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_WINDOW_SECONDS must be a positive integer");
   }
   const csrfTokenTtlSeconds = Math.min(csrfTokenTtlRaw, interactionTtlSeconds);
 
@@ -290,6 +360,14 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     emailVerifyCodeTtlSeconds,
     emailVerifyResendCooldownSeconds,
     emailVerifyMaxAttempts,
+    emailVerifyRateLimitSubjectMax,
+    emailVerifyRateLimitSubjectWindowSeconds,
+    emailVerifyRateLimitEmailMax,
+    emailVerifyRateLimitEmailWindowSeconds,
+    emailVerifyRateLimitDomainMax,
+    emailVerifyRateLimitDomainWindowSeconds,
+    emailVerifyRateLimitIpMax,
+    emailVerifyRateLimitIpWindowSeconds,
     providerTimeoutMs: Number(env["PROVIDER_TIMEOUT_MS"] ?? 10000),
     providerTotalTimeoutMs: Number(env["PROVIDER_TOTAL_TIMEOUT_MS"] ?? 20000),
     cqutUisBaseUrl: (env["CQUT_UIS_BASE_URL"] ?? "https://uis.cqut.edu.cn").replace(/\/$/, ""),
