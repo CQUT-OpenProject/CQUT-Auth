@@ -15,6 +15,7 @@ import oidcProviderInstance from "oidc-provider/lib/helpers/weak_cache.js";
 import type { OidcOpConfig } from "../config.js";
 import type { OidcPersistence, OidcSigningKeyRecord } from "../persistence/contracts.js";
 import { RateLimitService, RateLimitUnavailableError } from "../persistence/rate-limit.service.js";
+import { resolveTrustedKoaRequestIp } from "../request-ip.js";
 import { createAdapter } from "./adapter.js";
 import { verifyClientSecretDigest } from "../crypto.js";
 import { randomId, parseScope, escapeHtml } from "../utils.js";
@@ -47,6 +48,7 @@ type TokenRateLimitIdentity = {
   source: TokenRateLimitIdentitySource;
   clientId: string;
   ip: string;
+  subjectId?: string;
 };
 
 class TokenRateLimitError extends Error {
@@ -119,12 +121,21 @@ function resolveBasicClientId(ctx: any): string | undefined {
   return undefined;
 }
 
-function resolveRequestIp(ctx: any) {
-  return ctx.ip ?? ctx.req?.socket?.remoteAddress ?? "unknown";
+function resolveRequestIp(config: Pick<OidcOpConfig, "trustProxyHops">, ctx: any) {
+  return resolveTrustedKoaRequestIp(config, ctx);
 }
 
-function createTokenRateLimitKey(identity: TokenRateLimitIdentity) {
-  return `oidc:token:${identity.source}:${identity.clientId}:${identity.ip}`;
+function createTokenRateLimitKeys(identity: TokenRateLimitIdentity) {
+  const scope = `oidc:token:${identity.source}`;
+  const keys = [
+    `${scope}:client:${identity.clientId}`,
+    `${scope}:ip:${identity.ip}`,
+    `${scope}:client-ip:${identity.clientId}:${identity.ip}`
+  ];
+  if (identity.subjectId) {
+    keys.push(`${scope}:subject:${identity.subjectId}`);
+  }
+  return keys;
 }
 
 function shouldRateLimitAnonymousTokenResponse(ctx: any) {
@@ -142,16 +153,24 @@ function resolveClientRateLimitSource(clientAuthMethod: unknown): Extract<TokenR
 async function evaluateTokenRateLimit(
   config: OidcOpConfig,
   rateLimitService: RateLimitService,
+  ctx: any,
   identity: TokenRateLimitIdentity
 ) {
+  const appliedKeys: Set<string> = ctx.state.tokenRateLimitAppliedKeys ??= new Set<string>();
   try {
-    const decision = await rateLimitService.consume(
-      createTokenRateLimitKey(identity),
-      config.tokenRateLimitMax,
-      config.tokenRateLimitWindowSeconds
-    );
-    if (!decision.allowed) {
-      return new TokenRateLimitError(429, "rate_limited", "token endpoint rate limit exceeded", decision.retryAfterSeconds);
+    for (const key of createTokenRateLimitKeys(identity)) {
+      if (appliedKeys.has(key)) {
+        continue;
+      }
+      const decision = await rateLimitService.consume(
+        key,
+        config.tokenRateLimitMax,
+        config.tokenRateLimitWindowSeconds
+      );
+      appliedKeys.add(key);
+      if (!decision.allowed) {
+        return new TokenRateLimitError(429, "rate_limited", "token endpoint rate limit exceeded", decision.retryAfterSeconds);
+      }
     }
   } catch (error) {
     if (error instanceof RateLimitUnavailableError) {
@@ -160,6 +179,11 @@ async function evaluateTokenRateLimit(
     throw error;
   }
   return undefined;
+}
+
+function resolveSubjectRateLimitIdentity(ctx: any): string | undefined {
+  const accountId = ctx.oidc?.session?.accountId;
+  return typeof accountId === "string" && accountId.trim().length > 0 ? accountId : undefined;
 }
 
 function isTokenRequestPath(pathname: string, tokenPath: string) {
@@ -190,10 +214,10 @@ function createTokenRateLimitMiddleware(
       return;
     }
 
-    const ip = resolveRequestIp(ctx);
+    const ip = resolveRequestIp(config, ctx);
     const basicClientId = resolveBasicClientId(ctx);
     if (basicClientId) {
-      const basicRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, {
+      const basicRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, ctx, {
         source: "client_secret_basic",
         clientId: basicClientId,
         ip
@@ -202,16 +226,16 @@ function createTokenRateLimitMiddleware(
         replyWithTokenError(ctx, basicRateLimitError);
         return;
       }
-      ctx.state.tokenRateLimitAlreadyApplied = true;
+      ctx.state.tokenRateLimitClientIdentitySeen = true;
     }
 
     await next();
 
     const resolvedClientId = normalizeClientId(ctx.oidc?.client?.clientId);
-    if (ctx.state.tokenRateLimitAlreadyApplied || resolvedClientId || !shouldRateLimitAnonymousTokenResponse(ctx)) {
+    if (ctx.state.tokenRateLimitClientIdentitySeen || resolvedClientId || !shouldRateLimitAnonymousTokenResponse(ctx)) {
       return;
     }
-    const anonymousRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, {
+    const anonymousRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, ctx, {
       source: "anonymous",
       clientId: "unauthenticated",
       ip
@@ -230,19 +254,18 @@ function wrapTokenGrantHandlersWithRateLimit(provider: any, config: OidcOpConfig
       continue;
     }
     const wrappedHandler = async (ctx: any) => {
-      if (!ctx.state.tokenRateLimitAlreadyApplied) {
-        const clientId = normalizeClientId(ctx.oidc?.client?.clientId);
-        if (clientId) {
-          const clientRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, {
-            source: resolveClientRateLimitSource(ctx.oidc.client.clientAuthMethod),
-            clientId,
-            ip: resolveRequestIp(ctx)
-          });
-          if (clientRateLimitError) {
-            replyWithTokenError(ctx, clientRateLimitError);
-            return;
-          }
-          ctx.state.tokenRateLimitAlreadyApplied = true;
+      const clientId = normalizeClientId(ctx.oidc?.client?.clientId);
+      if (clientId) {
+        const subjectId = resolveSubjectRateLimitIdentity(ctx);
+        const clientRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, ctx, {
+          source: resolveClientRateLimitSource(ctx.oidc.client.clientAuthMethod),
+          clientId,
+          ip: resolveRequestIp(config, ctx),
+          ...(subjectId ? { subjectId } : {})
+        });
+        if (clientRateLimitError) {
+          replyWithTokenError(ctx, clientRateLimitError);
+          return;
         }
       }
       return handler(ctx);

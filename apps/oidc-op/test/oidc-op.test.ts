@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -121,6 +121,16 @@ function normalizeActionPath(action: string) {
     return `${url.pathname}${url.search}`;
   }
   return action;
+}
+
+function withHeaders(testRequest: request.Test, headers?: Record<string, string>) {
+  if (!headers) {
+    return testRequest;
+  }
+  for (const [name, value] of Object.entries(headers)) {
+    testRequest.set(name, value);
+  }
+  return testRequest;
 }
 
 async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
@@ -431,32 +441,31 @@ async function startEmailVerification(
   };
 }
 
-async function sendEmailVerificationCode(agent: any, state: string, email: string) {
-  const { interactionLocation, loginPage } = await openLoginInteraction(agent, state);
+async function sendEmailVerificationCode(
+  agent: any,
+  state: string,
+  email: string,
+  headers?: Record<string, string>
+) {
+  const { interactionLocation, loginPage } = await openLoginInteraction(agent, state, headers);
   const interactionUid = extractInteractionUid(interactionLocation);
   const loginCsrf = extractCsrf(loginPage.text);
-  const login = await agent
-    .post(`${interactionLocation}/login`)
-    .type("form")
-    .send({
-      csrf: loginCsrf,
-      account: TEST_LOGIN_ACCOUNT,
-      password: TEST_LOGIN_PASSWORD
-    });
+  const login = await withHeaders(agent.post(`${interactionLocation}/login`), headers).type("form").send({
+    csrf: loginCsrf,
+    account: TEST_LOGIN_ACCOUNT,
+    password: TEST_LOGIN_PASSWORD
+  });
   assert.equal(login.status, 302);
   assert.match(login.headers["location"] as string, /\/interaction\/.+\/profile/);
   const profileLocation = login.headers["location"] as string;
-  const profilePage = await agent.get(profileLocation);
+  const profilePage = await withHeaders(agent.get(profileLocation), headers);
   assert.equal(profilePage.status, 200);
   const profileCsrf = extractCsrf(profilePage.text);
-  const sendCode = await agent
-    .post(profileLocation)
-    .type("form")
-    .send({
-      csrf: profileCsrf,
-      action: "send_code",
-      email
-    });
+  const sendCode = await withHeaders(agent.post(profileLocation), headers).type("form").send({
+    csrf: profileCsrf,
+    action: "send_code",
+    email
+  });
   return {
     interactionUid,
     profileLocation,
@@ -464,8 +473,8 @@ async function sendEmailVerificationCode(agent: any, state: string, email: strin
   };
 }
 
-async function openLoginInteraction(agent: any, state = "login-state-1") {
-  const authorize = await agent.get("/auth").query({
+async function openLoginInteraction(agent: any, state = "login-state-1", headers?: Record<string, string>) {
+  const authorize = await withHeaders(agent.get("/auth"), headers).query({
     client_id: "demo-site",
     redirect_uri: TEST_REDIRECT_URI,
     response_type: "code",
@@ -478,7 +487,7 @@ async function openLoginInteraction(agent: any, state = "login-state-1") {
   });
   assert.ok(authorize.status === 302 || authorize.status === 303);
   const interactionLocation = authorize.headers["location"] as string;
-  const loginPage = await agent.get(interactionLocation);
+  const loginPage = await withHeaders(agent.get(interactionLocation), headers);
   assert.equal(loginPage.status, 200);
   return {
     interactionLocation,
@@ -1150,6 +1159,134 @@ test("interactive login failure does not expose internal error details", async (
   await state.store.close();
 });
 
+test("interactive login failure rate limit blocks repeated attempts for the same account across trusted proxy ips", async () => {
+  const { app, state } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
+    OIDC_LOGIN_FAILURE_LIMIT: "2"
+  });
+  const agent = request.agent(app);
+  const account = "rate-limit-account";
+
+  const firstInteraction = await openLoginInteraction(agent, "login-account-limit-1", {
+    "X-Forwarded-For": "198.51.100.1"
+  });
+  const first = await withHeaders(agent.post(`${firstInteraction.interactionLocation}/login`), {
+    "X-Forwarded-For": "198.51.100.1"
+  })
+    .type("form")
+    .send({ csrf: extractCsrf(firstInteraction.loginPage.text), account, password: TEST_WRONG_LOGIN_PASSWORD });
+
+  const secondInteraction = await openLoginInteraction(agent, "login-account-limit-2", {
+    "X-Forwarded-For": "198.51.100.2"
+  });
+  const second = await withHeaders(agent.post(`${secondInteraction.interactionLocation}/login`), {
+    "X-Forwarded-For": "198.51.100.2"
+  })
+    .type("form")
+    .send({ csrf: extractCsrf(secondInteraction.loginPage.text), account, password: TEST_WRONG_LOGIN_PASSWORD });
+
+  const thirdInteraction = await openLoginInteraction(agent, "login-account-limit-3", {
+    "X-Forwarded-For": "198.51.100.3"
+  });
+  const third = await withHeaders(agent.post(`${thirdInteraction.interactionLocation}/login`), {
+    "X-Forwarded-For": "198.51.100.3"
+  })
+    .type("form")
+    .send({ csrf: extractCsrf(thirdInteraction.loginPage.text), account, password: TEST_WRONG_LOGIN_PASSWORD });
+
+  assert.equal(first.status, 401);
+  assert.equal(second.status, 401);
+  assert.equal(third.status, 429);
+  await state.store.close();
+});
+
+test("interactive login failure rate limit blocks sprays from the same trusted proxy ip across accounts", async () => {
+  const { app, state } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
+    OIDC_LOGIN_FAILURE_LIMIT: "2"
+  });
+  const agent = request.agent(app);
+  const headers = { "X-Forwarded-For": "198.51.100.10" };
+
+  const firstInteraction = await openLoginInteraction(agent, "login-ip-limit-1", headers);
+  const first = await withHeaders(agent.post(`${firstInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(firstInteraction.loginPage.text), account: "spray-account-a", password: TEST_WRONG_LOGIN_PASSWORD });
+
+  const secondInteraction = await openLoginInteraction(agent, "login-ip-limit-2", headers);
+  const second = await withHeaders(agent.post(`${secondInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(secondInteraction.loginPage.text), account: "spray-account-b", password: TEST_WRONG_LOGIN_PASSWORD });
+
+  const thirdInteraction = await openLoginInteraction(agent, "login-ip-limit-3", headers);
+  const third = await withHeaders(agent.post(`${thirdInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(thirdInteraction.loginPage.text), account: "spray-account-c", password: TEST_WRONG_LOGIN_PASSWORD });
+
+  assert.equal(first.status, 401);
+  assert.equal(second.status, 401);
+  assert.equal(third.status, 429);
+  await state.store.close();
+});
+
+test("interactive login failure rate limit blocks repeated attempts for the same account and trusted proxy ip", async () => {
+  const { app, state } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
+    OIDC_LOGIN_FAILURE_LIMIT: "1"
+  });
+  const agent = request.agent(app);
+  const headers = { "X-Forwarded-For": "198.51.100.20" };
+
+  const firstInteraction = await openLoginInteraction(agent, "login-account-ip-limit-1", headers);
+  const first = await withHeaders(agent.post(`${firstInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(firstInteraction.loginPage.text), account: "combo-account", password: TEST_WRONG_LOGIN_PASSWORD });
+
+  const secondInteraction = await openLoginInteraction(agent, "login-account-ip-limit-2", headers);
+  const second = await withHeaders(agent.post(`${secondInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(secondInteraction.loginPage.text), account: "combo-account", password: TEST_WRONG_LOGIN_PASSWORD });
+
+  assert.equal(first.status, 401);
+  assert.equal(second.status, 429);
+  await state.store.close();
+});
+
+test("interactive login success clears account failure buckets but keeps shared ip protection", async () => {
+  const { app, state } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
+    OIDC_LOGIN_FAILURE_LIMIT: "2"
+  });
+  const agent = request.agent(app);
+  const headers = { "X-Forwarded-For": "198.51.100.30" };
+
+  const firstInteraction = await openLoginInteraction(agent, "login-reset-1", headers);
+  const first = await withHeaders(agent.post(`${firstInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(firstInteraction.loginPage.text), account: TEST_LOGIN_ACCOUNT, password: TEST_WRONG_LOGIN_PASSWORD });
+
+  const secondInteraction = await openLoginInteraction(agent, "login-reset-2", headers);
+  const second = await withHeaders(agent.post(`${secondInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(secondInteraction.loginPage.text), account: "other-account-before-success", password: TEST_WRONG_LOGIN_PASSWORD });
+
+  const successInteraction = await openLoginInteraction(agent, "login-reset-3", headers);
+  const success = await withHeaders(agent.post(`${successInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(successInteraction.loginPage.text), account: TEST_LOGIN_ACCOUNT, password: TEST_LOGIN_PASSWORD });
+
+  const blockedInteraction = await openLoginInteraction(agent, "login-reset-4", headers);
+  const blocked = await withHeaders(agent.post(`${blockedInteraction.interactionLocation}/login`), headers)
+    .type("form")
+    .send({ csrf: extractCsrf(blockedInteraction.loginPage.text), account: "other-account-after-success", password: TEST_WRONG_LOGIN_PASSWORD });
+
+  assert.equal(first.status, 401);
+  assert.equal(second.status, 401);
+  assert.equal(success.status, 302);
+  assert.equal(blocked.status, 429);
+  await state.store.close();
+});
+
 test("email verification rejects wrong code after max attempts", async () => {
   const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);
@@ -1290,20 +1427,59 @@ test("email verification global rate limit blocks by target domain across intera
 
 test("email verification global rate limit blocks by source ip across interactions", async () => {
   const { app, state, emailSender } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
     OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "10",
     OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "10",
     OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "10",
     OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "1"
   });
   const agent = request.agent(app);
-  const first = await sendEmailVerificationCode(agent, "email-verify-ip-limit-first", "first@ip-a.example.com");
+  const first = await sendEmailVerificationCode(
+    agent,
+    "email-verify-ip-limit-first",
+    "first@ip-a.example.com",
+    { "X-Forwarded-For": "198.51.100.40" }
+  );
   assert.equal(first.sendCode.status, 200);
   assert.equal(emailSender.sentVerifications.length, 1);
 
-  const second = await sendEmailVerificationCode(agent, "email-verify-ip-limit-second", "second@ip-b.example.com");
+  const second = await sendEmailVerificationCode(
+    agent,
+    "email-verify-ip-limit-second",
+    "second@ip-b.example.com",
+    { "X-Forwarded-For": "198.51.100.40" }
+  );
   assert.equal(second.sendCode.status, 429);
   assert.equal(second.sendCode.headers["retry-after"], "600");
   assert.match(second.sendCode.text, /发送过于频繁/);
+  assert.equal(emailSender.sentVerifications.length, 1);
+  await state.store.close();
+});
+
+test("email verification trusted proxy resolution ignores spoofed leading forwarded ips", async () => {
+  const { app, state, emailSender } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "1"
+  });
+  const agent = request.agent(app);
+  const first = await sendEmailVerificationCode(
+    agent,
+    "email-verify-spoofed-xff-first",
+    "first@spoofed.example.com",
+    { "X-Forwarded-For": "203.0.113.1, 198.51.100.50" }
+  );
+  const second = await sendEmailVerificationCode(
+    agent,
+    "email-verify-spoofed-xff-second",
+    "second@spoofed.example.com",
+    { "X-Forwarded-For": "203.0.113.99, 198.51.100.50" }
+  );
+
+  assert.equal(first.sendCode.status, 200);
+  assert.equal(second.sendCode.status, 429);
   assert.equal(emailSender.sentVerifications.length, 1);
   await state.store.close();
 });
@@ -1349,8 +1525,41 @@ test("token endpoint returns 503 when fail-closed mode is enabled and REDIS_URL 
   await state.store.close();
 });
 
-test("token endpoint rate limit isolates none-auth clients by client_id and ip", async () => {
+test("token endpoint rate limit blocks the same none-auth client_id across trusted proxy ips", async () => {
   const { app, state } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
+    REDIS_URL: "",
+    OIDC_RATE_LIMIT_FAIL_CLOSED: "false",
+    OIDC_TOKEN_RATE_LIMIT_MAX: "2",
+    OIDC_TOKEN_RATE_LIMIT_WINDOW_SECONDS: "60"
+  });
+  await upsertPublicNoneClient(state, "public-a");
+
+  const first = await request(app)
+    .post("/token")
+    .set("X-Forwarded-For", "198.51.100.61")
+    .type("form")
+    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-1", client_id: "public-a" });
+  const second = await request(app)
+    .post("/token")
+    .set("X-Forwarded-For", "198.51.100.62")
+    .type("form")
+    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-2", client_id: "public-a" });
+  const third = await request(app)
+    .post("/token")
+    .set("X-Forwarded-For", "198.51.100.63")
+    .type("form")
+    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-3", client_id: "public-a" });
+
+  assert.notEqual(first.status, 429);
+  assert.notEqual(second.status, 429);
+  assert.equal(third.status, 429);
+  await state.store.close();
+});
+
+test("token endpoint rate limit blocks multiple none-auth client_ids from the same trusted proxy ip", async () => {
+  const { app, state } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
     REDIS_URL: "",
     OIDC_RATE_LIMIT_FAIL_CLOSED: "false",
     OIDC_TOKEN_RATE_LIMIT_MAX: "2",
@@ -1358,28 +1567,27 @@ test("token endpoint rate limit isolates none-auth clients by client_id and ip",
   });
   await upsertPublicNoneClient(state, "public-a");
   await upsertPublicNoneClient(state, "public-b");
+  await upsertPublicNoneClient(state, "public-c");
 
   const first = await request(app)
     .post("/token")
+    .set("X-Forwarded-For", "198.51.100.70")
     .type("form")
     .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-1", client_id: "public-a" });
   const second = await request(app)
     .post("/token")
-    .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-2", client_id: "public-a" });
-  const third = await request(app)
-    .post("/token")
-    .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-3", client_id: "public-a" });
-  const otherClient = await request(app)
-    .post("/token")
+    .set("X-Forwarded-For", "198.51.100.70")
     .type("form")
     .send({ grant_type: "refresh_token", refresh_token: "missing-token-b-1", client_id: "public-b" });
+  const third = await request(app)
+    .post("/token")
+    .set("X-Forwarded-For", "198.51.100.70")
+    .type("form")
+    .send({ grant_type: "refresh_token", refresh_token: "missing-token-c-1", client_id: "public-c" });
 
   assert.notEqual(first.status, 429);
   assert.notEqual(second.status, 429);
   assert.equal(third.status, 429);
-  assert.notEqual(otherClient.status, 429);
   await state.store.close();
 });
 
@@ -1428,6 +1636,31 @@ test("token endpoint rate limit uses anonymous fallback bucket when client ident
   assert.equal(first.body.error, "invalid_request");
   assert.equal(second.status, 429);
   assert.equal(second.body.error, "rate_limited");
+  await state.store.close();
+});
+
+test("token endpoint trusted proxy resolution ignores spoofed leading forwarded ips", async () => {
+  const { app, state } = await createTestApp({
+    TRUST_PROXY_HOPS: "1",
+    REDIS_URL: "",
+    OIDC_RATE_LIMIT_FAIL_CLOSED: "false",
+    OIDC_TOKEN_RATE_LIMIT_MAX: "1",
+    OIDC_TOKEN_RATE_LIMIT_WINDOW_SECONDS: "60"
+  });
+
+  const first = await request(app)
+    .post("/token")
+    .set("X-Forwarded-For", "203.0.113.10, 198.51.100.80")
+    .type("form")
+    .send({ grant_type: "refresh_token" });
+  const second = await request(app)
+    .post("/token")
+    .set("X-Forwarded-For", "203.0.113.99, 198.51.100.80")
+    .type("form")
+    .send({ grant_type: "refresh_token" });
+
+  assert.equal(first.status, 400);
+  assert.equal(second.status, 429);
   await state.store.close();
 });
 
@@ -1799,6 +2032,57 @@ test("config rejects OIDC_RATE_LIMIT_FAIL_CLOSED=false in production", () => {
       ),
     /OIDC_RATE_LIMIT_FAIL_CLOSED must be true when APP_ENV=production/
   );
+});
+
+test("config rejects TRUST_PROXY_HOPS=0 in production", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig(
+        createProductionConfigEnv({
+          TRUST_PROXY_HOPS: "0"
+        })
+      ),
+    /TRUST_PROXY_HOPS must be 1 when APP_ENV=production/
+  );
+});
+
+test("config rejects TRUST_PROXY_HOPS=2 in production", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig(
+        createProductionConfigEnv({
+          TRUST_PROXY_HOPS: "2"
+        })
+      ),
+    /TRUST_PROXY_HOPS must be 1 when APP_ENV=production/
+  );
+});
+
+test("config allows TRUST_PROXY_HOPS=0 in test", () => {
+  const config = readOidcOpConfig({
+    APP_ENV: "test",
+    TRUST_PROXY_HOPS: "0",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+  });
+  assert.equal(config.trustProxyHops, 0);
+});
+
+test("deploy nginx templates overwrite X-Forwarded-For instead of appending it", () => {
+  const developmentTemplate = readFileSync(
+    new URL("../../../deploy/nginx/site.conf", import.meta.url),
+    "utf8"
+  );
+  const productionTemplate = readFileSync(
+    new URL("../../../deploy/nginx/site.prod.conf.template", import.meta.url),
+    "utf8"
+  );
+
+  for (const template of [developmentTemplate, productionTemplate]) {
+    assert.match(template, /proxy_set_header X-Forwarded-For \$remote_addr;/);
+    assert.doesNotMatch(template, /\$proxy_add_x_forwarded_for/);
+  }
 });
 
 test("config rejects missing RESEND_API_KEY in production when email verification enabled", () => {

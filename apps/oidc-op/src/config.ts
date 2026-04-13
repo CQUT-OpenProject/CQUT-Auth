@@ -111,6 +111,7 @@ function assertHttpsOrTestLoopbackHttp(value: string, key: string, appEnv: strin
 export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpConfig {
   const appEnv = env["APP_ENV"] ?? env["NODE_ENV"] ?? "development";
   const isProduction = appEnv === "production";
+  const trustProxyHops = Number(env["TRUST_PROXY_HOPS"] ?? (isProduction ? 1 : 0));
   const emailVerificationEnabled = env["OIDC_EMAIL_VERIFICATION_ENABLED"] !== "false";
   const resendApiKey = env["RESEND_API_KEY"]?.trim() || undefined;
   const emailFrom = env["OIDC_EMAIL_FROM"]?.trim() || undefined;
@@ -265,6 +266,9 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   if (!Number.isInteger(rateLimitMemoryCleanupIntervalSeconds) || rateLimitMemoryCleanupIntervalSeconds <= 0) {
     throw new Error("OIDC_RATE_LIMIT_MEMORY_CLEANUP_INTERVAL_SECONDS must be a positive integer");
   }
+  if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
+    throw new Error("TRUST_PROXY_HOPS must be a non-negative integer");
+  }
 
   const artifactOpportunisticCleanupEnabled =
     env["OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_ENABLED"] !== undefined
@@ -339,6 +343,9 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     if (!rateLimitFailClosed) {
       throw new Error("OIDC_RATE_LIMIT_FAIL_CLOSED must be true when APP_ENV=production");
     }
+    if (trustProxyHops !== 1) {
+      throw new Error("TRUST_PROXY_HOPS must be 1 when APP_ENV=production");
+    }
     if (emailVerificationEnabled && !resendApiKey) {
       throw new Error("RESEND_API_KEY is required when APP_ENV=production and email verification is enabled");
     }
@@ -350,7 +357,7 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     port,
     appEnv,
     isProduction,
-    trustProxyHops: Number(env["TRUST_PROXY_HOPS"] ?? (isProduction ? 1 : 0)),
+    trustProxyHops,
     issuer,
     schoolCode: env["SCHOOL_CODE"] ?? "cqut",
     authProvider,

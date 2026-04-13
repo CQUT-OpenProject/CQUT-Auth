@@ -9,6 +9,7 @@ import {
 } from "../persistence/rate-limit.service.js";
 import type { OidcPersistence, PendingInteractionLogin } from "../persistence/contracts.js";
 import type { OidcServices } from "../oidc/provider.js";
+import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 import {
   base64Url,
   escapeHtml,
@@ -394,11 +395,101 @@ async function denyConsent(provider: any, request: Request, response: Response) 
 }
 
 function loginAttemptKey(ip: string, account: string) {
-  return `oidc:login:${ip}:${account}`;
+  return `oidc:login:attempt:account-ip:${sha256(account)}:${ip}`;
 }
 
 function loginFailureKey(ip: string, account: string) {
-  return `oidc:login-failure:${ip}:${account}`;
+  return `oidc:login:failure:account-ip:${sha256(account)}:${ip}`;
+}
+
+function loginAttemptAccountKey(account: string) {
+  return `oidc:login:attempt:account:${sha256(account)}`;
+}
+
+function loginAttemptIpKey(ip: string) {
+  return `oidc:login:attempt:ip:${ip}`;
+}
+
+function loginFailureAccountKey(account: string) {
+  return `oidc:login:failure:account:${sha256(account)}`;
+}
+
+function loginFailureIpKey(ip: string) {
+  return `oidc:login:failure:ip:${ip}`;
+}
+
+async function consumeRateLimitChecks(
+  rateLimitService: RateLimitService,
+  checks: Array<{ key: string; max: number; windowSeconds: number }>
+): Promise<RateLimitDecision | undefined> {
+  for (const check of checks) {
+    const decision = await rateLimitService.consume(check.key, check.max, check.windowSeconds);
+    if (!decision.allowed) {
+      return decision;
+    }
+  }
+  return undefined;
+}
+
+async function consumeLoginRateLimit(
+  config: OidcOpConfig,
+  rateLimitService: RateLimitService,
+  identity: {
+    ip: string;
+    account: string;
+  },
+  stage: "attempt" | "failure"
+): Promise<RateLimitDecision | undefined> {
+  const checks =
+    stage === "attempt"
+      ? [
+          {
+            key: loginAttemptAccountKey(identity.account),
+            max: config.loginRateLimitMax,
+            windowSeconds: config.loginRateLimitWindowSeconds
+          },
+          {
+            key: loginAttemptIpKey(identity.ip),
+            max: config.loginRateLimitMax,
+            windowSeconds: config.loginRateLimitWindowSeconds
+          },
+          {
+            key: loginAttemptKey(identity.ip, identity.account),
+            max: config.loginRateLimitMax,
+            windowSeconds: config.loginRateLimitWindowSeconds
+          }
+        ]
+      : [
+          {
+            key: loginFailureAccountKey(identity.account),
+            max: config.loginFailureLimit,
+            windowSeconds: config.loginFailureWindowSeconds
+          },
+          {
+            key: loginFailureIpKey(identity.ip),
+            max: config.loginFailureLimit,
+            windowSeconds: config.loginFailureWindowSeconds
+          },
+          {
+            key: loginFailureKey(identity.ip, identity.account),
+            max: config.loginFailureLimit,
+            windowSeconds: config.loginFailureWindowSeconds
+          }
+        ];
+  return consumeRateLimitChecks(rateLimitService, checks);
+}
+
+async function resetLoginFailureRateLimit(
+  rateLimitService: RateLimitService,
+  identity: {
+    ip: string;
+    account: string;
+  }
+) {
+  await Promise.all([
+    rateLimitService.reset(loginFailureAccountKey(identity.account)),
+    rateLimitService.reset(loginFailureKey(identity.ip, identity.account))
+  ]);
 }
 
 function emailVerifySubjectRateLimitKey(subjectId: string) {
@@ -432,7 +523,7 @@ async function consumeEmailVerifyRateLimit(
     ip: string;
   }
 ): Promise<RateLimitDecision | undefined> {
-  const checks: Array<{ key: string; max: number; windowSeconds: number }> = [
+  return consumeRateLimitChecks(rateLimitService, [
     {
       key: emailVerifySubjectRateLimitKey(identity.subjectId),
       max: config.emailVerifyRateLimitSubjectMax,
@@ -453,14 +544,7 @@ async function consumeEmailVerifyRateLimit(
       max: config.emailVerifyRateLimitIpMax,
       windowSeconds: config.emailVerifyRateLimitIpWindowSeconds
     }
-  ];
-  for (const check of checks) {
-    const decision = await rateLimitService.consume(check.key, check.max, check.windowSeconds);
-    if (!decision.allowed) {
-      return decision;
-    }
-  }
-  return undefined;
+  ]);
 }
 
 function serviceUnavailableView() {
@@ -562,14 +646,13 @@ export function createInteractionRouter(
       }
       const account = typeof request.body?.account === "string" ? request.body.account.trim() : "";
       const password = typeof request.body?.password === "string" ? request.body.password : "";
-      const ip = request.ip ?? request.socket.remoteAddress ?? "unknown";
+      const loginRateLimitIdentity = {
+        ip: resolveTrustedExpressRequestIp(config, request),
+        account: account || "unknown"
+      };
       let precheck;
       try {
-        precheck = await rateLimitService.consume(
-          loginAttemptKey(ip, account || "unknown"),
-          config.loginRateLimitMax,
-          config.loginRateLimitWindowSeconds
-        );
+        precheck = await consumeLoginRateLimit(config, rateLimitService, loginRateLimitIdentity, "attempt");
       } catch (error) {
         if (error instanceof RateLimitUnavailableError) {
           response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
@@ -577,7 +660,7 @@ export function createInteractionRouter(
         }
         throw error;
       }
-      if (!precheck.allowed) {
+      if (precheck) {
         response.status(429).send(renderPage("尝试过于频繁", `<p class="error">${precheck.retryAfterSeconds} 秒后再试。</p>`));
         return;
       }
@@ -587,10 +670,10 @@ export function createInteractionRouter(
           provider: config.authProvider,
           account,
           password,
-          ip,
+          ip: loginRateLimitIdentity.ip,
           ...(request.get("user-agent") ? { userAgent: request.get("user-agent") as string } : {})
         });
-        await rateLimitService.reset(loginFailureKey(ip, account || "unknown")).catch((error) => {
+        await resetLoginFailureRateLimit(rateLimitService, loginRateLimitIdentity).catch((error) => {
           if (!(error instanceof RateLimitUnavailableError)) {
             throw error;
           }
@@ -610,11 +693,7 @@ export function createInteractionRouter(
       } catch (error) {
         let failure;
         try {
-          failure = await rateLimitService.consume(
-            loginFailureKey(ip, account || "unknown"),
-            config.loginFailureLimit,
-            config.loginFailureWindowSeconds
-          );
+          failure = await consumeLoginRateLimit(config, rateLimitService, loginRateLimitIdentity, "failure");
         } catch (consumeError) {
           if (consumeError instanceof RateLimitUnavailableError) {
             response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
@@ -622,7 +701,7 @@ export function createInteractionRouter(
           }
           throw consumeError;
         }
-        if (!failure.allowed) {
+        if (failure) {
           response.status(429).send(renderPage("失败次数过多", `<p class="error">失败次数过多，请在 ${failure.retryAfterSeconds} 秒后重试。</p>`));
           return;
         }
@@ -750,7 +829,7 @@ export function createInteractionRouter(
           return;
         }
 
-        const ip = request.ip ?? request.socket.remoteAddress ?? "unknown";
+        const ip = resolveTrustedExpressRequestIp(config, request);
         const emailDomain = getEmailDomain(email);
         let globalRateLimitDecision: RateLimitDecision | undefined;
         try {
