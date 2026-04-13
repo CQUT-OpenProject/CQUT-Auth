@@ -113,6 +113,11 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   const isProduction = appEnv === "production";
   const trustProxyHops = Number(env["TRUST_PROXY_HOPS"] ?? (isProduction ? 1 : 0));
   const emailVerificationEnabled = env["OIDC_EMAIL_VERIFICATION_ENABLED"] !== "false";
+  if (isProduction && !emailVerificationEnabled) {
+    throw new Error(
+      "OIDC_EMAIL_VERIFICATION_ENABLED must remain enabled when APP_ENV=production"
+    );
+  }
   const resendApiKey = env["RESEND_API_KEY"]?.trim() || undefined;
   const emailFrom = env["OIDC_EMAIL_FROM"]?.trim() || undefined;
   const emailVerifyCodeTtlSeconds = Number(env["OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS"] ?? 600);

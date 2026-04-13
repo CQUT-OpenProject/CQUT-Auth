@@ -95,9 +95,14 @@ Authorization: Bearer <access_token>
 - `sub`
 - `preferred_username`
 - `name`
-- `email`
-- `email_verified`
+- `email`（仅邮箱已验证时返回）
+- `email_verified`（仅邮箱已验证时返回，且值固定为 `true`）
 - `status`
+
+说明：
+
+- 请求了 `email` scope 也不保证一定返回 `email` / `email_verified`
+- 未验证邮箱即使已保存在本地 profile 中，也不会出现在 ID Token 或 UserInfo 中
 
 ## JWKS
 

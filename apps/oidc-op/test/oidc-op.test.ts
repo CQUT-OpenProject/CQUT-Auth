@@ -115,6 +115,12 @@ function tamperToken(token: string) {
   return `${token.slice(0, -1)}${suffix}`;
 }
 
+function decodeJwtPayload(token: string) {
+  const [, payload] = token.split(".");
+  assert.equal(typeof payload, "string");
+  return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
+}
+
 function normalizeActionPath(action: string) {
   if (/^https?:\/\//.test(action)) {
     const url = new URL(action);
@@ -975,6 +981,83 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
     });
   assert.equal(reuse.status, 400);
   assert.equal(reuse.body.error, "invalid_grant");
+
+  await state.store.close();
+});
+
+test("unverified email stays in profile but is omitted from oidc claims when verification is disabled", async () => {
+  const { app, state } = await createTestApp({
+    OIDC_EMAIL_VERIFICATION_ENABLED: "false"
+  });
+  const agent = request.agent(app);
+  const verifier = "unverified-email-verifier-1234567890-unverified-email";
+  const authorize = await agent.get("/auth").query({
+    client_id: "demo-site",
+    redirect_uri: TEST_REDIRECT_URI,
+    response_type: "code",
+    scope: "openid profile email",
+    prompt: "consent",
+    state: "state-unverified-email",
+    nonce: "nonce-unverified-email",
+    code_challenge: sha256Base64Url(verifier),
+    code_challenge_method: "S256"
+  });
+  assert.ok(authorize.status === 302 || authorize.status === 303);
+  const interactionLocation = authorize.headers["location"] as string;
+
+  const loginPage = await agent.get(interactionLocation);
+  assert.equal(loginPage.status, 200);
+  const loginCsrf = extractCsrf(loginPage.text);
+  const login = await agent.post(`${interactionLocation}/login`).type("form").send({
+    csrf: loginCsrf,
+    account: TEST_LOGIN_ACCOUNT,
+    password: TEST_LOGIN_PASSWORD
+  });
+  assert.equal(login.status, 302);
+  assert.match(login.headers["location"] as string, /\/interaction\/.+\/profile/);
+
+  const profileLocation = login.headers["location"] as string;
+  const profilePage = await agent.get(profileLocation);
+  assert.equal(profilePage.status, 200);
+  const profileCsrf = extractCsrf(profilePage.text);
+  const chosenEmail = "victim@example.com";
+  const submitProfile = await agent.post(profileLocation).type("form").send({
+    csrf: profileCsrf,
+    email: chosenEmail
+  });
+  const redirectLocation = await followToRedirectUriOrigin(agent, submitProfile, TEST_REDIRECT_URI);
+  const redirectUrl = new URL(redirectLocation);
+  const code = redirectUrl.searchParams.get("code");
+  assert.equal(typeof code, "string");
+
+  const token = await request(app)
+    .post("/token")
+    .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
+    .type("form")
+    .send({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: TEST_REDIRECT_URI,
+      code_verifier: verifier
+    });
+  assert.equal(token.status, 200);
+  assert.equal(typeof token.body.id_token, "string");
+  assert.equal(typeof token.body.access_token, "string");
+  const idTokenClaims = decodeJwtPayload(token.body.id_token as string);
+
+  const userinfo = await request(app)
+    .get("/userinfo")
+    .set("Authorization", `Bearer ${token.body.access_token as string}`);
+  assert.equal(userinfo.status, 200);
+  assert.equal(Object.hasOwn(userinfo.body as object, "email"), false);
+  assert.equal(Object.hasOwn(userinfo.body as object, "email_verified"), false);
+  assert.equal(Object.hasOwn(idTokenClaims, "email"), false);
+  assert.equal(Object.hasOwn(idTokenClaims, "email_verified"), false);
+
+  const principal = await state.store.findPrincipalBySubjectId(userinfo.body.sub as string);
+  assert.ok(principal);
+  assert.equal(principal.email, chosenEmail);
+  assert.equal(principal.emailVerified, false);
 
   await state.store.close();
 });
@@ -2117,6 +2200,18 @@ test("config rejects missing RESEND_API_KEY in production when email verificatio
         })
       ),
     /RESEND_API_KEY is required when APP_ENV=production and email verification is enabled/
+  );
+});
+
+test("config rejects disabling email verification in production", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig(
+        createProductionConfigEnv({
+          OIDC_EMAIL_VERIFICATION_ENABLED: "false"
+        })
+      ),
+    /OIDC_EMAIL_VERIFICATION_ENABLED must remain enabled when APP_ENV=production/
   );
 });
 

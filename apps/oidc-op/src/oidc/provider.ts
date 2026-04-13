@@ -639,9 +639,9 @@ export async function createOidcServices(
             claims["preferred_username"] = principal.preferredUsername;
             claims["name"] = principal.displayName ?? `CQUT User ${principal.schoolUid}`;
           }
-          if (grantedScopes.has("email") && principal.email) {
+          if (grantedScopes.has("email") && principal.email && principal.emailVerified) {
             claims["email"] = principal.email;
-            claims["email_verified"] = principal.emailVerified;
+            claims["email_verified"] = true;
           }
           if (grantedScopes.has("student")) {
             claims["status"] = principal.studentStatus;
