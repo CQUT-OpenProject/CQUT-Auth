@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -117,7 +117,9 @@ function tamperToken(token: string) {
 
 function decodeJwtPayload(token: string) {
   const [, payload] = token.split(".");
-  assert.equal(typeof payload, "string");
+  if (typeof payload !== "string") {
+    throw new Error("JWT payload segment is missing");
+  }
   return JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as Record<string, unknown>;
 }
 
@@ -2173,22 +2175,6 @@ test("config allows TRUST_PROXY_HOPS=0 in test", () => {
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
   });
   assert.equal(config.trustProxyHops, 0);
-});
-
-test("deploy nginx templates overwrite X-Forwarded-For instead of appending it", () => {
-  const developmentTemplate = readFileSync(
-    new URL("../../../deploy/nginx/site.conf", import.meta.url),
-    "utf8"
-  );
-  const productionTemplate = readFileSync(
-    new URL("../../../deploy/nginx/site.prod.conf.template", import.meta.url),
-    "utf8"
-  );
-
-  for (const template of [developmentTemplate, productionTemplate]) {
-    assert.match(template, /proxy_set_header X-Forwarded-For \$remote_addr;/);
-    assert.doesNotMatch(template, /\$proxy_add_x_forwarded_for/);
-  }
 });
 
 test("config rejects missing RESEND_API_KEY in production when email verification enabled", () => {

@@ -3,7 +3,7 @@ import type {
   SubjectIdentityRecord,
   SubjectProfileRecord,
   SubjectRecord
-} from "@cqut/identity-core";
+} from "../identity/index.js";
 import { Pool } from "pg";
 import type { OidcOpConfig } from "../config.js";
 import {

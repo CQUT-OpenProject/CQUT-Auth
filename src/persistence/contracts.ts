@@ -4,8 +4,8 @@ import type {
   SubjectIdentityRecord,
   SubjectProfileRecord,
   SubjectRecord
-} from "@cqut/identity-core";
-import type { OidcScope } from "@cqut/shared";
+} from "../identity/index.js";
+import type { OidcScope } from "../shared/oidc-contracts.js";
 
 export type OidcClientRecord = {
   clientId: string;

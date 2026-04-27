@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { OIDC_SCOPES, type OidcScope } from "@cqut/shared";
+import { OIDC_SCOPES, type OidcScope } from "../shared/oidc-contracts.js";
 import type { OidcOpConfig } from "../config.js";
 import type { OidcClientRecord, OidcPersistence } from "../persistence/contracts.js";
 

@@ -1,6 +1,5 @@
-import { execFileSync } from "node:child_process";
 import { randomBytes, scryptSync } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,17 +8,12 @@ const templatePath = resolve(projectRoot, "deploy/.env.example");
 const defaultOutputPath = resolve(projectRoot, "deploy/.env");
 const clientsTemplatePath = resolve(projectRoot, "deploy/oidc-clients.json.example");
 const defaultClientsOutputPath = resolve(projectRoot, "deploy/oidc-clients.json");
-const certDir = resolve(projectRoot, "deploy/certs");
-const defaultCertPath = resolve(certDir, "fullchain.pem");
-const defaultKeyPath = resolve(certDir, "privkey.pem");
 const allowedProfiles = new Set(["production", "local", "test"]);
 
 const args = process.argv.slice(2);
 const outputPath = getArgValue("--write");
 const force = args.includes("--force");
 const printToStdout = args.includes("--stdout");
-const skipCerts = args.includes("--skip-certs");
-const withCerts = args.includes("--with-certs");
 const profile = getArgValue("--profile") ?? "production";
 const demoBaseUrl = normalizeOptionalAbsoluteUrl(getArgValue("--demo-base-url"));
 const issuerOverride = normalizeOptionalAbsoluteUrl(getArgValue("--issuer"));
@@ -27,18 +21,8 @@ const issuerOverride = normalizeOptionalAbsoluteUrl(getArgValue("--issuer"));
 if (!allowedProfiles.has(profile)) {
   throw new Error("--profile must be one of: production, local, test");
 }
-if (skipCerts && withCerts) {
-  throw new Error("--skip-certs and --with-certs cannot be used together");
-}
 
-const certHostDefault = profile === "test" ? "localhost" : "verify.local";
-const certHost = getArgValue("--cert-host") ?? certHostDefault;
-const certDays = Number(getArgValue("--cert-days") ?? "365");
 const generatedDemoClientSecret = randomToken(24);
-if (!Number.isInteger(certDays) || certDays <= 0) {
-  throw new Error("--cert-days must be a positive integer");
-}
-
 const randomReplacements = {
   POSTGRES_PASSWORD: randomToken(24),
   OIDC_KEY_ENCRYPTION_SECRET: randomToken(32),
@@ -48,20 +32,33 @@ const randomReplacements = {
 };
 
 const profileReplacements = {
-  production: {},
+  production: {
+    APP_ENV: "production",
+    OIDC_ISSUER: issuerOverride ?? "https://auth-cqut.xxx.com",
+    OIDC_COOKIE_SECURE: "true",
+    TRUST_PROXY_HOPS: "1",
+    OIDC_APP_PORT: "3003",
+    OIDC_AUTO_SEED_SIGNING_KEY: "false",
+    OIDC_EMAIL_VERIFICATION_ENABLED: "true",
+    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>"
+  },
   local: {
     APP_ENV: "development",
     OIDC_ISSUER: issuerOverride ?? "https://verify.local",
     OIDC_COOKIE_SECURE: "true",
-    SERVER_NAME: deriveServerName(issuerOverride ?? "https://verify.local"),
+    TRUST_PROXY_HOPS: "1",
+    OIDC_APP_PORT: "3003",
+    OIDC_AUTO_SEED_SIGNING_KEY: "true",
     OIDC_EMAIL_VERIFICATION_ENABLED: "true",
     OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>"
   },
   test: {
     APP_ENV: "test",
-    OIDC_ISSUER: issuerOverride ?? "http://localhost",
+    OIDC_ISSUER: issuerOverride ?? "http://127.0.0.1:3003",
     OIDC_COOKIE_SECURE: "false",
-    SERVER_NAME: deriveServerName(issuerOverride ?? "http://localhost"),
+    TRUST_PROXY_HOPS: "0",
+    OIDC_APP_PORT: "3003",
+    OIDC_AUTO_SEED_SIGNING_KEY: "true",
     OIDC_EMAIL_VERIFICATION_ENABLED: "true",
     OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>"
   }
@@ -72,8 +69,7 @@ const replacements = {
   ...profileReplacements[profile],
   ...(issuerOverride
     ? {
-        OIDC_ISSUER: issuerOverride,
-        SERVER_NAME: deriveServerName(issuerOverride)
+        OIDC_ISSUER: issuerOverride
       }
     : {})
 };
@@ -102,23 +98,6 @@ if (outputPath) {
 
 if (!printToStdout) {
   writeClientsConfig(defaultClientsOutputPath);
-}
-
-if (shouldGenerateCertificates()) {
-  generateSelfSignedCertificate();
-}
-
-function shouldGenerateCertificates() {
-  if (printToStdout) {
-    return false;
-  }
-  if (skipCerts) {
-    return false;
-  }
-  if (withCerts) {
-    return true;
-  }
-  return profile !== "test";
 }
 
 function writeOutput(targetPath) {
@@ -163,53 +142,6 @@ function writeClientsConfig(targetPath) {
   process.stdout.write(`Demo-site client secret (write down once): ${generatedDemoClientSecret}\n`);
 }
 
-function generateSelfSignedCertificate() {
-  mkdirSync(certDir, { recursive: true });
-
-  if (!force && (existsSync(defaultCertPath) || existsSync(defaultKeyPath))) {
-    process.stdout.write(
-      `TLS certificate already exists at ${defaultCertPath}; skip generation (re-run with --force to overwrite).\n`
-    );
-    return;
-  }
-
-  const subjectAltName = /^\d+\.\d+\.\d+\.\d+$/.test(certHost)
-    ? `subjectAltName=IP:${certHost}`
-    : `subjectAltName=DNS:${certHost}`;
-
-  try {
-    execFileSync(
-      "openssl",
-      [
-        "req",
-        "-x509",
-        "-nodes",
-        "-newkey",
-        "rsa:2048",
-        "-keyout",
-        defaultKeyPath,
-        "-out",
-        defaultCertPath,
-        "-days",
-        String(certDays),
-        "-subj",
-        `/CN=${certHost}`,
-        "-addext",
-        subjectAltName
-      ],
-      { stdio: "ignore" }
-    );
-  } catch {
-    throw new Error(
-      "Failed to generate TLS certificate. Ensure openssl is installed, or pass --skip-certs to only initialize env."
-    );
-  }
-
-  chmodSync(defaultKeyPath, 0o600);
-  chmodSync(defaultCertPath, 0o644);
-  process.stdout.write(`Initialized TLS certificate: ${defaultCertPath} (CN/SAN=${certHost})\n`);
-}
-
 function getArgValue(flag) {
   const index = args.indexOf(flag);
   if (index === -1) {
@@ -235,10 +167,6 @@ function normalizeOptionalAbsoluteUrl(value) {
 
 function ensureTrailingSlash(value) {
   return value.endsWith("/") ? value : `${value}/`;
-}
-
-function deriveServerName(issuer) {
-  return new URL(issuer).hostname;
 }
 
 function defaultDemoBaseUrlForProfile(profile) {

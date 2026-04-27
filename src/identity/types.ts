@@ -1,4 +1,4 @@
-import type { StudentStatus } from "@cqut/shared";
+import type { StudentStatus } from "../shared/oidc-contracts.js";
 
 export type VerificationIdentity = {
   schoolUid: string;

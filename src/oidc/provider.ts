@@ -6,8 +6,8 @@ import {
   MockCampusVerifierProvider,
   ProviderRegistry,
   SubjectProfileService
-} from "@cqut/identity-core";
-import { OIDC_CLAIMS, OIDC_SCOPES } from "@cqut/shared";
+} from "../identity/index.js";
+import { OIDC_CLAIMS, OIDC_SCOPES } from "../shared/oidc-contracts.js";
 import { exportJWK, generateKeyPair } from "jose";
 import Provider from "oidc-provider";
 import KeyStore from "oidc-provider/lib/helpers/keystore.js";
@@ -447,7 +447,7 @@ async function ensureSigningKey(store: OidcPersistence, config: OidcOpConfig) {
     return existing;
   }
   if (!config.autoSeedSigningKey) {
-    throw new Error("no signing keys available; run pnpm --filter @cqut/oidc-op seed:key");
+    throw new Error("no signing keys available; run pnpm seed:key");
   }
   const created = await generateSigningKey(store);
   return [created];

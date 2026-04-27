@@ -10,14 +10,10 @@ coverage/
 .turbo/
 *.tsbuildinfo
 
-# app bundles (generated)
-apps/*/public/assets/
-
 # env and local config
 .env
 .env.local
 .env.*.local
-apps/example-site/.env.local
 deploy/.env
 deploy/oidc-clients.json
 
