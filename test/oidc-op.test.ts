@@ -1244,6 +1244,22 @@ test("interactive login failure does not expose internal error details", async (
   await state.store.close();
 });
 
+test("interactive login page shows a pending state and prevents duplicate submits", async () => {
+  const { app, state } = await createTestApp();
+  const agent = request.agent(app);
+  const { loginPage } = await openLoginInteraction(agent, "login-pending-ui-state");
+
+  assert.match(loginPage.text, /data-login-form/);
+  assert.match(loginPage.text, /data-login-submit/);
+  assert.match(loginPage.text, /正在登录/);
+  assert.match(loginPage.text, /正在连接学校统一身份认证，请稍候。/);
+  assert.match(loginPage.text, /event\.preventDefault\(\)/);
+  assert.match(loginPage.text, /setAttribute\("readonly", "readonly"\)/);
+  assert.match(loginPage.text, /setAttribute\("disabled", "disabled"\)/);
+
+  await state.store.close();
+});
+
 test("interactive login failure rate limit blocks repeated attempts for the same account across trusted proxy ips", async () => {
   const { app, state } = await createTestApp({
     TRUST_PROXY_HOPS: "1",

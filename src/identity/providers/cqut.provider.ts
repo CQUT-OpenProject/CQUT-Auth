@@ -1,4 +1,4 @@
-import axios from "axios";
+import axios, { type AxiosInstance, type AxiosResponse } from "axios";
 import { wrapper } from "axios-cookiejar-support";
 import { CookieJar } from "tough-cookie";
 import type { CampusVerifierProvider, VerificationIdentity, VerifyCredentialsInput } from "../types.js";
@@ -57,22 +57,12 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         "User-Agent": "CQUT-Auth-Service/1.0",
         Referer: serviceUrl
       };
-      const delegated = await client.get(`${uisBaseUrl}/center-auth-server/${casApplicationCode}/cas/login`, {
-        params: {
-          service: casServiceUrl,
-          applicationCode: casApplicationCode
-        },
+      const delegated = await getCasLoginWithRetry(client, {
+        url: `${uisBaseUrl}/center-auth-server/${casApplicationCode}/cas/login`,
+        service: casServiceUrl,
+        applicationCode: casApplicationCode,
         headers: delegatedHeaders
       });
-      const optimisticLoginPromise = client
-        .post(`${uisBaseUrl}/center-auth-server/sso/doLogin`, loginPayload, {
-          headers: {
-            "Content-Type": "application/json, application/json;charset=UTF-8",
-            Referer: serviceUrl
-          }
-        })
-        .then((response) => ({ response }))
-        .catch((error: unknown) => ({ error }));
 
       if (delegated.status >= 500) {
         throw new RetryableProviderError("delegated service is unavailable");
@@ -86,22 +76,12 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
 
       // Execute credential verification against UIS, then continue CAS login with
       // the delegated service derived from the same UIS flow.
-      const optimisticLoginResult = await optimisticLoginPromise;
-      const optimisticLoginResponse =
-        "response" in optimisticLoginResult ? optimisticLoginResult.response : undefined;
-      const loginResponse =
-        optimisticLoginResponse && optimisticLoginResponse.status < 400 && optimisticLoginResponse.data?.code === 200
-          ? optimisticLoginResponse
-          : await client.post(
-              `${uisBaseUrl}/center-auth-server/sso/doLogin`,
-              loginPayload,
-              {
-                headers: {
-                  "Content-Type": "application/json, application/json;charset=UTF-8",
-                  Referer: finalUrl
-                }
-              }
-            );
+      const loginResponse = await client.post(`${uisBaseUrl}/center-auth-server/sso/doLogin`, loginPayload, {
+        headers: {
+          "Content-Type": "application/json, application/json;charset=UTF-8",
+          Referer: finalUrl
+        }
+      });
       if (loginResponse.status >= 500) {
         throw new RetryableProviderError("campus login service is unavailable");
       }
@@ -109,8 +89,9 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         throw new IdentityCoreError("verification_failed", "campus credentials rejected");
       }
 
-      const casResponse = await client.get(casLoginUrl, {
-        params: { service: serviceWithDelegatedClientId },
+      const casResponse = await getCasLoginWithRetry(client, {
+        url: casLoginUrl,
+        service: serviceWithDelegatedClientId,
         headers: { Referer: finalUrl }
       });
       if (casResponse.status >= 500) {
@@ -157,6 +138,56 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
       clearTimeout(timeoutHandle);
     }
   }
+}
+
+async function getCasLoginWithRetry(
+  client: AxiosInstance,
+  options: {
+    url: string;
+    service: string;
+    applicationCode?: string;
+    headers: Record<string, string>;
+  }
+): Promise<AxiosResponse> {
+  let lastError: unknown;
+  const params: Record<string, string> = { service: options.service };
+  if (options.applicationCode) {
+    params["applicationCode"] = options.applicationCode;
+  }
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await client.get(options.url, {
+        params,
+        headers: options.headers
+      });
+      if (response.status < 500 || attempt === 2) {
+        return response;
+      }
+      lastError = new RetryableProviderError("campus cas login returned retryable status");
+    } catch (error) {
+      lastError = error;
+      if (attempt === 2 || !isRetryableAxiosNetworkError(error)) {
+        throw error;
+      }
+    }
+    await sleep(250);
+  }
+
+  throw lastError instanceof Error ? lastError : new RetryableProviderError("campus cas login failed");
+}
+
+function isRetryableAxiosNetworkError(error: unknown): boolean {
+  if (!axios.isAxiosError(error)) {
+    return false;
+  }
+  return error.code === "ERR_CANCELED" || error.code === "ECONNABORTED" || !error.response;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function normalizeBaseUrl(value: string): string {

@@ -148,10 +148,18 @@ function renderPage(title: string, body: string) {
         form { display: grid; gap: 0.75rem; }
         input { padding: 0.75rem; font-size: 1rem; }
         button { padding: 0.8rem 1rem; font-size: 1rem; }
+        button[disabled] { cursor: wait; opacity: 0.72; }
+        input[readonly] { background: #f9fafb; color: #667085; }
         .error { color: #b42318; }
         .success { color: #067647; }
         .hint { color: #475467; font-size: 0.95rem; }
         .secondary { background: #f2f4f7; border: 1px solid #d0d5dd; }
+        .pending { display: none; border: 1px solid #b2ddff; background: #eff8ff; color: #175cd3; padding: 0.75rem; }
+        .pending strong { display: block; color: #1849a9; margin-bottom: 0.2rem; }
+        .login-form[data-submitting="true"] .pending { display: block; }
+        .button-loading { display: none; }
+        .login-form[data-submitting="true"] .button-label { display: none; }
+        .login-form[data-submitting="true"] .button-loading { display: inline; }
       </style>
     </head>
     <body>
@@ -167,12 +175,45 @@ function loginView(uid: string, csrf: string, error?: string) {
     <h1>CQUT-Auth</h1>
     <p class="hint">请使用知行理工账号登录。</p>
     ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
-    <form method="post" action="/interaction/${encodeURIComponent(uid)}/login">
+    <form class="login-form" method="post" action="/interaction/${encodeURIComponent(uid)}/login" data-login-form>
       <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
       <input type="text" name="account" placeholder="账号" autocomplete="username" required>
       <input type="password" name="password" placeholder="密码" autocomplete="current-password" required>
-      <button type="submit">登录</button>
+      <p class="pending" role="status" aria-live="polite">
+        <strong>正在登录</strong>
+        正在连接学校统一身份认证，请稍候。
+      </p>
+      <button type="submit" data-login-submit>
+        <span class="button-label">登录</span>
+        <span class="button-loading">登录中...</span>
+      </button>
     </form>
+    <script>
+      (() => {
+        const form = document.querySelector("[data-login-form]");
+        const submit = document.querySelector("[data-login-submit]");
+        if (!form || !submit) {
+          return;
+        }
+        let submitted = false;
+        form.addEventListener("submit", (event) => {
+          if (submitted) {
+            event.preventDefault();
+            return;
+          }
+          if (typeof form.checkValidity === "function" && !form.checkValidity()) {
+            return;
+          }
+          submitted = true;
+          form.dataset.submitting = "true";
+          form.setAttribute("aria-busy", "true");
+          submit.setAttribute("disabled", "disabled");
+          for (const field of form.querySelectorAll('input[name="account"], input[name="password"]')) {
+            field.setAttribute("readonly", "readonly");
+          }
+        });
+      })();
+    </script>
   `
   );
 }
