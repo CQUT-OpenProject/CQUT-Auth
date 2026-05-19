@@ -1,6 +1,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHash,
   scrypt,
   randomBytes,
   timingSafeEqual
@@ -26,7 +27,20 @@ type DerivedKeyCacheEntry = {
   expiresAt: number;
 };
 
+type DeriveScryptKeyOptions = {
+  cache?: boolean;
+};
+
 const derivedKeyCache = new Map<string, DerivedKeyCacheEntry>();
+
+export const __cryptoTestHooks = {
+  clearDerivedKeyCache() {
+    derivedKeyCache.clear();
+  },
+  derivedKeyCacheKeys() {
+    return [...derivedKeyCache.keys()];
+  }
+};
 
 function encodeBase64Url(raw: Buffer) {
   return raw.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
@@ -131,7 +145,8 @@ function derivedKeyCacheKey(
   p: number,
   keyLength: number
 ) {
-  return `${N}:${r}:${p}:${keyLength}:${encodeBase64Url(salt)}:${secret}`;
+  const secretId = createHash("sha256").update(secret, "utf8").digest("hex");
+  return `${N}:${r}:${p}:${keyLength}:${encodeBase64Url(salt)}:${secretId}`;
 }
 
 function pruneDerivedKeyCache(now: number) {
@@ -155,16 +170,20 @@ async function deriveScryptKey(
   N: number,
   r: number,
   p: number,
-  keyLength: number
+  keyLength: number,
+  options: DeriveScryptKeyOptions = {}
 ) {
   const now = Date.now();
-  const cacheKey = derivedKeyCacheKey(secret, salt, N, r, p, keyLength);
-  const cached = derivedKeyCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
-    return cached.key;
-  }
-  if (cached) {
-    derivedKeyCache.delete(cacheKey);
+  const shouldCache = options.cache ?? true;
+  const cacheKey = shouldCache ? derivedKeyCacheKey(secret, salt, N, r, p, keyLength) : undefined;
+  if (cacheKey) {
+    const cached = derivedKeyCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.key;
+    }
+    if (cached) {
+      derivedKeyCache.delete(cacheKey);
+    }
   }
 
   const key = await new Promise<Buffer>((resolve, reject) => {
@@ -187,12 +206,14 @@ async function deriveScryptKey(
       }
     );
   });
-  derivedKeyCache.set(cacheKey, {
-    key,
-    expiresAt: now + DERIVED_KEY_CACHE_TTL_MS
-  });
-  if (derivedKeyCache.size > DERIVED_KEY_CACHE_MAX_ENTRIES) {
-    pruneDerivedKeyCache(now);
+  if (cacheKey) {
+    derivedKeyCache.set(cacheKey, {
+      key,
+      expiresAt: now + DERIVED_KEY_CACHE_TTL_MS
+    });
+    if (derivedKeyCache.size > DERIVED_KEY_CACHE_MAX_ENTRIES) {
+      pruneDerivedKeyCache(now);
+    }
   }
   return key;
 }
@@ -237,7 +258,8 @@ export async function createClientSecretDigest(secret: string): Promise<string> 
     SCRYPT_DEFAULTS.N,
     SCRYPT_DEFAULTS.r,
     SCRYPT_DEFAULTS.p,
-    SCRYPT_DEFAULTS.keyLength
+    SCRYPT_DEFAULTS.keyLength,
+    { cache: false }
   );
   return [
     SCRYPT_DIGEST_PREFIX,
@@ -259,7 +281,9 @@ export async function verifyClientSecretDigest(secret: string, encodedDigest: st
   }
   let computed: Buffer;
   try {
-    computed = await deriveScryptKey(secret, parsed.salt, parsed.N, parsed.r, parsed.p, parsed.keyLength);
+    computed = await deriveScryptKey(secret, parsed.salt, parsed.N, parsed.r, parsed.p, parsed.keyLength, {
+      cache: false
+    });
   } catch {
     return false;
   }
