@@ -404,7 +404,15 @@ function normalizeIssuer(issuer: string): string {
   return issuer.endsWith("/") ? issuer.slice(0, -1) : issuer;
 }
 
-function renderAutoLogoutPage(form: string) {
+const LOGOUT_PAGE_CSP = [
+  "default-src 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "style-src 'unsafe-inline'"
+].join("; ");
+
+function renderLogoutConfirmationPage(form: string) {
   const formWithExplicitLogout =
     form.includes('name="logout"')
       ? form
@@ -413,15 +421,18 @@ function renderAutoLogoutPage(form: string) {
   <html lang="zh-CN">
     <head>
       <meta charset="utf-8">
-      <title>正在退出登录</title>
+      <title>确认退出登录</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        body { font-family: sans-serif; margin: 2rem auto; max-width: 28rem; padding: 0 1rem; }
+        button { padding: 0.8rem 1rem; font-size: 1rem; }
+      </style>
     </head>
     <body>
+      <h1>确认退出登录</h1>
+      <p>请确认是否退出当前登录状态。</p>
       ${formWithExplicitLogout}
-      <p>正在为你退出登录...</p>
-      <p>如果页面没有自动继续，请点击下方按钮完成退出。</p>
       <button form="op.logoutForm" type="submit" name="logout" value="yes">继续退出</button>
-      <script src="/session/logout-auto-submit.js" defer></script>
     </body>
   </html>`;
 }
@@ -592,7 +603,9 @@ export async function createOidcServices(
         logoutSource(ctx: any, form: string) {
           ctx.type = "html";
           ctx.set("Cache-Control", "no-store");
-          ctx.body = renderAutoLogoutPage(form);
+          ctx.set("Content-Security-Policy", LOGOUT_PAGE_CSP);
+          ctx.set("X-Frame-Options", "DENY");
+          ctx.body = renderLogoutConfirmationPage(form);
         },
         postLogoutSuccessSource(ctx: any) {
           const redirectUri =
@@ -605,6 +618,8 @@ export async function createOidcServices(
               : undefined;
 
           ctx.set("Cache-Control", "no-store");
+          ctx.set("Content-Security-Policy", LOGOUT_PAGE_CSP);
+          ctx.set("X-Frame-Options", "DENY");
           if (redirectUri) {
             const target = new URL(redirectUri);
             if (state) {

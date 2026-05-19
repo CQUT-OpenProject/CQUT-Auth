@@ -27,7 +27,11 @@ export function parseCookies(raw: string | undefined): Record<string, string> {
     }
     const key = part.slice(0, separatorIndex).trim();
     const value = part.slice(separatorIndex + 1).trim();
-    cookies[key] = decodeURIComponent(value);
+    try {
+      cookies[key] = decodeURIComponent(value);
+    } catch {
+      // Ignore malformed cookie values and let callers treat the cookie as absent.
+    }
     return cookies;
   }, {});
 }

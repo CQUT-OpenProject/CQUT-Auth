@@ -66,12 +66,15 @@ export async function createOidcApp(
     });
   });
 
-  app.get("/session/logout-auto-submit.js", (_request, response) => {
-    response
-      .status(200)
-      .setHeader("Content-Type", "application/javascript; charset=utf-8")
-      .setHeader("Cache-Control", "no-store")
-      .send('document.getElementById("op.logoutForm")?.submit();');
+  app.use((request, response, next) => {
+    if (request.path === "/session/end" || request.path.startsWith("/session/end/")) {
+      response.setHeader(
+        "Content-Security-Policy",
+        "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+      );
+      response.setHeader("X-Frame-Options", "DENY");
+    }
+    next();
   });
 
   app.use("/interaction", createInteractionRouter(config, services.provider, services, store, rateLimitService));

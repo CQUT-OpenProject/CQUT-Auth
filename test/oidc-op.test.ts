@@ -107,6 +107,12 @@ function assertNoApplicationSecurityHeaders(response: request.Response) {
   assert.equal(response.headers["x-content-type-options"], undefined);
 }
 
+function assertLogoutPageSecurityHeaders(response: request.Response) {
+  assert.match(response.headers["content-security-policy"] as string, /frame-ancestors 'none'/);
+  assert.match(response.headers["content-security-policy"] as string, /form-action 'self'/);
+  assert.equal(response.headers["x-frame-options"], "DENY");
+}
+
 function tamperToken(token: string) {
   if (token.length === 0) {
     return token;
@@ -653,7 +659,7 @@ test("application leaves security headers to reverse proxy", async () => {
     client_id: "demo-site"
   });
   assert.equal(logoutPage.status, 200);
-  assertNoApplicationSecurityHeaders(logoutPage);
+  assertLogoutPageSecurityHeaders(logoutPage);
   await state.store.close();
 });
 
@@ -750,6 +756,27 @@ test("csrf rejects missing or mismatched nonce cookie", async () => {
     });
   assert.equal(withWrongCookie.status, 400);
   assert.match(withWrongCookie.text, /CSRF 校验失败，请刷新后重试/);
+
+  await state.store.close();
+});
+
+test("csrf rejects malformed percent-encoded cookies without 500", async () => {
+  const { app, state } = await createTestApp();
+  const agent = request.agent(app);
+  const { interactionLocation, loginPage } = await openLoginInteraction(agent, "csrf-malformed-cookie-state");
+  const csrf = extractCsrf(loginPage.text);
+
+  const response = await request(app)
+    .post(`${interactionLocation}/login`)
+    .set("Cookie", "op_csrf_nonce=%E0%A4%A")
+    .type("form")
+    .send({
+      csrf,
+      account: TEST_LOGIN_ACCOUNT,
+      password: TEST_LOGIN_PASSWORD
+    });
+  assert.equal(response.status, 400);
+  assert.match(response.text, /CSRF 校验失败，请刷新后重试/);
 
   await state.store.close();
 });
@@ -1138,8 +1165,9 @@ test("unverified email stays in profile but is omitted from oidc claims when ver
 });
 
 test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
-  const { app, state } = await createTestApp();
+  const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);
+  await runAuthorizationFlow(agent, emailSender, "logout-state-session");
 
   const logoutPage = await agent.get("/session/end").query({
     client_id: "demo-site",
@@ -1147,6 +1175,10 @@ test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
     state: "logout-state-1"
   });
   assert.equal(logoutPage.status, 200);
+  assertLogoutPageSecurityHeaders(logoutPage);
+  assert.match(logoutPage.text, /确认退出登录/);
+  assert.doesNotMatch(logoutPage.text, /logout-auto-submit/);
+  assert.doesNotMatch(logoutPage.text, /<script/i);
   const formAction = extractFormAction(logoutPage.text);
   assert.equal(typeof formAction, "string");
 
@@ -1171,13 +1203,18 @@ test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
 });
 
 test("rp initiated logout shows success page when no redirect uri is provided", async () => {
-  const { app, state } = await createTestApp();
+  const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);
+  await runAuthorizationFlow(agent, emailSender, "logout-success-session");
 
   const logoutPage = await agent.get("/session/end").query({
     client_id: "demo-site"
   });
   assert.equal(logoutPage.status, 200);
+  assertLogoutPageSecurityHeaders(logoutPage);
+  assert.match(logoutPage.text, /确认退出登录/);
+  assert.doesNotMatch(logoutPage.text, /logout-auto-submit/);
+  assert.doesNotMatch(logoutPage.text, /<script/i);
   const formAction = extractFormAction(logoutPage.text);
   assert.equal(typeof formAction, "string");
 
