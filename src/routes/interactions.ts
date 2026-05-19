@@ -136,6 +136,11 @@ function validateCsrf(
   return secureStringEqual(payload.nonce_hash, sha256Base64Url(nonce));
 }
 
+function getScriptNonce(response: Response) {
+  const nonce = response.locals["cspScriptNonce"];
+  return typeof nonce === "string" ? nonce : "";
+}
+
 function renderPage(title: string, body: string) {
   return `<!DOCTYPE html>
   <html lang="zh-CN">
@@ -168,7 +173,8 @@ function renderPage(title: string, body: string) {
   </html>`;
 }
 
-function loginView(uid: string, csrf: string, error?: string) {
+function loginView(response: Response, uid: string, csrf: string, error?: string) {
+  const scriptNonce = getScriptNonce(response);
   return renderPage(
     "CQUT-Auth",
     `
@@ -188,7 +194,7 @@ function loginView(uid: string, csrf: string, error?: string) {
         <span class="button-loading">登录中...</span>
       </button>
     </form>
-    <script>
+    <script nonce="${escapeHtml(scriptNonce)}">
       (() => {
         const form = document.querySelector("[data-login-form]");
         const submit = document.querySelector("[data-login-submit]");
@@ -630,7 +636,7 @@ export function createInteractionRouter(
       }
       const uid = request.params["uid"] ?? "";
       const csrf = issueCsrfToken(response, config, uid, "login");
-      response.status(200).send(loginView(uid, csrf));
+      response.status(200).send(loginView(response, uid, csrf));
     } catch (error) {
       next(error);
     }
@@ -753,7 +759,7 @@ export function createInteractionRouter(
           console.error("[oidc-op] interactive sign-in failed", { error });
         }
         const csrf = issueCsrfToken(response, config, uid, "login");
-        response.status(401).send(loginView(uid, csrf, message));
+        response.status(401).send(loginView(response, uid, csrf, message));
       }
     } catch (error) {
       next(error);

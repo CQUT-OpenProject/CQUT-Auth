@@ -121,7 +121,7 @@ function resolveBasicClientId(ctx: any): string | undefined {
   return undefined;
 }
 
-function resolveRequestIp(config: Pick<OidcOpConfig, "trustProxyHops">, ctx: any) {
+function resolveRequestIp(config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">, ctx: any) {
   return resolveTrustedKoaRequestIp(config, ctx);
 }
 
@@ -407,6 +407,7 @@ function normalizeIssuer(issuer: string): string {
 const LOGOUT_PAGE_CSP = [
   "default-src 'none'",
   "base-uri 'none'",
+  "object-src 'none'",
   "form-action 'self'",
   "frame-ancestors 'none'",
   "style-src 'unsafe-inline'"
@@ -605,6 +606,8 @@ export async function createOidcServices(
           ctx.set("Cache-Control", "no-store");
           ctx.set("Content-Security-Policy", LOGOUT_PAGE_CSP);
           ctx.set("X-Frame-Options", "DENY");
+          ctx.set("X-Content-Type-Options", "nosniff");
+          ctx.set("Referrer-Policy", "no-referrer");
           ctx.body = renderLogoutConfirmationPage(form);
         },
         postLogoutSuccessSource(ctx: any) {
@@ -620,6 +623,8 @@ export async function createOidcServices(
           ctx.set("Cache-Control", "no-store");
           ctx.set("Content-Security-Policy", LOGOUT_PAGE_CSP);
           ctx.set("X-Frame-Options", "DENY");
+          ctx.set("X-Content-Type-Options", "nosniff");
+          ctx.set("Referrer-Policy", "no-referrer");
           if (redirectUri) {
             const target = new URL(redirectUri);
             if (state) {

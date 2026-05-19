@@ -100,17 +100,27 @@ function getSetCookieValue(response: request.Response, name: string): string | u
   return undefined;
 }
 
-function assertNoApplicationSecurityHeaders(response: request.Response) {
-  assert.equal(response.headers["content-security-policy"], undefined);
-  assert.equal(response.headers["x-frame-options"], undefined);
-  assert.equal(response.headers["referrer-policy"], undefined);
-  assert.equal(response.headers["x-content-type-options"], undefined);
+function assertApplicationSecurityHeaders(response: request.Response) {
+  const csp = response.headers["content-security-policy"] as string;
+  assert.match(csp, /default-src 'none'/);
+  assert.match(csp, /base-uri 'none'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /form-action 'self'/);
+  assert.equal(response.headers["x-frame-options"], "DENY");
+  assert.equal(response.headers["referrer-policy"], "no-referrer");
+  assert.equal(response.headers["x-content-type-options"], "nosniff");
 }
 
 function assertLogoutPageSecurityHeaders(response: request.Response) {
-  assert.match(response.headers["content-security-policy"] as string, /frame-ancestors 'none'/);
-  assert.match(response.headers["content-security-policy"] as string, /form-action 'self'/);
-  assert.equal(response.headers["x-frame-options"], "DENY");
+  assertApplicationSecurityHeaders(response);
+}
+
+function assertInlineScriptNonceMatchesCsp(response: request.Response) {
+  const scriptNonce = response.text.match(/<script nonce="([^"]+)">/)?.[1];
+  const cspNonce = (response.headers["content-security-policy"] as string).match(/script-src 'nonce-([^']+)'/)?.[1];
+  assert.ok(scriptNonce);
+  assert.equal(scriptNonce, cspNonce);
 }
 
 function tamperToken(token: string) {
@@ -645,15 +655,16 @@ test("authorization endpoint requires PKCE S256", async () => {
   await state.store.close();
 });
 
-test("application leaves security headers to reverse proxy", async () => {
+test("application sets security headers on interactive and provider pages", async () => {
   const { app, state } = await createTestApp();
   const agent = request.agent(app);
   const { loginPage } = await openLoginInteraction(agent, "security-headers-state");
-  assertNoApplicationSecurityHeaders(loginPage);
+  assertApplicationSecurityHeaders(loginPage);
+  assertInlineScriptNonceMatchesCsp(loginPage);
 
   const errorPage = await request(app).get("/auth");
   assert.ok(errorPage.status >= 400);
-  assertNoApplicationSecurityHeaders(errorPage);
+  assertApplicationSecurityHeaders(errorPage);
 
   const logoutPage = await agent.get("/session/end").query({
     client_id: "demo-site"
@@ -2289,6 +2300,18 @@ test("config rejects TRUST_PROXY_HOPS=2 in production", () => {
         })
       ),
     /TRUST_PROXY_HOPS must be 1 when APP_ENV=production/
+  );
+});
+
+test("config rejects empty TRUSTED_PROXY_CIDRS when proxy trust is enabled", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig(
+        createProductionConfigEnv({
+          TRUSTED_PROXY_CIDRS: ""
+        })
+      ),
+    /TRUSTED_PROXY_CIDRS must contain at least one CIDR/
   );
 });
 

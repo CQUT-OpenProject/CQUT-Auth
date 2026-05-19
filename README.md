@@ -116,7 +116,7 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 **🚨 生产上线前检查清单：**
 
 - [ ] `OIDC_ISSUER` 必须与外场可达的 HTTPS 域名完全对齐。
-- [ ] `OIDC_COOKIE_SECURE=true` 与 `TRUST_PROXY_HOPS=1` 配置完毕。
+- [ ] `OIDC_COOKIE_SECURE=true`、`TRUST_PROXY_HOPS=1` 与 `TRUSTED_PROXY_CIDRS` 配置完毕，反向代理必须覆盖 `X-Forwarded-For`。
 - [ ] 项目中涉及的各套秘钥组（Cookie / 加密 / Redis 等）均已更改为高熵值。
 - [ ] `RESEND_API_KEY` 及 `OIDC_EMAIL_FROM` 已正确就绪以实现邮箱鉴权下行。
 - [ ] OIDC 终端客户端已在 `deploy/oidc-clients.json` 中配置完毕并映射。

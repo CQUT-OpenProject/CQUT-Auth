@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import { readOidcOpConfig, type OidcOpConfig } from "./config.js";
@@ -31,6 +32,27 @@ function errorHandler(error: unknown, _request: Request, response: Response, _ne
     });
 }
 
+function applySecurityHeaders(_request: Request, response: Response, next: NextFunction) {
+  const scriptNonce = randomBytes(16).toString("base64");
+  response.locals["cspScriptNonce"] = scriptNonce;
+  response.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'none'",
+      "base-uri 'none'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "style-src 'unsafe-inline'",
+      `script-src 'nonce-${scriptNonce}'`
+    ].join("; ")
+  );
+  response.setHeader("X-Frame-Options", "DENY");
+  response.setHeader("X-Content-Type-Options", "nosniff");
+  response.setHeader("Referrer-Policy", "no-referrer");
+  next();
+}
+
 export async function createOidcApp(
   env: NodeJS.ProcessEnv = process.env,
   dependencies: AppDependencies = {}
@@ -50,6 +72,7 @@ export async function createOidcApp(
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxyHops);
+  app.use(applySecurityHeaders);
 
   app.get("/health/live", (_request, response) => {
     response.json({ status: "live" });
@@ -64,17 +87,6 @@ export async function createOidcApp(
       database: store.hasDatabase() ? "postgres" : "memory",
       redis: config.redisUrl ? (redisReady ? "ready" : "unavailable") : "optional"
     });
-  });
-
-  app.use((request, response, next) => {
-    if (request.path === "/session/end" || request.path.startsWith("/session/end/")) {
-      response.setHeader(
-        "Content-Security-Policy",
-        "default-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
-      );
-      response.setHeader("X-Frame-Options", "DENY");
-    }
-    next();
   });
 
   app.use("/interaction", createInteractionRouter(config, services.provider, services, store, rateLimitService));

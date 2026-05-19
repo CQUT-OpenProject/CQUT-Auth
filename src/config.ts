@@ -3,6 +3,7 @@ export type OidcOpConfig = {
   appEnv: string;
   isProduction: boolean;
   trustProxyHops: number;
+  trustedProxyCidrs: string[];
   issuer: string;
   schoolCode: string;
   authProvider: string;
@@ -73,6 +74,10 @@ function requireSecret(env: NodeJS.ProcessEnv, key: string, allowDefaultForTest 
   throw new Error(`${key} is required`);
 }
 
+function parseCsv(value: string | undefined): string[] {
+  return value ? value.split(",").map((entry) => entry.trim()).filter(Boolean) : [];
+}
+
 function assertStrongEncryptionSecret(secret: string, key: string, appEnv: string) {
   if (appEnv === "test") {
     return;
@@ -112,6 +117,12 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   const appEnv = env["APP_ENV"] ?? env["NODE_ENV"] ?? "development";
   const isProduction = appEnv === "production";
   const trustProxyHops = Number(env["TRUST_PROXY_HOPS"] ?? (isProduction ? 1 : 0));
+  const trustedProxyCidrs = parseCsv(
+    env["TRUSTED_PROXY_CIDRS"] ??
+      (trustProxyHops > 0
+        ? "127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"
+        : "")
+  );
   const emailVerificationEnabled = env["OIDC_EMAIL_VERIFICATION_ENABLED"] !== "false";
   if (isProduction && !emailVerificationEnabled) {
     throw new Error(
@@ -274,6 +285,9 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
     throw new Error("TRUST_PROXY_HOPS must be a non-negative integer");
   }
+  if (trustProxyHops > 0 && trustedProxyCidrs.length === 0) {
+    throw new Error("TRUSTED_PROXY_CIDRS must contain at least one CIDR when TRUST_PROXY_HOPS is enabled");
+  }
 
   const artifactOpportunisticCleanupEnabled =
     env["OIDC_ARTIFACT_OPPORTUNISTIC_CLEANUP_ENABLED"] !== undefined
@@ -351,6 +365,9 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     if (trustProxyHops !== 1) {
       throw new Error("TRUST_PROXY_HOPS must be 1 when APP_ENV=production");
     }
+    if (trustedProxyCidrs.length === 0) {
+      throw new Error("TRUSTED_PROXY_CIDRS must contain at least one CIDR when APP_ENV=production");
+    }
     if (emailVerificationEnabled && !resendApiKey) {
       throw new Error("RESEND_API_KEY is required when APP_ENV=production and email verification is enabled");
     }
@@ -363,6 +380,7 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     appEnv,
     isProduction,
     trustProxyHops,
+    trustedProxyCidrs,
     issuer,
     schoolCode: env["SCHOOL_CODE"] ?? "cqut",
     authProvider,
