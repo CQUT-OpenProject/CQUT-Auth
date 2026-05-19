@@ -18,6 +18,7 @@ export type OidcClientRecord = {
   responseTypes: string[];
   scopeWhitelist: OidcScope[];
   requirePkce: boolean;
+  allowRefreshTokenForPublicClient: boolean;
   autoConsent: boolean;
   status: "active" | "disabled";
   createdAt: string;

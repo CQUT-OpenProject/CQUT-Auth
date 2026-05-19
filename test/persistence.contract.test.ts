@@ -65,6 +65,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     responseTypes: ["code"],
     scopeWhitelist: ["openid", "profile", "email", "student", "offline_access"],
     requirePkce: true,
+    allowRefreshTokenForPublicClient: false,
     autoConsent: true,
     status: "active",
     createdAt: now,
@@ -73,6 +74,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
   const clients = await persistence.listActiveOidcClients();
   assert.equal(clients.length, 1);
   assert.equal(clients[0]?.clientId, "demo-site");
+  assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
 
   await persistence.upsertArtifact(
     "AuthorizationCode:code-1",

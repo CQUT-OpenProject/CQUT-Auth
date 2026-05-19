@@ -3,6 +3,16 @@
     {
       "clientId": "demo-site",
       "clientSecretDigest": "scrypt$N=16384,r=8,p=1,keylen=32$<base64url-salt>$<base64url-digest>",
+      "grantTypes": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "scopeWhitelist": [
+        "openid",
+        "profile",
+        "email",
+        "student"
+      ],
       "redirectUris": [
         "https://demo.xxx.com/callback"
       ],

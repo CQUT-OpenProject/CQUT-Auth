@@ -620,7 +620,7 @@ export async function createOidcServices(
       }
     },
     extraClientMetadata: {
-      properties: ["clientSecretDigest"],
+      properties: ["clientSecretDigest", "allowRefreshTokenForPublicClient"],
       validator() {}
     },
     findAccount: async (_ctx: any, sub: string) => {
@@ -657,6 +657,12 @@ export async function createOidcServices(
     },
     issueRefreshToken(_ctx: any, client: any, code: any) {
       if (!client.grantTypeAllowed("refresh_token")) {
+        return false;
+      }
+      if (
+        client.tokenEndpointAuthMethod === "none" &&
+        client.metadata().allowRefreshTokenForPublicClient !== true
+      ) {
         return false;
       }
       return code.scopes.has("offline_access");

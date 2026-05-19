@@ -47,6 +47,8 @@ create table if not exists oidc_clients (
   response_types jsonb not null,
   scope_whitelist jsonb not null,
   require_pkce boolean not null default true,
+  allow_refresh_token_for_public_client boolean not null default false,
+  auto_consent boolean not null default false,
   status text not null default 'active',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()

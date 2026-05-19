@@ -106,6 +106,7 @@ test("adapter Client.find returns provider metadata for active client only", asy
         responseTypes: ["code"],
         scopeWhitelist: ["openid", "profile"],
         requirePkce: true,
+        allowRefreshTokenForPublicClient: false,
         autoConsent: false,
         status: "active",
         createdAt: now,
@@ -120,5 +121,6 @@ test("adapter Client.find returns provider metadata for active client only", asy
   assert.equal(active?.["client_id"], "client-a");
   assert.equal(active?.["client_secret"], "placeholder:client-a");
   assert.equal(active?.["scope"], "openid profile");
+  assert.equal(active?.["allowRefreshTokenForPublicClient"], false);
   assert.equal(missing, undefined);
 });

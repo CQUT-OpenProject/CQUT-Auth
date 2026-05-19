@@ -25,12 +25,13 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         response_types,
         scope_whitelist,
         require_pkce,
+        allow_refresh_token_for_public_client,
         auto_consent,
         status,
         created_at,
         updated_at
       )
-      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12, $13::timestamptz, $14::timestamptz)
+      values ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14::timestamptz, $15::timestamptz)
       on conflict (client_id) do update
       set client_secret_hash = excluded.client_secret_hash,
           application_type = excluded.application_type,
@@ -41,6 +42,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
           response_types = excluded.response_types,
           scope_whitelist = excluded.scope_whitelist,
           require_pkce = excluded.require_pkce,
+          allow_refresh_token_for_public_client = excluded.allow_refresh_token_for_public_client,
           auto_consent = excluded.auto_consent,
           status = excluded.status,
           updated_at = excluded.updated_at
@@ -56,6 +58,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         JSON.stringify(client.responseTypes),
         JSON.stringify(client.scopeWhitelist),
         client.requirePkce,
+        client.allowRefreshTokenForPublicClient,
         client.autoConsent,
         client.status,
         client.createdAt,
@@ -100,6 +103,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       responseTypes: row["response_types"] as string[],
       scopeWhitelist: row["scope_whitelist"] as OidcClientRecord["scopeWhitelist"],
       requirePkce: Boolean(row["require_pkce"]),
+      allowRefreshTokenForPublicClient: Boolean(row["allow_refresh_token_for_public_client"]),
       autoConsent: Boolean(row["auto_consent"]),
       status: row["status"] as OidcClientRecord["status"],
       createdAt: (row["created_at"] as Date).toISOString(),

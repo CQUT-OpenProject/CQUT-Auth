@@ -22,6 +22,7 @@ function providerClientMetadata(client: OidcClientRecord) {
     grant_types: client.grantTypes,
     response_types: client.responseTypes,
     scope: client.scopeWhitelist.join(" "),
+    allowRefreshTokenForPublicClient: client.allowRefreshTokenForPublicClient,
     clientSecretDigest: client.clientSecretDigest
   };
   if (client.clientSecretDigest) {

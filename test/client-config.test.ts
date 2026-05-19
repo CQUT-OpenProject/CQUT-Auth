@@ -35,10 +35,80 @@ test("loadOidcClientsFromConfig applies defaults for minimal client config", asy
   assert.equal(clients[0]?.clientId, "site-a");
   assert.equal(clients[0]?.tokenEndpointAuthMethod, "client_secret_basic");
   assert.deepEqual(clients[0]?.grantTypes, ["authorization_code", "refresh_token"]);
+  assert.deepEqual(clients[0]?.scopeWhitelist, ["openid", "profile"]);
   assert.deepEqual(clients[0]?.responseTypes, ["code"]);
   assert.equal(clients[0]?.requirePkce, true);
+  assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
   assert.equal(clients[0]?.autoConsent, false);
   assert.equal(clients[0]?.status, "active");
+});
+
+test("loadOidcClientsFromConfig applies safer defaults for public client config", async () => {
+  const filePath = await writeClientsConfig({
+    clients: [
+      {
+        clientId: "public-site",
+        tokenEndpointAuthMethod: "none",
+        redirectUris: ["http://localhost:3002/callback"],
+        postLogoutRedirectUris: ["http://localhost:3002/logout"]
+      }
+    ]
+  });
+  const clients = await loadOidcClientsFromConfig({
+    appEnv: "test",
+    oidcClientsConfigPath: filePath
+  });
+  assert.equal(clients.length, 1);
+  assert.equal(clients[0]?.tokenEndpointAuthMethod, "none");
+  assert.deepEqual(clients[0]?.grantTypes, ["authorization_code"]);
+  assert.deepEqual(clients[0]?.scopeWhitelist, ["openid", "profile"]);
+  assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
+});
+
+test("loadOidcClientsFromConfig rejects public refresh_token without explicit confirmation", async () => {
+  const filePath = await writeClientsConfig({
+    clients: [
+      {
+        clientId: "public-site",
+        tokenEndpointAuthMethod: "none",
+        redirectUris: ["http://localhost:3002/callback"],
+        postLogoutRedirectUris: ["http://localhost:3002/logout"],
+        grantTypes: ["authorization_code", "refresh_token"],
+        scopeWhitelist: ["openid", "profile", "offline_access"]
+      }
+    ]
+  });
+  await assert.rejects(
+    () =>
+      loadOidcClientsFromConfig({
+        appEnv: "test",
+        oidcClientsConfigPath: filePath
+      }),
+    /allowRefreshTokenForPublicClient=true is required/
+  );
+});
+
+test("loadOidcClientsFromConfig accepts explicitly confirmed public refresh_token", async () => {
+  const filePath = await writeClientsConfig({
+    clients: [
+      {
+        clientId: "public-site",
+        tokenEndpointAuthMethod: "none",
+        redirectUris: ["http://localhost:3002/callback"],
+        postLogoutRedirectUris: ["http://localhost:3002/logout"],
+        grantTypes: ["authorization_code", "refresh_token"],
+        scopeWhitelist: ["openid", "profile", "offline_access"],
+        allowRefreshTokenForPublicClient: true
+      }
+    ]
+  });
+  const clients = await loadOidcClientsFromConfig({
+    appEnv: "test",
+    oidcClientsConfigPath: filePath
+  });
+  assert.equal(clients[0]?.allowRefreshTokenForPublicClient, true);
+  assert.deepEqual(clients[0]?.grantTypes, ["authorization_code", "refresh_token"]);
+  assert.deepEqual(clients[0]?.scopeWhitelist, ["openid", "profile", "offline_access"]);
 });
 
 test("loadOidcClientsFromConfig fails on missing config file", async () => {
@@ -127,5 +197,6 @@ test("upsertOidcClientsFromConfig inserts configured client records", async () =
   const activeClients = await store.listActiveOidcClients();
   assert.equal(activeClients.length, 1);
   assert.equal(activeClients[0]?.clientId, "site-a");
+  assert.equal(activeClients[0]?.allowRefreshTokenForPublicClient, false);
   await store.close();
 });

@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { OIDC_SCOPES, type OidcScope } from "../shared/oidc-contracts.js";
+import { DEFAULT_OIDC_SCOPES, OIDC_SCOPES, type OidcScope } from "../shared/oidc-contracts.js";
 import type { OidcOpConfig } from "../config.js";
 import type { OidcClientRecord, OidcPersistence } from "../persistence/contracts.js";
 
@@ -18,6 +18,7 @@ type RawClient = {
   responseTypes?: unknown;
   scopeWhitelist?: unknown;
   requirePkce?: unknown;
+  allowRefreshTokenForPublicClient?: unknown;
   autoConsent?: unknown;
   status?: unknown;
 };
@@ -138,7 +139,7 @@ function parseStatus(value: unknown, clientId: string): OidcClientRecord["status
 function parseScopeWhitelist(value: unknown, clientId: string): OidcScope[] {
   const scopes = parseStringArray(value, "scopeWhitelist", clientId, {
     required: true,
-    defaultValue: [...OIDC_SCOPES]
+    defaultValue: [...DEFAULT_OIDC_SCOPES]
   });
   const supported = new Set<string>(OIDC_SCOPES);
   for (const scope of scopes) {
@@ -190,6 +191,28 @@ function parseClient(raw: unknown, appEnv: string, seenClientIds: Set<string>): 
     assertHttpsOrTestLoopbackHttp(postLogoutRedirectUri, "postLogoutRedirectUris", appEnv, clientId);
   }
 
+  const grantTypes = parseStringArray(client.grantTypes, "grantTypes", clientId, {
+    required: true,
+    defaultValue:
+      tokenEndpointAuthMethod === "none" ? ["authorization_code"] : ["authorization_code", "refresh_token"]
+  });
+  const scopeWhitelist = parseScopeWhitelist(client.scopeWhitelist, clientId);
+  const allowRefreshTokenForPublicClient = parseBoolean(
+    client.allowRefreshTokenForPublicClient,
+    "allowRefreshTokenForPublicClient",
+    clientId,
+    false
+  );
+  if (
+    tokenEndpointAuthMethod === "none" &&
+    grantTypes.includes("refresh_token") &&
+    !allowRefreshTokenForPublicClient
+  ) {
+    throw new Error(
+      `oidc client ${clientId}: allowRefreshTokenForPublicClient=true is required when public clients allow refresh_token`
+    );
+  }
+
   const now = new Date().toISOString();
   return {
     clientId,
@@ -198,16 +221,14 @@ function parseClient(raw: unknown, appEnv: string, seenClientIds: Set<string>): 
     tokenEndpointAuthMethod,
     redirectUris,
     postLogoutRedirectUris,
-    grantTypes: parseStringArray(client.grantTypes, "grantTypes", clientId, {
-      required: true,
-      defaultValue: ["authorization_code", "refresh_token"]
-    }),
+    grantTypes,
     responseTypes: parseStringArray(client.responseTypes, "responseTypes", clientId, {
       required: true,
       defaultValue: ["code"]
     }),
-    scopeWhitelist: parseScopeWhitelist(client.scopeWhitelist, clientId),
+    scopeWhitelist,
     requirePkce: parseBoolean(client.requirePkce, "requirePkce", clientId, true),
+    allowRefreshTokenForPublicClient,
     autoConsent: parseBoolean(client.autoConsent, "autoConsent", clientId, false),
     status: parseStatus(client.status, clientId),
     createdAt: now,

@@ -272,6 +272,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
         response_types jsonb not null,
         scope_whitelist jsonb not null,
         require_pkce boolean not null default true,
+        allow_refresh_token_for_public_client boolean not null default false,
         auto_consent boolean not null default false,
         status text not null default 'active',
         created_at timestamptz not null default now(),
@@ -280,7 +281,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
     `);
     await this.pool.query(`
       alter table oidc_clients
-      add column if not exists auto_consent boolean not null default false;
+      add column if not exists auto_consent boolean not null default false,
+      add column if not exists allow_refresh_token_for_public_client boolean not null default false;
     `);
     await this.pool.query(`
       create table if not exists oidc_artifacts (

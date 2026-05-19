@@ -203,6 +203,8 @@ async function writeTestClientsConfig(
       {
         clientId: "demo-site",
         clientSecretDigest,
+        grantTypes: ["authorization_code", "refresh_token"],
+        scopeWhitelist: ["openid", "profile", "email", "student", "offline_access"],
         redirectUris: patch.redirectUris ?? [TEST_REDIRECT_URI],
         postLogoutRedirectUris: patch.postLogoutRedirectUris ?? [TEST_POST_LOGOUT_REDIRECT_URI],
         autoConsent: patch.autoConsent ?? false,
@@ -284,6 +286,7 @@ async function upsertDemoClient(
     responseTypes: ["code"],
     scopeWhitelist: ["openid", "profile", "email", "student", "offline_access"],
     requirePkce: true,
+    allowRefreshTokenForPublicClient: false,
     autoConsent: patch.autoConsent ?? false,
     status: patch.status ?? "active",
     createdAt: now,
@@ -293,7 +296,12 @@ async function upsertDemoClient(
 
 async function upsertPublicNoneClient(
   state: { store: { upsertOidcClient: (client: any) => Promise<unknown> } },
-  clientId: string
+  clientId: string,
+  patch: Partial<{
+    grantTypes: string[];
+    scopeWhitelist: Array<"openid" | "profile" | "email" | "offline_access" | "student">;
+    allowRefreshTokenForPublicClient: boolean;
+  }> = {}
 ) {
   const now = new Date().toISOString();
   await state.store.upsertOidcClient({
@@ -303,10 +311,11 @@ async function upsertPublicNoneClient(
     tokenEndpointAuthMethod: "none",
     redirectUris: [TEST_REDIRECT_URI],
     postLogoutRedirectUris: [TEST_POST_LOGOUT_REDIRECT_URI],
-    grantTypes: ["refresh_token"],
+    grantTypes: patch.grantTypes ?? ["refresh_token"],
     responseTypes: ["code"],
-    scopeWhitelist: ["openid", "profile", "email", "student", "offline_access"],
+    scopeWhitelist: patch.scopeWhitelist ?? ["openid", "profile", "email", "student", "offline_access"],
     requirePkce: true,
+    allowRefreshTokenForPublicClient: patch.allowRefreshTokenForPublicClient ?? true,
     autoConsent: false,
     status: "active",
     createdAt: now,
@@ -797,11 +806,75 @@ test("seeded demo client is confidential web client", async () => {
   assert.equal(client?.applicationType, "web");
   assert.equal(client?.tokenEndpointAuthMethod, "client_secret_basic");
   assert.equal(typeof client?.clientSecretDigest, "string");
+  assert.equal(client?.allowRefreshTokenForPublicClient, false);
   assert.equal(
     await verifyClientSecretDigest(TEST_DEMO_CLIENT_SECRET, client?.clientSecretDigest as string),
     true
   );
   assert.equal(client?.autoConsent, true);
+  await state.store.close();
+});
+
+test("public client without explicit refresh confirmation does not receive refresh token", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  await upsertPublicNoneClient(state, "public-unconfirmed", { allowRefreshTokenForPublicClient: false });
+  const agent = request.agent(app);
+  const verifier = "public-verifier-1234567890-public-verifier-1234567890";
+  const challenge = sha256Base64Url(verifier);
+
+  const authorize = await agent.get("/auth").query({
+    client_id: "public-unconfirmed",
+    redirect_uri: TEST_REDIRECT_URI,
+    response_type: "code",
+    scope: "openid profile offline_access",
+    prompt: "consent",
+    state: "public-unconfirmed-state",
+    nonce: "public-unconfirmed-nonce",
+    code_challenge: challenge,
+    code_challenge_method: "S256"
+  });
+  assert.ok(authorize.status === 302 || authorize.status === 303);
+  const interactionLocation = authorize.headers["location"] as string;
+  const loginPage = await agent.get(interactionLocation);
+  const login = await agent.post(`${interactionLocation}/login`).type("form").send({
+    csrf: extractCsrf(loginPage.text),
+    account: TEST_LOGIN_ACCOUNT,
+    password: TEST_LOGIN_PASSWORD
+  });
+  assert.equal(login.status, 302);
+  const profileLocation = login.headers["location"] as string;
+  const profilePage = await agent.get(profileLocation);
+  const sendCode = await agent.post(profileLocation).type("form").send({
+    csrf: extractCsrf(profilePage.text),
+    action: "send_code",
+    email: "demo@example.com"
+  });
+  const sentCode = emailSender.latestCode(extractInteractionUid(interactionLocation), "demo@example.com");
+  assert.equal(typeof sentCode, "string");
+  const profile = await agent.post(profileLocation).type("form").send({
+    csrf: extractCsrf(sendCode.text),
+    action: "verify_code",
+    code: sentCode
+  });
+  const consentPageHtml = await followToConsentPage(agent, profile);
+  const consent = await agent.post(normalizeActionPath(extractConsentAction(consentPageHtml))).type("form").send({
+    csrf: extractCsrf(consentPageHtml),
+    action: "approve"
+  });
+  const externalRedirect = await followToRedirectUriOrigin(agent, consent, TEST_REDIRECT_URI);
+  const code = new URL(externalRedirect).searchParams.get("code");
+  assert.equal(typeof code, "string");
+
+  const token = await request(app).post("/token").type("form").send({
+    grant_type: "authorization_code",
+    client_id: "public-unconfirmed",
+    code,
+    redirect_uri: TEST_REDIRECT_URI,
+    code_verifier: verifier
+  });
+  assert.equal(token.status, 200);
+  assert.equal(typeof token.body.access_token, "string");
+  assert.equal(token.body.refresh_token, undefined);
   await state.store.close();
 });
 
