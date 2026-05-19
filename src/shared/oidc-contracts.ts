@@ -19,7 +19,7 @@ export const OIDC_CLAIMS = [
 export type OidcClaim = (typeof OIDC_CLAIMS)[number];
 
 export const STUDENT_STATUS = [
-  "active_student",
+  "active",
   "not_student",
   "unknown"
 ] as const;

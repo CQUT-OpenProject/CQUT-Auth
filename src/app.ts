@@ -32,7 +32,35 @@ function errorHandler(error: unknown, _request: Request, response: Response, _ne
     });
 }
 
-function applySecurityHeaders(_request: Request, response: Response, next: NextFunction) {
+function cspSourceForOrigin(origin: string): string | undefined {
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+      return undefined;
+    }
+    return parsed.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function buildFormActionSources(config: OidcOpConfig, redirectUris: string[]) {
+  const sources = new Set<string>(["'self'"]);
+  for (const uri of redirectUris) {
+    const source = cspSourceForOrigin(uri);
+    if (source) {
+      sources.add(source);
+    }
+  }
+  const issuerSource = cspSourceForOrigin(config.issuer);
+  if (issuerSource) {
+    sources.add(issuerSource);
+  }
+  return [...sources];
+}
+
+function applySecurityHeaders(config: OidcOpConfig, formActionSources: string[]) {
+  return (_request: Request, response: Response, next: NextFunction) => {
   const scriptNonce = randomBytes(16).toString("base64");
   response.locals["cspScriptNonce"] = scriptNonce;
   response.setHeader(
@@ -42,7 +70,7 @@ function applySecurityHeaders(_request: Request, response: Response, next: NextF
       "base-uri 'none'",
       "object-src 'none'",
       "frame-ancestors 'none'",
-      "form-action 'self'",
+      `form-action ${formActionSources.join(" ")}`,
       "style-src 'unsafe-inline'",
       `script-src 'nonce-${scriptNonce}'`
     ].join("; ")
@@ -51,6 +79,7 @@ function applySecurityHeaders(_request: Request, response: Response, next: NextF
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("Referrer-Policy", "no-referrer");
   next();
+  };
 }
 
 export async function createOidcApp(
@@ -72,7 +101,12 @@ export async function createOidcApp(
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxyHops);
-  app.use(applySecurityHeaders);
+  const clients = await store.listActiveOidcClients();
+  const formActionSources = buildFormActionSources(
+    config,
+    clients.flatMap((client) => client.redirectUris)
+  );
+  app.use(applySecurityHeaders(config, formActionSources));
 
   app.get("/health/live", (_request, response) => {
     response.json({ status: "live" });

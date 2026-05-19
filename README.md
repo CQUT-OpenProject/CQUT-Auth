@@ -157,6 +157,8 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 
 `offline_access` 是显式 opt-in scope，不在默认 `scopeWhitelist` 内。`tokenEndpointAuthMethod="none"` 的 public client 默认只允许 `authorization_code`；如确需向 public client 签发 refresh token，必须同时显式配置 `grantTypes` 包含 `refresh_token`、`scopeWhitelist` 包含 `offline_access`，并设置 `allowRefreshTokenForPublicClient: true`。
 
+`student` scope 只增加 `status` claim。当前 `status=active` 表示该账号已通过学校 UIS/CAS 认证且可在本 OP 中使用，不代表“当前在读学生”身份；RP 不应据此推断学籍状态。
+
 ### OIDC 核心端点映射表
 
 | 功能区 | 端点 URI | 操作详述 |

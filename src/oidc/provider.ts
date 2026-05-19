@@ -84,6 +84,10 @@ class DisabledEmailSender implements EmailSender {
 
 const wrappedTokenHandlers = new WeakSet<(ctx: any) => Promise<unknown>>();
 
+function normalizeStatusClaim(status: string) {
+  return status === "active_student" ? "active" : status;
+}
+
 function parseEpochSeconds(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
     return undefined;
@@ -664,7 +668,7 @@ export async function createOidcServices(
             claims["email_verified"] = true;
           }
           if (grantedScopes.has("student")) {
-            claims["status"] = principal.studentStatus;
+            claims["status"] = normalizeStatusClaim(principal.studentStatus);
           }
           return claims;
         }

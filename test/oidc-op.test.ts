@@ -100,20 +100,27 @@ function getSetCookieValue(response: request.Response, name: string): string | u
   return undefined;
 }
 
-function assertApplicationSecurityHeaders(response: request.Response) {
+function assertApplicationSecurityHeaders(
+  response: request.Response,
+  options: { expectClientRedirectFormAction?: boolean } = {}
+) {
   const csp = response.headers["content-security-policy"] as string;
   assert.match(csp, /default-src 'none'/);
   assert.match(csp, /base-uri 'none'/);
   assert.match(csp, /object-src 'none'/);
   assert.match(csp, /frame-ancestors 'none'/);
   assert.match(csp, /form-action 'self'/);
+  if (options.expectClientRedirectFormAction) {
+    assert.match(csp, /form-action [^;]*http:\/\/localhost:3002/);
+  }
+  assert.doesNotMatch(csp, /form-action [^;]*\*/);
   assert.equal(response.headers["x-frame-options"], "DENY");
   assert.equal(response.headers["referrer-policy"], "no-referrer");
   assert.equal(response.headers["x-content-type-options"], "nosniff");
 }
 
 function assertLogoutPageSecurityHeaders(response: request.Response) {
-  assertApplicationSecurityHeaders(response);
+  assertApplicationSecurityHeaders(response, { expectClientRedirectFormAction: false });
 }
 
 function assertInlineScriptNonceMatchesCsp(response: request.Response) {
@@ -659,12 +666,12 @@ test("application sets security headers on interactive and provider pages", asyn
   const { app, state } = await createTestApp();
   const agent = request.agent(app);
   const { loginPage } = await openLoginInteraction(agent, "security-headers-state");
-  assertApplicationSecurityHeaders(loginPage);
+  assertApplicationSecurityHeaders(loginPage, { expectClientRedirectFormAction: true });
   assertInlineScriptNonceMatchesCsp(loginPage);
 
   const errorPage = await request(app).get("/auth");
   assert.ok(errorPage.status >= 400);
-  assertApplicationSecurityHeaders(errorPage);
+  assertApplicationSecurityHeaders(errorPage, { expectClientRedirectFormAction: true });
 
   const logoutPage = await agent.get("/session/end").query({
     client_id: "demo-site"
@@ -1053,7 +1060,7 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
   assert.equal(userinfo.body.sub, userinfo.body.sub);
   assert.equal(userinfo.body.email, "demo@example.com");
   assert.equal(userinfo.body.email_verified, true);
-  assert.equal(userinfo.body.status, "active_student");
+  assert.equal(userinfo.body.status, "active");
   assert.equal(Object.hasOwn(userinfo.body as object, "school"), false);
   assert.equal(Object.hasOwn(userinfo.body as object, "student_status"), false);
 
@@ -1094,6 +1101,47 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
     });
   assert.equal(reuse.status, 400);
   assert.equal(reuse.body.error, "invalid_grant");
+
+  await state.store.close();
+});
+
+test("userinfo normalizes legacy active_student status to active", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  const agent = request.agent(app);
+
+  const { code, codeVerifier } = await runAuthorizationFlow(agent, emailSender, "state-legacy-status");
+
+  const token = await request(app)
+    .post("/token")
+    .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
+    .type("form")
+    .send({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: TEST_REDIRECT_URI,
+      code_verifier: codeVerifier
+    });
+  assert.equal(token.status, 200);
+  assert.equal(typeof token.body.access_token, "string");
+
+  const identity = await state.store.findIdentity("mock", `mock:${TEST_LOGIN_ACCOUNT}`);
+  assert.ok(identity);
+  const principal = await state.store.findPrincipalBySubjectId(identity.subjectId);
+  assert.ok(principal);
+  await state.store.updateIdentity(principal.identitySource, principal.identityKey, {
+    schoolUid: principal.schoolUid,
+    currentStudentStatus: "active_student" as any,
+    school: principal.school,
+    updatedAt: new Date().toISOString()
+  });
+
+  const userinfo = await request(app)
+    .get("/userinfo")
+    .set("Authorization", `Bearer ${token.body.access_token as string}`);
+  assert.equal(userinfo.status, 200);
+  assert.equal(userinfo.body.status, "active");
+  assert.equal(Object.hasOwn(userinfo.body as object, "school"), false);
+  assert.equal(Object.hasOwn(userinfo.body as object, "student_status"), false);
 
   await state.store.close();
 });
@@ -1283,6 +1331,58 @@ test("non-whitelisted clients require explicit consent approval", async () => {
   assert.equal(callbackUrl.origin + callbackUrl.pathname, TEST_REDIRECT_URI);
   assert.equal(callbackUrl.searchParams.get("state"), "manual-state-allow");
   assert.equal(typeof callbackUrl.searchParams.get("code"), "string");
+
+  await state.store.close();
+});
+
+test("consent page disables duplicate submissions while completing authorization", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  await disableDemoAutoConsent(state);
+  const agent = request.agent(app);
+  const { response } = await authorizeThroughProfile(agent, emailSender, "manual-state-consent-pending");
+  const consentPage = await followToConsentPage(agent, response);
+
+  assert.match(consentPage, /data-consent-form/);
+  assert.match(consentPage, /data-consent-submit/);
+  assert.match(consentPage, /data-consent-action/);
+  assert.match(consentPage, /正在完成授权请求，请稍候。/);
+  assert.match(consentPage, /setAttribute\("name", "action"\)/);
+  assert.match(consentPage, /setAttribute\("value", action\)/);
+  assert.match(consentPage, /event\.preventDefault\(\)/);
+  assert.match(consentPage, /setAttribute\("disabled", "disabled"\)/);
+
+  await state.store.close();
+});
+
+test("stale interaction requests return an expired-flow page instead of server_error", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  await disableDemoAutoConsent(state);
+  const agent = request.agent(app);
+  const { consentAction, consentCsrf } = await runAuthorizationToConsent(
+    agent,
+    emailSender,
+    "manual-state-stale-interaction"
+  );
+
+  const approved = await agent
+    .post(consentAction)
+    .type("form")
+    .send({ csrf: consentCsrf, action: "approve" });
+  const callbackRedirect = await followToRedirectUriOrigin(agent, approved, TEST_REDIRECT_URI);
+  assert.equal(new URL(callbackRedirect).searchParams.get("state"), "manual-state-stale-interaction");
+
+  const staleGet = await agent.get(consentAction.replace(/\/consent$/, ""));
+  assert.equal(staleGet.status, 400);
+  assert.match(staleGet.text, /登录流程已过期/);
+  assert.doesNotMatch(staleGet.text, /server_error/);
+
+  const stalePost = await agent
+    .post(consentAction)
+    .type("form")
+    .send({ csrf: consentCsrf, action: "approve" });
+  assert.equal(stalePost.status, 400);
+  assert.match(stalePost.text, /登录流程已过期/);
+  assert.doesNotMatch(stalePost.text, /server_error/);
 
   await state.store.close();
 });

@@ -110,7 +110,7 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
       return {
         schoolUid: input.account,
         verified: true,
-        studentStatus: "active_student",
+        studentStatus: "active",
         school: this.options.schoolCode,
         identityHash: `cqut:${input.account}`
       };

@@ -18,7 +18,7 @@ export class MockCampusVerifierProvider implements CampusVerifierProvider {
     return {
       schoolUid: input.account || "mock-student-001",
       verified: true,
-      studentStatus: "active_student",
+      studentStatus: "active",
       school: this.options.schoolCode,
       identityHash: `mock:${input.account || "mock-student-001"}`
     };

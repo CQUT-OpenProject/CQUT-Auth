@@ -224,6 +224,16 @@ function loginView(response: Response, uid: string, csrf: string, error?: string
   );
 }
 
+function interactionExpiredView() {
+  return renderPage(
+    "登录流程已过期",
+    `
+    <h1>登录流程已过期</h1>
+    <p class="error">当前登录授权流程已完成或已过期，请返回业务系统重新发起登录。</p>
+  `
+  );
+}
+
 function profileEmailView(
   uid: string,
   csrf: string,
@@ -335,7 +345,8 @@ function asStringArray(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.length > 0);
 }
 
-function consentView(uid: string, csrf: string, details: any, error?: string) {
+function consentView(response: Response, uid: string, csrf: string, details: any, error?: string) {
+  const scriptNonce = getScriptNonce(response);
   const clientId = typeof details?.params?.client_id === "string" ? details.params.client_id : "未知客户端";
   const requestedScope = typeof details?.params?.scope === "string" ? details.params.scope : "";
   const missingScopes = asStringArray(details?.prompt?.details?.missingOIDCScope);
@@ -376,13 +387,80 @@ function consentView(uid: string, csrf: string, details: any, error?: string) {
     ${requestedScope ? `<p class="hint"><strong>请求范围：</strong>${escapeHtml(requestedScope)}</p>` : ""}
     ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
     ${sections.join("")}
-    <form method="post" action="/interaction/${encodeURIComponent(uid)}/consent">
+    <form class="login-form" method="post" action="/interaction/${encodeURIComponent(uid)}/consent" data-consent-form>
       <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
-      <button type="submit" name="action" value="approve">允许</button>
-      <button type="submit" name="action" value="deny">拒绝</button>
+      <input type="hidden" value="" data-consent-action>
+      <p class="pending" role="status" aria-live="polite">
+        <strong>正在处理</strong>
+        正在完成授权请求，请稍候。
+      </p>
+      <button type="submit" name="action" value="approve" data-consent-submit>
+        <span class="button-label">允许</span>
+        <span class="button-loading">处理中...</span>
+      </button>
+      <button type="submit" name="action" value="deny" class="secondary" data-consent-submit>拒绝</button>
     </form>
+    <script nonce="${escapeHtml(scriptNonce)}">
+      (() => {
+        const form = document.querySelector("[data-consent-form]");
+        if (!form) {
+          return;
+        }
+        let submitted = false;
+        let selectedAction = "";
+        for (const submit of form.querySelectorAll("[data-consent-submit]")) {
+          submit.addEventListener("click", () => {
+            selectedAction = submit.value || "";
+          });
+        }
+        form.addEventListener("submit", (event) => {
+          if (submitted) {
+            event.preventDefault();
+            return;
+          }
+          const submitter = event.submitter;
+          const action =
+            submitter && "value" in submitter
+              ? submitter.value || selectedAction
+              : selectedAction;
+          const actionInput = form.querySelector("[data-consent-action]");
+          if (actionInput && action) {
+            actionInput.setAttribute("name", "action");
+            actionInput.setAttribute("value", action);
+          }
+          submitted = true;
+          form.dataset.submitting = "true";
+          form.setAttribute("aria-busy", "true");
+          for (const submit of form.querySelectorAll("[data-consent-submit]")) {
+            submit.setAttribute("disabled", "disabled");
+          }
+        });
+      })();
+    </script>
   `
   );
+}
+
+function isInteractionSessionNotFound(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const status = (error as { status?: unknown; statusCode?: unknown }).status ?? (error as { statusCode?: unknown }).statusCode;
+  const description = (error as { error_description?: unknown }).error_description;
+  return (
+    error.name === "SessionNotFound" ||
+    (status === 400 && description === "interaction session not found")
+  );
+}
+
+function handleInteractionRouteError(error: unknown, response: Response, next: (error: unknown) => void) {
+  if (isInteractionSessionNotFound(error)) {
+    console.warn("[oidc-op] stale interaction request", error);
+    setNoStore(response);
+    response.status(400).send(interactionExpiredView());
+    return;
+  }
+  next(error);
 }
 
 async function isAutoConsentClient(store: OidcPersistence, details: any): Promise<boolean> {
@@ -622,7 +700,7 @@ export function createInteractionRouter(
         }
         const uid = request.params["uid"] ?? "";
         const csrf = issueCsrfToken(response, config, uid, "consent");
-        response.status(200).send(consentView(uid, csrf, details));
+        response.status(200).send(consentView(response, uid, csrf, details));
         return;
       }
       if (details.prompt.name !== "login") {
@@ -638,7 +716,7 @@ export function createInteractionRouter(
       const csrf = issueCsrfToken(response, config, uid, "login");
       response.status(200).send(loginView(response, uid, csrf));
     } catch (error) {
-      next(error);
+      handleInteractionRouteError(error, response, next);
     }
   });
 
@@ -671,9 +749,9 @@ export function createInteractionRouter(
         return;
       }
       const csrf = issueCsrfToken(response, config, uid, "consent");
-      response.status(400).send(consentView(uid, csrf, details, "请选择允许或拒绝。"));
+      response.status(400).send(consentView(response, uid, csrf, details, "请选择允许或拒绝。"));
     } catch (error) {
-      next(error);
+      handleInteractionRouteError(error, response, next);
     }
   });
 
@@ -762,7 +840,7 @@ export function createInteractionRouter(
         response.status(401).send(loginView(response, uid, csrf, message));
       }
     } catch (error) {
-      next(error);
+      handleInteractionRouteError(error, response, next);
     }
   });
 
@@ -801,7 +879,7 @@ export function createInteractionRouter(
         })
       );
     } catch (error) {
-      next(error);
+      handleInteractionRouteError(error, response, next);
     }
   });
 
@@ -1071,7 +1149,7 @@ export function createInteractionRouter(
         })
       );
     } catch (error) {
-      next(error);
+      handleInteractionRouteError(error, response, next);
     }
   });
 

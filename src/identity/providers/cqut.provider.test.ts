@@ -60,6 +60,7 @@ test("CqutCampusVerifierProvider uses UIS CAS endpoints only", async () => {
     });
     assert.equal(identity.schoolUid, TEST_ACCOUNT);
     assert.equal(identity.identityHash, `cqut:${TEST_ACCOUNT}`);
+    assert.equal(identity.studentStatus, "active");
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -154,6 +155,7 @@ test("CqutCampusVerifierProvider retries transient CAS login GET failures", asyn
       password: TEST_PASSWORD
     });
     assert.equal(identity.schoolUid, TEST_ACCOUNT);
+    assert.equal(identity.studentStatus, "active");
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {

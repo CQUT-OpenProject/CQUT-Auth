@@ -33,7 +33,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
       provider: "mock",
       schoolUid: "20240001",
       identityKey: "cqut:20240001",
-      currentStudentStatus: "active_student",
+      currentStudentStatus: "active",
       school: "cqut",
       createdAt: now,
       updatedAt: now
