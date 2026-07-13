@@ -41,6 +41,13 @@ const emptyClient: ClientFormValue = {
   scopeWhitelist: ["openid", "profile"],
 };
 const emptyClients: Client[] = [];
+const clientScopes = [
+  "openid",
+  "profile",
+  "email",
+  "student",
+  "offline_access",
+];
 
 class ApiError extends Error {
   constructor(
@@ -489,13 +496,14 @@ function ClientEditor({
   extraActions?: React.ReactNode;
 }) {
   const [value, setValue] = useState(initial);
-  const [redirects, setRedirects] = useState(initial.redirectUris.join("\n"));
-  const [logoutRedirects, setLogoutRedirects] = useState(
+  const [redirects, setRedirects] = useState(() =>
+    initial.redirectUris.join("\n"),
+  );
+  const [logoutRedirects, setLogoutRedirects] = useState(() =>
     initial.postLogoutRedirectUris.join("\n"),
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const scopes = ["openid", "profile", "email", "student", "offline_access"];
   async function submit(event: FormEvent) {
     event.preventDefault();
     setBusy(true);
@@ -591,7 +599,7 @@ function ClientEditor({
         <fieldset className="full" disabled={disabled || configurationDisabled}>
           <legend>允许的 scopes</legend>
           <div className="checks">
-            {scopes.map((scope) => (
+            {clientScopes.map((scope) => (
               <label key={scope}>
                 <input
                   type="checkbox"
