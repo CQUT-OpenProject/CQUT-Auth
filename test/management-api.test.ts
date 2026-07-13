@@ -216,13 +216,26 @@ test("management API exposes separate lifecycle and revision workflows", async (
         revisionVersion: newDraft.version,
       });
     const newPending = resubmitted.body.client.proposedRevision;
-    await admin
+    const secondApproved = await admin
       .post(`/api/management/admin/reviews/${clientId}/approve`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         revisionId: newPending.revisionId,
         revisionVersion: newPending.version,
       });
+    assert.equal(secondApproved.status, 200);
+    assert.equal(secondApproved.body.client.proposedRevision, null);
+    const revisionFour = await admin
+      .put(`/api/management/clients/${clientId}/revision`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ redirectUris: ["http://localhost:3004/revision-4"] });
+    assert.equal(revisionFour.status, 200);
+    assert.equal(revisionFour.body.client.proposedRevision.revisionNumber, 4);
+    assert.deepEqual(revisionFour.body.client.proposedRevision.scopeWhitelist, [
+      "openid",
+      "profile",
+      "email",
+    ]);
     const newNowWorks = await request(app)
       .get("/auth")
       .query({

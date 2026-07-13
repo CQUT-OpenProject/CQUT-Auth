@@ -55,7 +55,7 @@ create table if not exists oidc_client_revisions (
   revision_id bigserial primary key,
   client_id text not null references oidc_clients(client_id),
   revision_number integer not null check (revision_number > 0),
-  review_status text not null check (review_status in ('draft', 'pending', 'approved', 'rejected')),
+  review_status text not null check (review_status in ('draft', 'pending', 'approved', 'rejected', 'cancelled')),
   redirect_uris jsonb not null,
   post_logout_redirect_uris jsonb not null default '[]'::jsonb,
   scope_whitelist jsonb not null,

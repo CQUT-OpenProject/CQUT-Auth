@@ -72,6 +72,65 @@ test("shows active configuration and warns that sensitive edits require approval
     (screen.getByLabelText(/Redirect URI（每行一个）/) as HTMLTextAreaElement)
       .disabled,
   ).toBe(false);
+  expect(screen.getByRole("button", { name: "保存基本信息" })).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: "保存并提交敏感修改" }),
+  ).toBeTruthy();
+});
+
+test("saves metadata and OIDC configuration through separate operations", async () => {
+  const calls: Array<{ path: string; method: string }> = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      const method = init?.method ?? "GET";
+      calls.push({ path, method });
+      const body = path.endsWith("/auth/context")
+        ? {
+            authenticated: true,
+            csrfToken: "csrf",
+            user: {
+              subjectId: "subj_owner",
+              displayName: "Owner",
+              isAdmin: false,
+            },
+          }
+        : path.endsWith("/clients") && method === "GET"
+          ? { clients: [client()] }
+          : { client: client() };
+      return new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
+  );
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
+  fireEvent.change(screen.getByLabelText("显示名称"), {
+    target: { value: "Renamed Client" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存基本信息" }));
+  await waitFor(() =>
+    expect(calls.some((call) => call.method === "PATCH")).toBe(true),
+  );
+  expect(calls.some((call) => call.method === "PUT")).toBe(false);
+
+  fireEvent.change(screen.getByLabelText(/Redirect URI（每行一个）/), {
+    target: { value: "https://app.example.com/new-callback" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存并提交敏感修改" }));
+  await waitFor(() =>
+    expect(calls.some((call) => call.method === "PUT")).toBe(true),
+  );
+  expect(calls.filter((call) => call.method === "PATCH")).toHaveLength(1);
+});
+
+test("labels client creation as creating a draft", async () => {
+  mockApi(client());
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "创建客户端" }));
+  expect(screen.getByRole("button", { name: "创建草稿" })).toBeTruthy();
 });
 
 test("freezes pending revision and shows field differences", async () => {
