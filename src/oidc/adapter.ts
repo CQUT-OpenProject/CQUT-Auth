@@ -1,4 +1,7 @@
-import type { OidcClientRecord, OidcPersistence } from "../persistence/contracts.js";
+import type {
+  OidcClientRecord,
+  OidcPersistence,
+} from "../persistence/contracts.js";
 
 type AdapterStore = Pick<
   OidcPersistence,
@@ -15,7 +18,8 @@ type AdapterStore = Pick<
 function providerClientMetadata(client: OidcClientRecord) {
   const metadata: Record<string, unknown> = {
     client_id: client.clientId,
-    application_type: client.applicationType === "native" ? "native" : "web",
+    client_name: client.displayName,
+    application_type: "web",
     token_endpoint_auth_method: client.tokenEndpointAuthMethod,
     redirect_uris: client.redirectUris,
     post_logout_redirect_uris: client.postLogoutRedirectUris,
@@ -23,7 +27,7 @@ function providerClientMetadata(client: OidcClientRecord) {
     response_types: client.responseTypes,
     scope: client.scopeWhitelist.join(" "),
     allowRefreshTokenForPublicClient: client.allowRefreshTokenForPublicClient,
-    clientSecretDigest: client.clientSecretDigest
+    clientSecretDigest: client.clientSecretDigest,
   };
   if (client.clientSecretDigest) {
     metadata["client_secret"] = `placeholder:${client.clientId}`;
@@ -40,11 +44,20 @@ export function createAdapter(store: AdapterStore) {
       this.modelName = modelName;
     }
 
-    async upsert(id: string, payload: Record<string, unknown>, expiresIn: number) {
+    async upsert(
+      id: string,
+      payload: Record<string, unknown>,
+      expiresIn: number,
+    ) {
       if (this.modelName === "Client") {
         throw new Error("Client adapter upsert is disabled in managed profile");
       }
-      await store.upsertArtifact(`${this.modelName}:${id}`, this.modelName, payload, expiresIn);
+      await store.upsertArtifact(
+        `${this.modelName}:${id}`,
+        this.modelName,
+        payload,
+        expiresIn,
+      );
     }
 
     async find(id: string) {

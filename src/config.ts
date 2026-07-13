@@ -51,6 +51,12 @@ export type OidcOpConfig = {
   loginFailureWindowSeconds: number;
   tokenRateLimitMax: number;
   tokenRateLimitWindowSeconds: number;
+  managementClientMaxPerSubject: number;
+  managementClientMaxPendingPerSubject: number;
+  managementClientCreateRateLimitSubjectMax: number;
+  managementClientCreateRateLimitIpMax: number;
+  managementClientCreateRateLimitWindowSeconds: number;
+  managementClientQuotaAdminExempt: boolean;
   rateLimitFailClosed: boolean;
   rateLimitMemoryMaxKeys: number;
   rateLimitMemoryCleanupIntervalSeconds: number;
@@ -61,6 +67,7 @@ export type OidcOpConfig = {
   signingKeyRefreshIntervalSeconds: number;
   oidcClientsConfigPath: string;
   autoSeedSigningKey: boolean;
+  adminSubjectIds: string[];
 };
 
 function requireSecret(env: NodeJS.ProcessEnv, key: string, allowDefaultForTest = false): string {
@@ -73,7 +80,6 @@ function requireSecret(env: NodeJS.ProcessEnv, key: string, allowDefaultForTest 
   }
   throw new Error(`${key} is required`);
 }
-
 function parseCsv(value: string | undefined): string[] {
   return value ? value.split(",").map((entry) => entry.trim()).filter(Boolean) : [];
 }
@@ -282,6 +288,37 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
   if (!Number.isInteger(rateLimitMemoryCleanupIntervalSeconds) || rateLimitMemoryCleanupIntervalSeconds <= 0) {
     throw new Error("OIDC_RATE_LIMIT_MEMORY_CLEANUP_INTERVAL_SECONDS must be a positive integer");
   }
+  const managementClientMaxPerSubject = Number(
+    env["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT"] ?? 10
+  );
+  const managementClientMaxPendingPerSubject = Number(
+    env["OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT"] ?? 5
+  );
+  const managementClientCreateRateLimitSubjectMax = Number(
+    env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX"] ?? 5
+  );
+  const managementClientCreateRateLimitIpMax = Number(
+    env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX"] ?? 20
+  );
+  const managementClientCreateRateLimitWindowSeconds = Number(
+    env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS"] ?? 3600
+  );
+  for (const [key, value] of [
+    ["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT", managementClientMaxPerSubject],
+    ["OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT", managementClientMaxPendingPerSubject],
+    ["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX", managementClientCreateRateLimitSubjectMax],
+    ["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX", managementClientCreateRateLimitIpMax],
+    ["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS", managementClientCreateRateLimitWindowSeconds]
+  ] as const) {
+    if (!Number.isInteger(value) || value <= 0) {
+      throw new Error(`${key} must be a positive integer`);
+    }
+  }
+  if (managementClientMaxPendingPerSubject > managementClientMaxPerSubject) {
+    throw new Error(
+      "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT must not exceed OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT"
+    );
+  }
   if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
     throw new Error("TRUST_PROXY_HOPS must be a non-negative integer");
   }
@@ -430,6 +467,13 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     loginFailureWindowSeconds: Number(env["OIDC_LOGIN_FAILURE_WINDOW_SECONDS"] ?? 60 * 5),
     tokenRateLimitMax: Number(env["OIDC_TOKEN_RATE_LIMIT_MAX"] ?? 20),
     tokenRateLimitWindowSeconds: Number(env["OIDC_TOKEN_RATE_LIMIT_WINDOW_SECONDS"] ?? 60),
+    managementClientMaxPerSubject,
+    managementClientMaxPendingPerSubject,
+    managementClientCreateRateLimitSubjectMax,
+    managementClientCreateRateLimitIpMax,
+    managementClientCreateRateLimitWindowSeconds,
+    managementClientQuotaAdminExempt:
+      env["OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT"] !== "false",
     rateLimitFailClosed,
     rateLimitMemoryMaxKeys,
     rateLimitMemoryCleanupIntervalSeconds,
@@ -439,6 +483,7 @@ export function readOidcOpConfig(env: NodeJS.ProcessEnv = process.env): OidcOpCo
     artifactOpportunisticCleanupIntervalSeconds,
     signingKeyRefreshIntervalSeconds,
     oidcClientsConfigPath,
+    adminSubjectIds: parseCsv(env["OIDC_ADMIN_SUBJECT_IDS"]),
     autoSeedSigningKey:
       env["OIDC_AUTO_SEED_SIGNING_KEY"] !== undefined
         ? env["OIDC_AUTO_SEED_SIGNING_KEY"] === "true"
