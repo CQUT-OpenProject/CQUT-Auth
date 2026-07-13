@@ -42,37 +42,64 @@ create table if not exists oidc_clients (
   display_name text not null,
   description text not null default '',
   owner_subject_id text references subjects(subject_id),
-  application_type text not null check (application_type = 'web'),
-  token_endpoint_auth_method text not null,
-  redirect_uris jsonb not null,
-  post_logout_redirect_uris jsonb not null default '[]'::jsonb,
-  grant_types jsonb not null,
-  response_types jsonb not null,
-  scope_whitelist jsonb not null,
-  require_pkce boolean not null default true,
-  allow_refresh_token_for_public_client boolean not null default false,
+  client_type text not null check (client_type in ('web', 'spa')),
   auto_consent boolean not null default false,
-  status text not null default 'pending' check (status in ('draft', 'pending', 'active', 'disabled', 'rejected')),
-  rejection_reason text,
+  lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
+  active_revision_id bigint,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   version integer not null default 1 check (version > 0)
 );
 
+create table if not exists oidc_client_revisions (
+  revision_id bigserial primary key,
+  client_id text not null references oidc_clients(client_id),
+  revision_number integer not null check (revision_number > 0),
+  review_status text not null check (review_status in ('draft', 'pending', 'approved', 'rejected')),
+  redirect_uris jsonb not null,
+  post_logout_redirect_uris jsonb not null default '[]'::jsonb,
+  scope_whitelist jsonb not null,
+  rejection_reason text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  version integer not null default 1 check (version > 0),
+  unique (client_id, revision_number),
+  unique (client_id, revision_id)
+);
+
+do $$ begin
+  alter table oidc_clients
+    add constraint fk_oidc_clients_active_revision
+    foreign key (client_id, active_revision_id)
+    references oidc_client_revisions(client_id, revision_id);
+exception when duplicate_object then null;
+end $$;
+
+create unique index if not exists uq_oidc_client_revisions_open
+on oidc_client_revisions (client_id)
+where review_status in ('draft', 'pending');
+
 create index if not exists idx_oidc_clients_owner_updated
 on oidc_clients (owner_subject_id, updated_at desc);
 
 create index if not exists idx_oidc_clients_status_updated
-on oidc_clients (status, updated_at desc);
+on oidc_clients (lifecycle_status, updated_at desc);
+
+create index if not exists idx_oidc_client_revisions_review_updated
+on oidc_client_revisions (review_status, updated_at desc);
 
 create table if not exists oidc_client_audit_logs (
   id bigserial primary key,
   client_id text not null,
+  revision_id bigint,
+  revision_number integer,
   actor_subject_id text,
   action text not null,
   changed_fields jsonb not null default '[]'::jsonb,
-  previous_status text,
-  new_status text,
+  previous_client_status text,
+  new_client_status text,
+  previous_revision_status text,
+  new_revision_status text,
   reason text,
   source_ip text,
   created_at timestamptz not null default now()

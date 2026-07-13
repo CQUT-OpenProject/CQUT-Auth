@@ -7,12 +7,51 @@ import type {
 } from "../identity/index.js";
 import type { OidcScope } from "../shared/oidc-contracts.js";
 
+export type ClientLifecycleStatus = "draft" | "active" | "disabled";
+export type ClientRevisionStatus =
+  | "draft"
+  | "pending"
+  | "approved"
+  | "rejected";
+
 export type OidcClientRecord = {
   clientId: string;
   clientSecretDigest: string | undefined;
   displayName: string;
   description: string;
   ownerSubjectId: string | null;
+  clientType: "web" | "spa";
+  autoConsent: boolean;
+  lifecycleStatus: ClientLifecycleStatus;
+  activeRevisionId: number | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+export type OidcClientRevisionRecord = {
+  revisionId: number;
+  clientId: string;
+  revisionNumber: number;
+  status: ClientRevisionStatus;
+  redirectUris: string[];
+  postLogoutRedirectUris: string[];
+  scopeWhitelist: OidcScope[];
+  rejectionReason?: string | undefined;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
+export type ManagedOidcClientRecord = {
+  client: OidcClientRecord;
+  activeRevision: OidcClientRevisionRecord | null;
+  proposedRevision: OidcClientRevisionRecord | null;
+};
+
+export type ActiveOidcClientRecord = OidcClientRecord & {
+  activeRevisionId: number;
+  activeRevision: OidcClientRevisionRecord;
   applicationType: "web";
   tokenEndpointAuthMethod: "client_secret_basic" | "none";
   redirectUris: string[];
@@ -22,32 +61,34 @@ export type OidcClientRecord = {
   scopeWhitelist: OidcScope[];
   requirePkce: boolean;
   allowRefreshTokenForPublicClient: boolean;
-  autoConsent: boolean;
-  status: "draft" | "pending" | "active" | "disabled" | "rejected";
-  rejectionReason?: string | undefined;
-  createdAt: string;
-  updatedAt: string;
-  version: number;
 };
 
 export type OidcClientAuditAction =
   | "client.initialized"
   | "client.created"
   | "client.updated"
-  | "client.submitted"
-  | "client.approved"
-  | "client.rejected"
   | "client.disabled"
-  | "client.secret_generated";
+  | "client.secret_generated"
+  | "revision.created"
+  | "revision.updated"
+  | "revision.submitted"
+  | "revision.withdrawn"
+  | "revision.approved"
+  | "revision.rejected"
+  | "revision.activated";
 
 export type OidcClientAuditRecord = {
   id?: number;
   clientId: string;
+  revisionId?: number | undefined;
+  revisionNumber?: number | undefined;
   actorSubjectId: string | null;
   action: OidcClientAuditAction;
   changedFields: string[];
-  previousStatus?: OidcClientRecord["status"] | undefined;
-  newStatus?: OidcClientRecord["status"] | undefined;
+  previousClientStatus?: ClientLifecycleStatus | undefined;
+  newClientStatus?: ClientLifecycleStatus | undefined;
+  previousRevisionStatus?: ClientRevisionStatus | undefined;
+  newRevisionStatus?: ClientRevisionStatus | undefined;
   reason?: string | undefined;
   sourceIp?: string | undefined;
   createdAt: string;
@@ -111,30 +152,68 @@ export interface IdentityRepository extends IdentityStore {
 }
 
 export interface OidcClientRepository {
-  upsertOidcClient(client: OidcClientRecord): Promise<OidcClientRecord>;
+  upsertOidcClient(
+    client: ActiveOidcClientRecord,
+  ): Promise<ActiveOidcClientRecord>;
   countOidcClients(): Promise<number>;
   initializeOidcClientsIfEmpty(
-    clients: OidcClientRecord[],
+    clients: ActiveOidcClientRecord[],
     audits: OidcClientAuditRecord[],
   ): Promise<{ imported: boolean; count: number }>;
   createOidcClient(
     client: OidcClientRecord,
+    revision: OidcClientRevisionRecord,
     audits: OidcClientAuditRecord[],
     ownerLimits?: {
       maxNonDisabledClients: number;
       maxPendingClients: number;
     },
-  ): Promise<OidcClientRecord | null>;
-  updateOidcClient(
-    client: OidcClientRecord,
+  ): Promise<ManagedOidcClientRecord | null>;
+  updateOidcClientMetadata(
+    clientId: string,
+    patch: Pick<OidcClientRecord, "displayName" | "description" | "updatedAt">,
     expectedVersion: number,
     audit: OidcClientAuditRecord,
-  ): Promise<OidcClientRecord | null>;
-  findOidcClient(clientId: string): Promise<OidcClientRecord | null>;
-  listActiveOidcClients(): Promise<OidcClientRecord[]>;
-  listOidcClientsByOwner(ownerSubjectId: string): Promise<OidcClientRecord[]>;
-  listOidcClients(): Promise<OidcClientRecord[]>;
-  listPendingOidcClients(): Promise<OidcClientRecord[]>;
+  ): Promise<ManagedOidcClientRecord | null>;
+  saveOidcClientRevision(
+    clientId: string,
+    revision: OidcClientRevisionRecord,
+    expectedRevisionId: number | null,
+    expectedRevisionVersion: number | null,
+    audits: OidcClientAuditRecord[],
+    maxPendingClients?: number,
+  ): Promise<ManagedOidcClientRecord | null>;
+  transitionOidcClientRevision(
+    clientId: string,
+    revisionId: number,
+    expectedVersion: number,
+    nextStatus: ClientRevisionStatus,
+    reason: string | undefined,
+    audit: OidcClientAuditRecord,
+    maxPendingClients?: number,
+  ): Promise<ManagedOidcClientRecord | null>;
+  approveOidcClientRevision(
+    clientId: string,
+    revisionId: number,
+    expectedVersion: number,
+    audits: OidcClientAuditRecord[],
+  ): Promise<ManagedOidcClientRecord | null>;
+  disableOidcClient(
+    clientId: string,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
+  ): Promise<ManagedOidcClientRecord | null>;
+  findManagedOidcClient(
+    clientId: string,
+  ): Promise<ManagedOidcClientRecord | null>;
+  findOidcClient(clientId: string): Promise<ActiveOidcClientRecord | null>;
+  listActiveOidcClients(): Promise<ActiveOidcClientRecord[]>;
+  listOidcClientsByOwner(
+    ownerSubjectId: string,
+  ): Promise<ManagedOidcClientRecord[]>;
+  listOidcClients(): Promise<ManagedOidcClientRecord[]>;
+  listPendingOidcClients(): Promise<ManagedOidcClientRecord[]>;
   listOidcClientAuditLogs(clientId?: string): Promise<OidcClientAuditRecord[]>;
 }
 
