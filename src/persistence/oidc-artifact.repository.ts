@@ -1,6 +1,9 @@
 import type { Pool } from "pg";
 import type { ArtifactPayloadCipherServiceImpl } from "./artifact-payload-cipher.service.js";
-import type { OidcArtifactRepository, PendingInteractionLogin } from "./contracts.js";
+import type {
+  OidcArtifactRepository,
+  PendingInteractionLogin,
+} from "./contracts.js";
 
 type EncryptedArtifactPayloadEnvelope = {
   version: 1;
@@ -14,6 +17,7 @@ type ArtifactRecord = {
   expiresAt: string | undefined;
   consumedAt: string | undefined;
   grantIdHash: string | undefined;
+  clientIdHash: string | undefined;
   uidHash: string | undefined;
   userCodeHash: string | undefined;
   createdAt: string;
@@ -36,11 +40,11 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     private readonly poolProvider: () => Pool | undefined,
     private readonly interactionTtlSeconds: number,
     private readonly cleanupOptions: OpportunisticCleanupOptions,
-    private readonly artifactPayloadCipherService: ArtifactPayloadCipherServiceImpl
+    private readonly artifactPayloadCipherService: ArtifactPayloadCipherServiceImpl,
   ) {
     if (cleanupOptions.enabled) {
       this.logger.warn(
-        "opportunistic oidc artifact cleanup is enabled; request paths may trigger extra database deletes"
+        "opportunistic oidc artifact cleanup is enabled; request paths may trigger extra database deletes",
       );
     }
   }
@@ -49,7 +53,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     id: string,
     kind: string,
     payload: Record<string, unknown>,
-    expiresIn: number
+    expiresIn: number,
   ): Promise<void> {
     this.maybeCleanupExpiredArtifacts();
     const pool = this.poolProvider();
@@ -65,13 +69,19 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         typeof payload["grantId"] === "string"
           ? this.computeLookupHash(payload["grantId"])
           : undefined,
+      clientIdHash:
+        typeof payload["clientId"] === "string"
+          ? this.computeLookupHash(payload["clientId"])
+          : undefined,
       uidHash:
-        typeof payload["uid"] === "string" ? this.computeLookupHash(payload["uid"]) : undefined,
+        typeof payload["uid"] === "string"
+          ? this.computeLookupHash(payload["uid"])
+          : undefined,
       userCodeHash:
         typeof payload["userCode"] === "string"
           ? this.computeLookupHash(payload["userCode"])
           : undefined,
-      createdAt: now
+      createdAt: now,
     };
     if (!pool) {
       this.artifacts.set(id, artifact);
@@ -84,6 +94,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         id,
         kind,
         grant_id_hash,
+        client_id_hash,
         uid_hash,
         user_code_hash,
         payload,
@@ -91,10 +102,11 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         consumed_at,
         created_at
       )
-      values ($1, $2, $3, $4, $5, $6::jsonb, $7::timestamptz, $8::timestamptz, $9::timestamptz)
+      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz, $10::timestamptz)
       on conflict (id) do update
       set kind = excluded.kind,
           grant_id_hash = excluded.grant_id_hash,
+          client_id_hash = excluded.client_id_hash,
           uid_hash = excluded.uid_hash,
           user_code_hash = excluded.user_code_hash,
           payload = excluded.payload,
@@ -105,13 +117,14 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         artifact.id,
         artifact.kind,
         artifact.grantIdHash ?? null,
+        artifact.clientIdHash ?? null,
         artifact.uidHash ?? null,
         artifact.userCodeHash ?? null,
         JSON.stringify(encryptedPayload),
         artifact.expiresAt ?? null,
         artifact.consumedAt ?? null,
-        artifact.createdAt
-      ]
+        artifact.createdAt,
+      ],
     );
   }
 
@@ -141,21 +154,30 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     }
     await pool.query(
       "update oidc_artifacts set consumed_at = now() where id = $1 and consumed_at is null",
-      [id]
+      [id],
     );
   }
 
-  async findArtifactByUid(uid: string, kind?: string): Promise<Record<string, unknown> | undefined> {
+  async findArtifactByUid(
+    uid: string,
+    kind?: string,
+  ): Promise<Record<string, unknown> | undefined> {
     this.maybeCleanupExpiredArtifacts();
-    const record = await this.readArtifactByColumn("uid_hash", this.computeLookupHash(uid), kind);
+    const record = await this.readArtifactByColumn(
+      "uid_hash",
+      this.computeLookupHash(uid),
+      kind,
+    );
     return record ? this.mapArtifactPayload(record) : undefined;
   }
 
-  async findArtifactByUserCode(userCode: string): Promise<Record<string, unknown> | undefined> {
+  async findArtifactByUserCode(
+    userCode: string,
+  ): Promise<Record<string, unknown> | undefined> {
     this.maybeCleanupExpiredArtifacts();
     const record = await this.readArtifactByColumn(
       "user_code_hash",
-      this.computeLookupHash(userCode)
+      this.computeLookupHash(userCode),
     );
     return record ? this.mapArtifactPayload(record) : undefined;
   }
@@ -171,19 +193,54 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       }
       return;
     }
-    await pool.query("delete from oidc_artifacts where grant_id_hash = $1", [grantIdHash]);
+    await pool.query("delete from oidc_artifacts where grant_id_hash = $1", [
+      grantIdHash,
+    ]);
   }
 
-  async saveInteractionLogin(uid: string, value: PendingInteractionLogin): Promise<void> {
+  async revokeArtifactsByClientId(clientId: string): Promise<void> {
+    const pool = this.poolProvider();
+    const clientIdHash = this.computeLookupHash(clientId);
+    const revocableKinds = new Set([
+      "AuthorizationCode",
+      "AccessToken",
+      "RefreshToken",
+      "Grant",
+    ]);
+    if (!pool) {
+      for (const [id, artifact] of this.artifacts.entries()) {
+        if (
+          artifact.clientIdHash === clientIdHash &&
+          revocableKinds.has(artifact.kind)
+        ) {
+          this.artifacts.delete(id);
+        }
+      }
+      return;
+    }
+    await pool.query(
+      `delete from oidc_artifacts
+       where client_id_hash = $1
+         and kind = any($2::text[])`,
+      [clientIdHash, [...revocableKinds]],
+    );
+  }
+
+  async saveInteractionLogin(
+    uid: string,
+    value: PendingInteractionLogin,
+  ): Promise<void> {
     await this.upsertArtifact(
       `interaction_login:${uid}`,
       "InteractionLogin",
       value as unknown as Record<string, unknown>,
-      this.interactionTtlSeconds
+      this.interactionTtlSeconds,
     );
   }
 
-  async getInteractionLogin(uid: string): Promise<PendingInteractionLogin | undefined> {
+  async getInteractionLogin(
+    uid: string,
+  ): Promise<PendingInteractionLogin | undefined> {
     const payload = await this.findArtifact(`interaction_login:${uid}`);
     return payload as PendingInteractionLogin | undefined;
   }
@@ -199,7 +256,10 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       if (!record) {
         return null;
       }
-      if (record.expiresAt && new Date(record.expiresAt).getTime() <= Date.now()) {
+      if (
+        record.expiresAt &&
+        new Date(record.expiresAt).getTime() <= Date.now()
+      ) {
         this.artifacts.delete(id);
         return null;
       }
@@ -212,7 +272,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         and (expires_at is null or expires_at > now())
       limit 1
       `,
-      [id]
+      [id],
     );
     return await this.mapArtifactRow(result.rows[0]);
   }
@@ -220,19 +280,23 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
   private async readArtifactByColumn(
     column: "uid_hash" | "user_code_hash",
     value: string,
-    kind?: string
+    kind?: string,
   ): Promise<ArtifactRecord | null> {
     const pool = this.poolProvider();
     if (!pool) {
       const record = [...this.artifacts.values()].find(
         (candidate) =>
-          candidate[column === "uid_hash" ? "uidHash" : "userCodeHash"] === value &&
-          (kind === undefined || candidate.kind === kind)
+          candidate[column === "uid_hash" ? "uidHash" : "userCodeHash"] ===
+            value &&
+          (kind === undefined || candidate.kind === kind),
       );
       if (!record) {
         return null;
       }
-      if (record.expiresAt && new Date(record.expiresAt).getTime() <= Date.now()) {
+      if (
+        record.expiresAt &&
+        new Date(record.expiresAt).getTime() <= Date.now()
+      ) {
         this.artifacts.delete(record.id);
         return null;
       }
@@ -248,12 +312,14 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         and (expires_at is null or expires_at > now())
       limit 1
       `,
-      values
+      values,
     );
     return await this.mapArtifactRow(result.rows[0]);
   }
 
-  private async mapArtifactRow(row: Record<string, unknown> | undefined): Promise<ArtifactRecord | null> {
+  private async mapArtifactRow(
+    row: Record<string, unknown> | undefined,
+  ): Promise<ArtifactRecord | null> {
     if (!row) {
       return null;
     }
@@ -263,7 +329,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       payload = await this.decryptPayloadEnvelope(row["payload"]);
     } catch (error) {
       this.logger.warn(
-        `oidc artifact payload decrypt failed for ${id}: ${error instanceof Error ? error.message : "unknown error"}`
+        `oidc artifact payload decrypt failed for ${id}: ${error instanceof Error ? error.message : "unknown error"}`,
       );
       return null;
     }
@@ -271,12 +337,17 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       id,
       kind: String(row["kind"]),
       grantIdHash: (row["grant_id_hash"] as string | null) ?? undefined,
+      clientIdHash: (row["client_id_hash"] as string | null) ?? undefined,
       uidHash: (row["uid_hash"] as string | null) ?? undefined,
       userCodeHash: (row["user_code_hash"] as string | null) ?? undefined,
       payload,
-      expiresAt: row["expires_at"] ? (row["expires_at"] as Date).toISOString() : undefined,
-      consumedAt: row["consumed_at"] ? (row["consumed_at"] as Date).toISOString() : undefined,
-      createdAt: (row["created_at"] as Date).toISOString()
+      expiresAt: row["expires_at"]
+        ? (row["expires_at"] as Date).toISOString()
+        : undefined,
+      consumedAt: row["consumed_at"]
+        ? (row["consumed_at"] as Date).toISOString()
+        : undefined,
+      createdAt: (row["created_at"] as Date).toISOString(),
     };
   }
 
@@ -284,26 +355,37 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     return this.artifactPayloadCipherService.hashLookupValue(value);
   }
 
-  private async encryptPayload(payload: Record<string, unknown>): Promise<EncryptedArtifactPayloadEnvelope> {
+  private async encryptPayload(
+    payload: Record<string, unknown>,
+  ): Promise<EncryptedArtifactPayloadEnvelope> {
     return {
       version: 1,
-      ciphertext: await this.artifactPayloadCipherService.encryptPayload(payload)
+      ciphertext:
+        await this.artifactPayloadCipherService.encryptPayload(payload),
     };
   }
 
-  private async decryptPayloadEnvelope(payload: unknown): Promise<Record<string, unknown>> {
+  private async decryptPayloadEnvelope(
+    payload: unknown,
+  ): Promise<Record<string, unknown>> {
     if (!this.isEncryptedPayloadEnvelope(payload)) {
       throw new Error("invalid payload envelope");
     }
-    return await this.artifactPayloadCipherService.decryptPayload(payload.ciphertext);
+    return await this.artifactPayloadCipherService.decryptPayload(
+      payload.ciphertext,
+    );
   }
 
-  private isEncryptedPayloadEnvelope(payload: unknown): payload is EncryptedArtifactPayloadEnvelope {
+  private isEncryptedPayloadEnvelope(
+    payload: unknown,
+  ): payload is EncryptedArtifactPayloadEnvelope {
     if (!payload || typeof payload !== "object") {
       return false;
     }
     const candidate = payload as Record<string, unknown>;
-    return candidate["version"] === 1 && typeof candidate["ciphertext"] === "string";
+    return (
+      candidate["version"] === 1 && typeof candidate["ciphertext"] === "string"
+    );
   }
 
   private mapArtifactPayload(record: ArtifactRecord): Record<string, unknown> {
@@ -311,9 +393,9 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       ...record.payload,
       ...(record.consumedAt
         ? {
-            consumed: Math.floor(new Date(record.consumedAt).getTime() / 1000)
+            consumed: Math.floor(new Date(record.consumedAt).getTime() / 1000),
           }
-        : {})
+        : {}),
     };
   }
 
@@ -329,7 +411,10 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       return;
     }
     const now = Date.now();
-    if (now - this.lastCleanupAt < this.cleanupOptions.minIntervalSeconds * 1000) {
+    if (
+      now - this.lastCleanupAt <
+      this.cleanupOptions.minIntervalSeconds * 1000
+    ) {
       return;
     }
     this.lastCleanupAt = now;
@@ -347,12 +432,12 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         using doomed
         where oa.id = doomed.id
         `,
-        [this.cleanupOptions.batchSize]
+        [this.cleanupOptions.batchSize],
       )
       .then(() => undefined)
       .catch((error) => {
         this.logger.warn(
-          `opportunistic oidc artifact cleanup failed: ${error instanceof Error ? error.message : "unknown error"}`
+          `opportunistic oidc artifact cleanup failed: ${error instanceof Error ? error.message : "unknown error"}`,
         );
       })
       .finally(() => {

@@ -347,6 +347,134 @@ test("management API rejects concurrent approval and approval after disable", as
   }
 });
 
+test("management API rotates secrets and isolates authorization revocation", async () => {
+  const { app, state } = await createApp();
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    const created = await admin
+      .post("/api/management/clients")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send(input);
+    const clientId = created.body.client.clientId as string;
+    assert.equal(created.body.client.secrets.length, 1);
+    assert.equal("secretDigest" in created.body.client.secrets[0], false);
+
+    const missingCsrf = await admin
+      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .send({ clientVersion: created.body.client.clientVersion });
+    assert.equal(missingCsrf.status, 400);
+
+    const digestSubmission = await admin
+      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        clientVersion: created.body.client.clientVersion,
+        clientSecretDigest: "scrypt$submitted",
+      });
+    assert.equal(digestSubmission.status, 400);
+
+    const outsider = request.agent(app);
+    const outsiderLogin = await login(outsider, "secret-outsider");
+    const denied = await outsider
+      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
+      .send({ clientVersion: created.body.client.clientVersion });
+    assert.equal(denied.status, 404);
+
+    const rotated = await admin
+      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        clientVersion: created.body.client.clientVersion,
+        gracePeriodSeconds: 60,
+      });
+    assert.equal(rotated.status, 201);
+    assert.equal(typeof rotated.body.secret.value, "string");
+    assert.equal(rotated.body.client.secrets.length, 2);
+
+    const retiring = rotated.body.client.secrets.find(
+      (secret: { status: string }) => secret.status === "retiring",
+    );
+    const stale = await admin
+      .post(
+        `/api/management/clients/${clientId}/secrets/${retiring.secretId}/revoke`,
+      )
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        clientVersion: created.body.client.clientVersion,
+        secretVersion: retiring.version,
+      });
+    assert.equal(stale.status, 409);
+    const revoked = await admin
+      .post(
+        `/api/management/clients/${clientId}/secrets/${retiring.secretId}/revoke`,
+      )
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        clientVersion: rotated.body.client.clientVersion,
+        secretVersion: retiring.version,
+      });
+    assert.equal(revoked.status, 200);
+    assert.equal(
+      revoked.body.client.secrets.find(
+        (secret: { secretId: string }) => secret.secretId === retiring.secretId,
+      ).status,
+      "revoked",
+    );
+
+    await state.store.upsertArtifact(
+      "Grant:owned",
+      "Grant",
+      { clientId, value: "owned" },
+      120,
+    );
+    await state.store.upsertArtifact(
+      "Grant:other",
+      "Grant",
+      { clientId: "bootstrap-site", value: "other" },
+      120,
+    );
+    await state.store.upsertArtifact(
+      "Session:shared",
+      "Session",
+      { clientId, value: "session" },
+      120,
+    );
+    const authorizations = await admin
+      .post(`/api/management/clients/${clientId}/authorizations/revoke`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ clientVersion: revoked.body.client.clientVersion });
+    assert.equal(authorizations.status, 200);
+    assert.equal(await state.store.findArtifact("Grant:owned"), undefined);
+    assert.ok(await state.store.findArtifact("Grant:other"));
+    assert.ok(await state.store.findArtifact("Session:shared"));
+
+    const disabled = await admin
+      .post(`/api/management/clients/${clientId}/disable`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ clientVersion: authorizations.body.client.clientVersion });
+    assert.equal(disabled.status, 200);
+    assert.equal(disabled.body.client.lifecycleStatus, "disabled");
+    assert.ok(
+      disabled.body.client.secrets.every(
+        (secret: { status: string }) => secret.status === "revoked",
+      ),
+    );
+    const audits = await state.store.listOidcClientAuditLogs(clientId);
+    assert.equal(
+      JSON.stringify(audits).includes(rotated.body.secret.value),
+      false,
+    );
+    assert.equal(JSON.stringify(audits).includes("scrypt$"), false);
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
 test("management API rate limits client creation by subject", async () => {
   const { app, state } = await createApp({
     OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX: "1",

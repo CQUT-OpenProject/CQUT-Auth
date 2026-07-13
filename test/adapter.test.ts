@@ -123,7 +123,7 @@ test("adapter Client.find returns provider metadata for active client only", asy
       };
       return {
         clientId: "client-a",
-        clientSecretDigest: "scrypt$test",
+        clientSecretDigests: ["scrypt$test"],
         displayName: "Client A",
         description: "",
         ownerSubjectId: "subj_owner",

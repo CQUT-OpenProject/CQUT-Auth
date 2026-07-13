@@ -58,11 +58,11 @@ test("client creation produces a draft revision and never exposes secrets in aud
     assert.equal(result.clientSecret, "one-time-plaintext-secret");
     assert.equal("clientSecretDigest" in result.client, false);
     const stored = await store.findManagedOidcClient("client_fixed");
-    assert.ok(stored?.client.clientSecretDigest);
+    assert.ok(stored?.secrets[0]?.secretDigest);
     assert.equal(
       await verifyClientSecretDigest(
         result.clientSecret!,
-        stored!.client.clientSecretDigest!,
+        stored!.secrets[0]!.secretDigest,
       ),
       true,
     );
@@ -78,6 +78,120 @@ test("client creation produces a draft revision and never exposes secrets in aud
     );
     assert.equal(JSON.stringify(audit).includes(result.clientSecret!), false);
     assert.equal(JSON.stringify(audit).includes("scrypt$"), false);
+  } finally {
+    await store.close();
+  }
+});
+
+test("secret rotation enforces grace, expiry, revocation, and optimistic concurrency", async () => {
+  const store = new OidcPersistenceImpl(config());
+  await store.init();
+  let secretNumber = 0;
+  const service = new ClientManagementService(store, "test", {
+    createClientId: () => "client_secret_lifecycle",
+    createSecretId: () => `secret_${secretNumber + 1}`,
+    createSecret: () => `plaintext_secret_${++secretNumber}`,
+  });
+  try {
+    const created = await service.create(owner, webInput);
+    const originalValue = created.clientSecret!;
+    assert.equal(created.client.secrets.length, 1);
+    assert.equal("secretDigest" in created.client.secrets[0]!, false);
+    const submitted = await service.submit(owner, created.client.clientId, {
+      revisionId: created.client.proposedRevision!.revisionId,
+      revisionVersion: created.client.proposedRevision!.version,
+    });
+    const approved = await service.approve(admin, created.client.clientId, {
+      revisionId: submitted.proposedRevision!.revisionId,
+      revisionVersion: submitted.proposedRevision!.version,
+    });
+
+    const rotated = await service.rotateSecret(owner, created.client.clientId, {
+      clientVersion: approved.clientVersion,
+      gracePeriodSeconds: 1,
+    });
+    assert.equal(rotated.secret.value, "plaintext_secret_2");
+    assert.deepEqual(
+      rotated.client.secrets.map((secret) => secret.status).sort(),
+      ["active", "retiring"],
+    );
+    const usableDuringGrace = await store.findOidcClient(
+      created.client.clientId,
+    );
+    assert.equal(usableDuringGrace?.clientSecretDigests.length, 2);
+    assert.ok(
+      await Promise.any(
+        usableDuringGrace!.clientSecretDigests.map(async (digest) => {
+          if (await verifyClientSecretDigest(originalValue, digest))
+            return true;
+          throw new Error("not matched");
+        }),
+      ),
+    );
+
+    await assert.rejects(
+      () =>
+        service.rotateSecret(owner, created.client.clientId, {
+          clientVersion: rotated.client.clientVersion,
+          gracePeriodSeconds: 60,
+        }),
+      (error: unknown) =>
+        error instanceof ClientManagementError &&
+        error.code === "secret_limit_exceeded",
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    const afterExpiry = await store.findOidcClient(created.client.clientId);
+    assert.equal(afterExpiry?.clientSecretDigests.length, 1);
+    assert.equal(
+      await verifyClientSecretDigest(
+        originalValue,
+        afterExpiry!.clientSecretDigests[0]!,
+      ),
+      false,
+    );
+
+    const concurrentVersion = rotated.client.clientVersion;
+    const attempts = await Promise.allSettled([
+      service.rotateSecret(owner, created.client.clientId, {
+        clientVersion: concurrentVersion,
+        gracePeriodSeconds: 0,
+      }),
+      service.rotateSecret(owner, created.client.clientId, {
+        clientVersion: concurrentVersion,
+        gracePeriodSeconds: 0,
+      }),
+    ]);
+    assert.equal(
+      attempts.filter((attempt) => attempt.status === "fulfilled").length,
+      1,
+    );
+    const current = await service.get(owner, created.client.clientId);
+    const active = current.secrets.find(
+      (secret) => secret.status === "active",
+    )!;
+    const revoked = await service.revokeSecret(
+      owner,
+      created.client.clientId,
+      active.secretId,
+      {
+        clientVersion: current.clientVersion,
+        secretVersion: active.version,
+      },
+    );
+    assert.equal(
+      revoked.secrets.find((secret) => secret.secretId === active.secretId)
+        ?.status,
+      "revoked",
+    );
+    assert.equal(
+      (await store.findOidcClient(created.client.clientId))?.clientSecretDigests
+        .length,
+      0,
+    );
+    const audits = await store.listOidcClientAuditLogs(created.client.clientId);
+    assert.equal(JSON.stringify(audits).includes("plaintext_secret"), false);
+    assert.equal(JSON.stringify(audits).includes("scrypt$"), false);
   } finally {
     await store.close();
   }

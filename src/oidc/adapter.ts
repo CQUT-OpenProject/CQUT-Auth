@@ -27,9 +27,9 @@ function providerClientMetadata(client: ActiveOidcClientRecord) {
     response_types: client.responseTypes,
     scope: client.scopeWhitelist.join(" "),
     allowRefreshTokenForPublicClient: client.allowRefreshTokenForPublicClient,
-    clientSecretDigest: client.clientSecretDigest,
+    clientSecretDigests: client.clientSecretDigests,
   };
-  if (client.clientSecretDigest) {
+  if (client.clientType === "web") {
     metadata["client_secret"] = `placeholder:${client.clientId}`;
     metadata["client_secret_expires_at"] = 0;
   }

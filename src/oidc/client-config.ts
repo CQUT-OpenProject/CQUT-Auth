@@ -360,7 +360,7 @@ function parseBootstrapClient(
   };
   return {
     clientId,
-    clientSecretDigest: typeof digest === "string" ? digest : undefined,
+    clientSecretDigests: typeof digest === "string" ? [digest] : [],
     displayName: configuration.displayName,
     description: configuration.description,
     ownerSubjectId: null,

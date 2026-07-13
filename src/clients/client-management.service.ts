@@ -13,6 +13,7 @@ import type {
   OidcClientRecord,
   OidcClientRepository,
   OidcClientRevisionRecord,
+  OidcClientSecretRecord,
   RevisionMutationResult,
 } from "../persistence/contracts.js";
 import { base64Url, randomId } from "../utils.js";
@@ -45,9 +46,19 @@ export type PublicOidcClient = {
   lifecycleStatus: ClientLifecycleStatus;
   activeRevision: PublicClientRevision | null;
   proposedRevision: PublicClientRevision | null;
+  secrets: PublicClientSecret[];
   createdAt: string;
   updatedAt: string;
   clientVersion: number;
+};
+
+export type PublicClientSecret = {
+  secretId: string;
+  status: OidcClientSecretRecord["status"];
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  version: number;
 };
 
 export class ClientManagementError extends Error {
@@ -66,10 +77,13 @@ type ServiceDependencies = {
   now?: () => Date;
   createClientId?: () => string;
   createSecret?: () => string;
+  createSecretId?: () => string;
   digestSecret?: (secret: string) => Promise<string>;
   maxClientsPerOwner?: number;
   maxPendingClientsPerOwner?: number;
   adminQuotaExempt?: boolean;
+  defaultSecretGraceSeconds?: number;
+  maxSecretGraceSeconds?: number;
 };
 
 const configurationFields = [
@@ -88,10 +102,13 @@ export class ClientManagementService {
   private readonly now: () => Date;
   private readonly createClientId: () => string;
   private readonly createSecret: () => string;
+  private readonly createSecretId: () => string;
   private readonly digestSecret: (secret: string) => Promise<string>;
   private readonly maxClientsPerOwner: number;
   private readonly maxPendingClientsPerOwner: number;
   private readonly adminQuotaExempt: boolean;
+  private readonly defaultSecretGraceSeconds: number;
+  private readonly maxSecretGraceSeconds: number;
 
   constructor(
     private readonly repository: OidcClientRepository,
@@ -103,11 +120,16 @@ export class ClientManagementService {
       dependencies.createClientId ?? (() => randomId("client", 18));
     this.createSecret =
       dependencies.createSecret ?? (() => base64Url(randomBytes(32)));
+    this.createSecretId =
+      dependencies.createSecretId ?? (() => randomId("secret", 18));
     this.digestSecret = dependencies.digestSecret ?? createClientSecretDigest;
     this.maxClientsPerOwner = dependencies.maxClientsPerOwner ?? 10;
     this.maxPendingClientsPerOwner =
       dependencies.maxPendingClientsPerOwner ?? 5;
     this.adminQuotaExempt = dependencies.adminQuotaExempt ?? true;
+    this.defaultSecretGraceSeconds =
+      dependencies.defaultSecretGraceSeconds ?? 86_400;
+    this.maxSecretGraceSeconds = dependencies.maxSecretGraceSeconds ?? 604_800;
   }
 
   async list(actor: ClientActor, viewAll = false) {
@@ -137,7 +159,6 @@ export class ClientManagementService {
     const timestamp = this.now().toISOString();
     const client: OidcClientRecord = {
       clientId,
-      clientSecretDigest: digest,
       displayName: configuration.displayName,
       description: configuration.description,
       ownerSubjectId: actor.subjectId,
@@ -161,6 +182,18 @@ export class ClientManagementService {
       updatedAt: timestamp,
       version: 1,
     };
+    const secretRecord: OidcClientSecretRecord | undefined = digest
+      ? {
+          secretId: this.createSecretId(),
+          clientId,
+          secretDigest: digest,
+          status: "active",
+          createdAt: timestamp,
+          expiresAt: null,
+          revokedAt: null,
+          version: 1,
+        }
+      : undefined;
     const audits = [
       this.audit(
         actor,
@@ -190,6 +223,7 @@ export class ClientManagementService {
     const created = await this.repository.createOidcClient(
       client,
       revision,
+      secretRecord,
       audits,
       actor.isAdmin && this.adminQuotaExempt
         ? undefined
@@ -398,6 +432,120 @@ export class ClientManagementService {
     );
   }
 
+  async rotateSecret(actor: ClientActor, clientId: string, raw: unknown) {
+    const body = this.requireObject(raw);
+    this.assertAllowedKeys(body, ["clientVersion", "gracePeriodSeconds"]);
+    const current = await this.requireAccessible(actor, clientId);
+    this.requireEnabled(current);
+    if (current.client.clientType !== "web") {
+      throw new ClientManagementError(
+        409,
+        "invalid_client_type",
+        "only web clients have client secrets",
+      );
+    }
+    const clientVersion = this.parseVersion(
+      body["clientVersion"],
+      "clientVersion",
+    );
+    const gracePeriodSeconds = this.parseGracePeriod(
+      body["gracePeriodSeconds"],
+    );
+    const value = this.createSecret();
+    const timestamp = this.now().toISOString();
+    const secret: OidcClientSecretRecord = {
+      secretId: this.createSecretId(),
+      clientId,
+      secretDigest: await this.digestSecret(value),
+      status: "active",
+      createdAt: timestamp,
+      expiresAt: null,
+      revokedAt: null,
+      version: 1,
+    };
+    const result = await this.repository.rotateOidcClientSecret(
+      clientId,
+      secret,
+      clientVersion,
+      gracePeriodSeconds,
+      {
+        ...this.audit(
+          actor,
+          clientId,
+          "client.secret_rotated",
+          ["status", "expiresAt"],
+          timestamp,
+        ),
+        secretId: secret.secretId,
+        reason: `grace_period_seconds=${gracePeriodSeconds}`,
+      },
+    );
+    const updated = this.requireSecurityUpdated(result);
+    return {
+      client: toPublicClient(updated),
+      secret: {
+        ...toPublicSecret(secret),
+        value,
+      },
+    };
+  }
+
+  async revokeSecret(
+    actor: ClientActor,
+    clientId: string,
+    secretId: string,
+    raw: unknown,
+  ) {
+    const body = this.requireObject(raw);
+    this.assertAllowedKeys(body, ["clientVersion", "secretVersion"]);
+    const current = await this.requireAccessible(actor, clientId);
+    this.requireEnabled(current);
+    const timestamp = this.now().toISOString();
+    const result = await this.repository.revokeOidcClientSecret(
+      clientId,
+      secretId,
+      this.parseVersion(body["clientVersion"], "clientVersion"),
+      this.parseVersion(body["secretVersion"], "secretVersion"),
+      timestamp,
+      {
+        ...this.audit(
+          actor,
+          clientId,
+          "client.secret_revoked",
+          ["status", "revokedAt"],
+          timestamp,
+        ),
+        secretId,
+      },
+    );
+    return toPublicClient(this.requireSecurityUpdated(result));
+  }
+
+  async revokeAuthorizations(
+    actor: ClientActor,
+    clientId: string,
+    raw: unknown,
+  ) {
+    const body = this.requireObject(raw);
+    this.assertAllowedKeys(body, ["clientVersion"]);
+    const current = await this.requireAccessible(actor, clientId);
+    this.requireEnabled(current);
+    const timestamp = this.now().toISOString();
+    const updated = await this.repository.revokeOidcClientAuthorizations(
+      clientId,
+      this.parseVersion(body["clientVersion"], "clientVersion"),
+      timestamp,
+      this.audit(
+        actor,
+        clientId,
+        "client.authorizations_revoked",
+        ["authorizations"],
+        timestamp,
+      ),
+    );
+    return toPublicClient(this.requireUpdated(updated));
+  }
+
   async disable(actor: ClientActor, clientId: string, raw: unknown) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, ["clientVersion"]);
@@ -412,8 +560,8 @@ export class ClientManagementService {
         this.audit(
           actor,
           clientId,
-          "client.disabled",
-          ["lifecycleStatus"],
+          "client.emergency_disabled",
+          ["lifecycleStatus", "secrets", "authorizations"],
           timestamp,
           {
             previousClientStatus: current.client.lifecycleStatus,
@@ -695,6 +843,40 @@ export class ClientManagementService {
     return Number(value);
   }
 
+  private parseGracePeriod(value: unknown) {
+    if (value === undefined) return this.defaultSecretGraceSeconds;
+    if (
+      !Number.isInteger(value) ||
+      Number(value) < 0 ||
+      Number(value) > this.maxSecretGraceSeconds
+    ) {
+      throw new ClientManagementError(
+        400,
+        "invalid_request",
+        `gracePeriodSeconds must be an integer between 0 and ${this.maxSecretGraceSeconds}`,
+        "gracePeriodSeconds",
+      );
+    }
+    return Number(value);
+  }
+
+  private requireSecurityUpdated(
+    result: Awaited<ReturnType<OidcClientRepository["rotateOidcClientSecret"]>>,
+  ) {
+    if (result.status === "secret_limit_exceeded") {
+      throw new ClientManagementError(
+        409,
+        "secret_limit_exceeded",
+        "client already has two usable secrets",
+      );
+    }
+    if (result.status === "secret_not_found") {
+      throw new ClientManagementError(404, "not_found", "secret not found");
+    }
+    if (result.status === "version_conflict") this.conflict();
+    return result.client;
+  }
+
   private parseText(value: unknown, field: string, min: number, max: number) {
     if (typeof value !== "string")
       throw new ClientManagementError(
@@ -755,9 +937,21 @@ export function toPublicClient(
     lifecycleStatus: client.lifecycleStatus,
     activeRevision: toPublicRevision(managed.activeRevision),
     proposedRevision: toPublicRevision(managed.proposedRevision),
+    secrets: managed.secrets.map(toPublicSecret),
     createdAt: client.createdAt,
     updatedAt: client.updatedAt,
     clientVersion: client.version,
+  };
+}
+
+function toPublicSecret(secret: OidcClientSecretRecord): PublicClientSecret {
+  return {
+    secretId: secret.secretId,
+    status: secret.status,
+    createdAt: secret.createdAt,
+    expiresAt: secret.expiresAt,
+    revokedAt: secret.revokedAt,
+    version: secret.version,
   };
 }
 

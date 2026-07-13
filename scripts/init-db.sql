@@ -38,7 +38,6 @@ create table if not exists subject_profiles (
 
 create table if not exists oidc_clients (
   client_id text primary key,
-  client_secret_hash text,
   display_name text not null,
   description text not null default '',
   owner_subject_id text references subjects(subject_id),
@@ -50,6 +49,31 @@ create table if not exists oidc_clients (
   updated_at timestamptz not null default now(),
   version integer not null default 1 check (version > 0)
 );
+
+create table if not exists oidc_client_secrets (
+  secret_id text primary key,
+  client_id text not null references oidc_clients(client_id),
+  secret_digest text not null check (secret_digest like 'scrypt$%'),
+  status text not null check (status in ('active', 'retiring', 'revoked')),
+  created_at timestamptz not null default now(),
+  expires_at timestamptz,
+  revoked_at timestamptz,
+  version integer not null default 1 check (version > 0),
+  check (
+    (status = 'active' and expires_at is null and revoked_at is null) or
+    (status = 'retiring' and expires_at is not null and revoked_at is null) or
+    (status = 'revoked' and revoked_at is not null)
+  )
+);
+
+create unique index if not exists uq_oidc_client_secrets_active
+on oidc_client_secrets (client_id) where status = 'active';
+
+create index if not exists idx_oidc_client_secrets_client_created
+on oidc_client_secrets (client_id, created_at desc);
+
+create index if not exists idx_oidc_client_secrets_expires
+on oidc_client_secrets (expires_at) where status = 'retiring';
 
 create table if not exists oidc_client_revisions (
   revision_id bigserial primary key,
@@ -93,6 +117,7 @@ create table if not exists oidc_client_audit_logs (
   client_id text not null,
   revision_id bigint,
   revision_number integer,
+  secret_id text,
   actor_subject_id text,
   action text not null,
   changed_fields jsonb not null default '[]'::jsonb,
@@ -123,6 +148,7 @@ create table if not exists oidc_artifacts (
   id text primary key,
   kind text not null,
   grant_id_hash text,
+  client_id_hash text,
   uid_hash text,
   user_code_hash text,
   payload jsonb not null,
@@ -148,6 +174,9 @@ on oidc_artifacts (user_code_hash);
 
 create index if not exists idx_oidc_artifacts_grant_id_hash
 on oidc_artifacts (grant_id_hash);
+
+create index if not exists idx_oidc_artifacts_client_id_hash_kind
+on oidc_artifacts (client_id_hash, kind);
 
 create table if not exists oidc_signing_keys (
   kid text primary key,

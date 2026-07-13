@@ -1,10 +1,12 @@
 import type { Pool, PoolClient } from "pg";
 import type {
   ActiveOidcClientRecord,
+  ClientSecurityMutationResult,
   ClientRevisionStatus,
   ManagedOidcClientRecord,
   OidcClientAuditRecord,
   OidcClientRecord,
+  OidcClientSecretRecord,
   OidcClientRepository,
   OidcClientRevisionRecord,
   RevisionMutationResult,
@@ -15,10 +17,18 @@ type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 export class OidcClientRepositoryImpl implements OidcClientRepository {
   private readonly clients = new Map<string, OidcClientRecord>();
   private readonly revisions = new Map<number, OidcClientRevisionRecord>();
+  private readonly secrets = new Map<string, OidcClientSecretRecord>();
   private readonly audits: OidcClientAuditRecord[] = [];
   private nextRevisionId = 1;
 
-  constructor(private readonly poolProvider: () => Pool | undefined) {}
+  constructor(
+    private readonly poolProvider: () => Pool | undefined,
+    private readonly clientIdHasher: (clientId: string) => string = (value) =>
+      value,
+    private readonly revokeMemoryArtifactsByClientId: (
+      clientId: string,
+    ) => Promise<void> = async () => {},
+  ) {}
 
   async upsertOidcClient(
     active: ActiveOidcClientRecord,
@@ -31,7 +41,12 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         ...this.clientPart(active),
         activeRevisionId: revision.revisionId,
       });
-      return this.toActive(this.clients.get(active.clientId)!, revision);
+      this.replaceMemoryBootstrapSecrets(active);
+      return this.toActive(
+        this.clients.get(active.clientId)!,
+        revision,
+        this.usableMemorySecrets(active.clientId),
+      );
     }
     const connection = await pool.connect();
     try {
@@ -121,6 +136,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
   async createOidcClient(
     client: OidcClientRecord,
     revision: OidcClientRevisionRecord,
+    secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
     ownerLimits?: { maxNonDisabledClients: number; maxPendingClients: number },
   ): Promise<ManagedOidcClientRecord | null> {
@@ -134,6 +150,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       const assigned = this.assignRevisionId(revision);
       this.clients.set(client.clientId, client);
       this.revisions.set(assigned.revisionId, assigned);
+      if (secret) this.secrets.set(secret.secretId, secret);
       this.audits.push(
         ...audits.map((audit) => ({
           ...audit,
@@ -167,6 +184,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       }
       await connection.query(this.insertClientSql(), this.clientValues(client));
       const inserted = await this.insertRevision(connection, revision);
+      if (secret) await this.insertSecret(connection, secret);
       for (const audit of audits) {
         await this.insertAudit(connection, {
           ...audit,
@@ -578,6 +596,17 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
           version: revision.version + 1,
         });
       }
+      for (const [secretId, secret] of this.secrets.entries()) {
+        if (secret.clientId === clientId && secret.status !== "revoked") {
+          this.secrets.set(secretId, {
+            ...secret,
+            status: "revoked",
+            revokedAt: updatedAt,
+            version: secret.version + 1,
+          });
+        }
+      }
+      await this.revokeMemoryArtifactsByClientId(clientId);
       this.audits.push(
         ...audits.map((audit) => {
           if (audit.action !== "revision.cancelled") return audit;
@@ -624,6 +653,13 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
          returning revision_id, revision_number, review_status`,
         [clientId, updatedAt],
       );
+      await connection.query(
+        `update oidc_client_secrets
+         set status = 'revoked', revoked_at = $2::timestamptz, version = version + 1
+         where client_id = $1 and status <> 'revoked'`,
+        [clientId, updatedAt],
+      );
+      await this.deleteClientArtifacts(connection, clientId);
       for (const audit of audits) {
         if (audit.action !== "revision.cancelled") {
           await this.insertAudit(connection, audit);
@@ -637,6 +673,230 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
           });
         }
       }
+      await connection.query("commit");
+      return this.findManagedOidcClient(clientId);
+    } catch (error) {
+      await connection.query("rollback");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async rotateOidcClientSecret(
+    clientId: string,
+    secret: OidcClientSecretRecord,
+    expectedClientVersion: number,
+    gracePeriodSeconds: number,
+    audit: OidcClientAuditRecord,
+  ): Promise<ClientSecurityMutationResult> {
+    const pool = this.poolProvider();
+    if (!pool) {
+      const client = this.clients.get(clientId);
+      if (!client || client.version !== expectedClientVersion) {
+        return { status: "version_conflict" };
+      }
+      const usable = this.usableMemorySecrets(clientId, secret.createdAt);
+      if (usable.length >= 2) return { status: "secret_limit_exceeded" };
+      const active = usable.find((candidate) => candidate.status === "active");
+      if (active) {
+        this.secrets.set(active.secretId, {
+          ...active,
+          status: gracePeriodSeconds === 0 ? "revoked" : "retiring",
+          expiresAt:
+            gracePeriodSeconds === 0
+              ? active.expiresAt
+              : new Date(
+                  new Date(secret.createdAt).getTime() +
+                    gracePeriodSeconds * 1000,
+                ).toISOString(),
+          revokedAt: gracePeriodSeconds === 0 ? secret.createdAt : null,
+          version: active.version + 1,
+        });
+      }
+      this.secrets.set(secret.secretId, secret);
+      this.clients.set(clientId, {
+        ...client,
+        updatedAt: secret.createdAt,
+        version: client.version + 1,
+      });
+      this.audits.push(audit);
+      return { status: "updated", client: this.memoryManaged(clientId)! };
+    }
+    const connection = await pool.connect();
+    try {
+      await connection.query("begin");
+      const current = await connection.query(
+        "select version from oidc_clients where client_id = $1 for update",
+        [clientId],
+      );
+      if (Number(current.rows[0]?.["version"]) !== expectedClientVersion) {
+        await connection.query("rollback");
+        return { status: "version_conflict" };
+      }
+      const usable = await connection.query(
+        `select secret_id from oidc_client_secrets
+         where client_id = $1 and status in ('active', 'retiring')
+           and (expires_at is null or expires_at > $2::timestamptz)
+         for update`,
+        [clientId, secret.createdAt],
+      );
+      if ((usable.rowCount ?? 0) >= 2) {
+        await connection.query("rollback");
+        return { status: "secret_limit_exceeded" };
+      }
+      if (gracePeriodSeconds === 0) {
+        await connection.query(
+          `update oidc_client_secrets set status = 'revoked', revoked_at = $2::timestamptz,
+             version = version + 1 where client_id = $1 and status = 'active'`,
+          [clientId, secret.createdAt],
+        );
+      } else {
+        await connection.query(
+          `update oidc_client_secrets set status = 'retiring',
+             expires_at = $2::timestamptz + ($3 * interval '1 second'), version = version + 1
+           where client_id = $1 and status = 'active'`,
+          [clientId, secret.createdAt, gracePeriodSeconds],
+        );
+      }
+      await this.insertSecret(connection, secret);
+      await connection.query(
+        `update oidc_clients set updated_at = $3::timestamptz, version = version + 1
+         where client_id = $1 and version = $2`,
+        [clientId, expectedClientVersion, secret.createdAt],
+      );
+      await this.insertAudit(connection, audit);
+      await connection.query("commit");
+      return {
+        status: "updated",
+        client: (await this.findManagedOidcClient(clientId))!,
+      };
+    } catch (error) {
+      await connection.query("rollback");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async revokeOidcClientSecret(
+    clientId: string,
+    secretId: string,
+    expectedClientVersion: number,
+    expectedSecretVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
+  ): Promise<ClientSecurityMutationResult> {
+    const pool = this.poolProvider();
+    if (!pool) {
+      const client = this.clients.get(clientId);
+      if (!client || client.version !== expectedClientVersion) {
+        return { status: "version_conflict" };
+      }
+      const secret = this.secrets.get(secretId);
+      if (!secret || secret.clientId !== clientId)
+        return { status: "secret_not_found" };
+      if (
+        secret.version !== expectedSecretVersion ||
+        secret.status === "revoked"
+      ) {
+        return { status: "version_conflict" };
+      }
+      this.secrets.set(secretId, {
+        ...secret,
+        status: "revoked",
+        revokedAt: updatedAt,
+        version: secret.version + 1,
+      });
+      this.clients.set(clientId, {
+        ...client,
+        updatedAt,
+        version: client.version + 1,
+      });
+      this.audits.push(audit);
+      return { status: "updated", client: this.memoryManaged(clientId)! };
+    }
+    const connection = await pool.connect();
+    try {
+      await connection.query("begin");
+      const client = await connection.query(
+        "select version from oidc_clients where client_id = $1 for update",
+        [clientId],
+      );
+      if (Number(client.rows[0]?.["version"]) !== expectedClientVersion) {
+        await connection.query("rollback");
+        return { status: "version_conflict" };
+      }
+      const existing = await connection.query(
+        "select 1 from oidc_client_secrets where client_id = $1 and secret_id = $2",
+        [clientId, secretId],
+      );
+      if (!existing.rowCount) {
+        await connection.query("rollback");
+        return { status: "secret_not_found" };
+      }
+      const result = await connection.query(
+        `update oidc_client_secrets set status = 'revoked', revoked_at = $4::timestamptz,
+           version = version + 1
+         where client_id = $1 and secret_id = $2 and version = $3 and status <> 'revoked'`,
+        [clientId, secretId, expectedSecretVersion, updatedAt],
+      );
+      if (result.rowCount !== 1) {
+        await connection.query("rollback");
+        return { status: "version_conflict" };
+      }
+      await connection.query(
+        `update oidc_clients set updated_at = $3::timestamptz, version = version + 1
+         where client_id = $1 and version = $2`,
+        [clientId, expectedClientVersion, updatedAt],
+      );
+      await this.insertAudit(connection, audit);
+      await connection.query("commit");
+      return {
+        status: "updated",
+        client: (await this.findManagedOidcClient(clientId))!,
+      };
+    } catch (error) {
+      await connection.query("rollback");
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async revokeOidcClientAuthorizations(
+    clientId: string,
+    expectedClientVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
+  ): Promise<ManagedOidcClientRecord | null> {
+    const pool = this.poolProvider();
+    if (!pool) {
+      const client = this.clients.get(clientId);
+      if (!client || client.version !== expectedClientVersion) return null;
+      await this.revokeMemoryArtifactsByClientId(clientId);
+      this.clients.set(clientId, {
+        ...client,
+        updatedAt,
+        version: client.version + 1,
+      });
+      this.audits.push(audit);
+      return this.memoryManaged(clientId);
+    }
+    const connection = await pool.connect();
+    try {
+      await connection.query("begin");
+      const result = await connection.query(
+        `update oidc_clients set updated_at = $3::timestamptz, version = version + 1
+         where client_id = $1 and version = $2`,
+        [clientId, expectedClientVersion, updatedAt],
+      );
+      if (result.rowCount !== 1) {
+        await connection.query("rollback");
+        return null;
+      }
+      await this.deleteClientArtifacts(connection, clientId);
+      await this.insertAudit(connection, audit);
       await connection.query("commit");
       return this.findManagedOidcClient(clientId);
     } catch (error) {
@@ -675,7 +935,10 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
        ) pr on true where c.client_id = $1`,
       [clientId],
     );
-    return this.mapManagedRow(result.rows[0]);
+    const managed = this.mapManagedRow(result.rows[0]);
+    if (!managed) return null;
+    managed.secrets = await this.listSecrets(clientId);
+    return managed;
   }
 
   async findOidcClient(
@@ -688,14 +951,24 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       !managed.activeRevision
     )
       return null;
-    return this.toActive(managed.client, managed.activeRevision);
+    return this.toActive(
+      managed.client,
+      managed.activeRevision,
+      managed.secrets.filter((secret) => this.isUsableSecret(secret)),
+    );
   }
 
   async listActiveOidcClients(): Promise<ActiveOidcClientRecord[]> {
     const managed = await this.listManaged("c.lifecycle_status = 'active'", []);
     return managed.flatMap((entry) =>
       entry.activeRevision
-        ? [this.toActive(entry.client, entry.activeRevision)]
+        ? [
+            this.toActive(
+              entry.client,
+              entry.activeRevision,
+              entry.secrets.filter((secret) => this.isUsableSecret(secret)),
+            ),
+          ]
         : [],
     );
   }
@@ -740,6 +1013,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         row["revision_number"] == null
           ? undefined
           : Number(row["revision_number"]),
+      secretId: (row["secret_id"] as string | null) ?? undefined,
       actorSubjectId: (row["actor_subject_id"] as string | null) ?? null,
       action: row["action"] as OidcClientAuditRecord["action"],
       changedFields: row["changed_fields"] as string[],
@@ -802,6 +1076,9 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     if (!client) return null;
     return {
       client,
+      secrets: [...this.secrets.values()]
+        .filter((secret) => secret.clientId === clientId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
       activeRevision: client.activeRevisionId
         ? (this.revisions.get(client.activeRevisionId) ?? null)
         : null,
@@ -841,6 +1118,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
   private toActive(
     client: OidcClientRecord,
     revision: OidcClientRevisionRecord,
+    secrets: OidcClientSecretRecord[],
   ): ActiveOidcClientRecord {
     const web = client.clientType === "web";
     return {
@@ -858,6 +1136,9 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       scopeWhitelist: revision.scopeWhitelist,
       requirePkce: true,
       allowRefreshTokenForPublicClient: false,
+      clientSecretDigests: web
+        ? secrets.map((secret) => secret.secretDigest)
+        : [],
       autoConsent: client.autoConsent,
     };
   }
@@ -865,7 +1146,6 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
   private clientPart(client: ActiveOidcClientRecord): OidcClientRecord {
     return {
       clientId: client.clientId,
-      clientSecretDigest: client.clientSecretDigest,
       displayName: client.displayName,
       description: client.description,
       ownerSubjectId: client.ownerSubjectId,
@@ -923,15 +1203,14 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
   }
 
   private insertClientSql() {
-    return `insert into oidc_clients (client_id, client_secret_hash, display_name, description,
+    return `insert into oidc_clients (client_id, display_name, description,
       owner_subject_id, client_type, auto_consent, lifecycle_status, active_revision_id, created_at, updated_at, version)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, $12)`;
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9::timestamptz, $10::timestamptz, $11)`;
   }
 
   private clientValues(client: OidcClientRecord) {
     return [
       client.clientId,
-      client.clientSecretDigest ?? null,
       client.displayName,
       client.description,
       client.ownerSubjectId,
@@ -970,6 +1249,109 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     return this.mapRevisionRow(result.rows[0])!;
   }
 
+  private async insertSecret(
+    queryable: Queryable,
+    secret: OidcClientSecretRecord,
+  ) {
+    await queryable.query(
+      `insert into oidc_client_secrets
+       (secret_id, client_id, secret_digest, status, created_at, expires_at, revoked_at, version)
+       values ($1, $2, $3, $4, $5::timestamptz, $6::timestamptz, $7::timestamptz, $8)`,
+      [
+        secret.secretId,
+        secret.clientId,
+        secret.secretDigest,
+        secret.status,
+        secret.createdAt,
+        secret.expiresAt,
+        secret.revokedAt,
+        secret.version,
+      ],
+    );
+  }
+
+  private async listSecrets(clientId: string, queryable?: Queryable) {
+    const executor = queryable ?? this.poolProvider();
+    if (!executor) {
+      return [...this.secrets.values()]
+        .filter((secret) => secret.clientId === clientId)
+        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }
+    const result = await executor.query(
+      `select * from oidc_client_secrets
+       where client_id = $1 order by created_at desc, secret_id`,
+      [clientId],
+    );
+    return result.rows.map((row: Record<string, unknown>) =>
+      this.mapSecretRow(row),
+    );
+  }
+
+  private mapSecretRow(row: Record<string, unknown>): OidcClientSecretRecord {
+    return {
+      secretId: String(row["secret_id"]),
+      clientId: String(row["client_id"]),
+      secretDigest: String(row["secret_digest"]),
+      status: row["status"] as OidcClientSecretRecord["status"],
+      createdAt: this.toIso(row["created_at"]),
+      expiresAt:
+        row["expires_at"] == null ? null : this.toIso(row["expires_at"]),
+      revokedAt:
+        row["revoked_at"] == null ? null : this.toIso(row["revoked_at"]),
+      version: Number(row["version"]),
+    };
+  }
+
+  private isUsableSecret(
+    secret: OidcClientSecretRecord,
+    now = new Date().toISOString(),
+  ) {
+    return (
+      secret.status === "active" ||
+      (secret.status === "retiring" &&
+        secret.expiresAt !== null &&
+        secret.expiresAt > now)
+    );
+  }
+
+  private usableMemorySecrets(clientId: string, now?: string) {
+    return [...this.secrets.values()].filter(
+      (secret) =>
+        secret.clientId === clientId && this.isUsableSecret(secret, now),
+    );
+  }
+
+  private replaceMemoryBootstrapSecrets(active: ActiveOidcClientRecord) {
+    for (const [secretId, secret] of this.secrets.entries()) {
+      if (secret.clientId === active.clientId) this.secrets.delete(secretId);
+    }
+    for (const [index, digest] of active.clientSecretDigests.entries()) {
+      const secretId = `bootstrap:${active.clientId}:${index + 1}`;
+      this.secrets.set(secretId, {
+        secretId,
+        clientId: active.clientId,
+        secretDigest: digest,
+        status: index === 0 ? "active" : "retiring",
+        createdAt: active.createdAt,
+        expiresAt: index === 0 ? null : active.updatedAt,
+        revokedAt: null,
+        version: 1,
+      });
+    }
+  }
+
+  private async deleteClientArtifacts(queryable: Queryable, clientId: string) {
+    await queryable.query(
+      `delete from oidc_artifacts
+       where client_id_hash = $1
+         and kind = any($2::text[])`,
+      [
+        this.clientIdHasher(clientId),
+        ["AuthorizationCode", "AccessToken", "RefreshToken", "Grant"],
+      ],
+    );
+  }
+
   private async upsertActive(
     queryable: Queryable,
     active: ActiveOidcClientRecord,
@@ -977,7 +1359,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     const base = { ...this.clientPart(active), activeRevisionId: null };
     await queryable.query(
       `${this.insertClientSql()} on conflict (client_id) do update set
-       client_secret_hash = excluded.client_secret_hash, display_name = excluded.display_name,
+       display_name = excluded.display_name,
        description = excluded.description, owner_subject_id = excluded.owner_subject_id,
        client_type = excluded.client_type, auto_consent = excluded.auto_consent, lifecycle_status = excluded.lifecycle_status,
        updated_at = excluded.updated_at, version = excluded.version`,
@@ -1015,9 +1397,26 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       "update oidc_clients set active_revision_id = $2 where client_id = $1",
       [active.clientId, revision.revisionId],
     );
+    await queryable.query(
+      "delete from oidc_client_secrets where client_id = $1",
+      [active.clientId],
+    );
+    for (const [index, digest] of active.clientSecretDigests.entries()) {
+      await this.insertSecret(queryable, {
+        secretId: `bootstrap:${active.clientId}:${index + 1}`,
+        clientId: active.clientId,
+        secretDigest: digest,
+        status: index === 0 ? "active" : "retiring",
+        createdAt: active.createdAt,
+        expiresAt: index === 0 ? null : active.updatedAt,
+        revokedAt: null,
+        version: 1,
+      });
+    }
     return this.toActive(
       { ...base, activeRevisionId: revision.revisionId },
       revision,
+      await this.listSecrets(active.clientId, queryable),
     );
   }
 
@@ -1026,14 +1425,15 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     audit: OidcClientAuditRecord,
   ) {
     await queryable.query(
-      `insert into oidc_client_audit_logs (client_id, revision_id, revision_number, actor_subject_id,
+      `insert into oidc_client_audit_logs (client_id, revision_id, revision_number, secret_id, actor_subject_id,
         action, changed_fields, previous_client_status, new_client_status,
         previous_revision_status, new_revision_status, reason, source_ip, created_at)
-       values ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $12, $13::timestamptz)`,
+       values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14::timestamptz)`,
       [
         audit.clientId,
         audit.revisionId ?? null,
         audit.revisionNumber ?? null,
+        audit.secretId ?? null,
         audit.actorSubjectId,
         audit.action,
         JSON.stringify(audit.changedFields),
@@ -1054,6 +1454,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     if (!row) return null;
     return {
       client: this.mapClientRow(row)!,
+      secrets: [],
       activeRevision:
         row["ar_revision_id"] == null
           ? null
@@ -1071,8 +1472,6 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     if (!row) return null;
     return {
       clientId: String(row["client_id"]),
-      clientSecretDigest:
-        (row["client_secret_hash"] as string | null) ?? undefined,
       displayName: String(row["display_name"]),
       description: String(row["description"] ?? ""),
       ownerSubjectId: (row["owner_subject_id"] as string | null) ?? null,

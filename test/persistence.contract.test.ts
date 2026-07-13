@@ -56,9 +56,9 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
 
   await persistence.upsertOidcClient({
     clientId: "demo-site",
-    clientSecretDigest: await createClientSecretDigest(
-      "test-oidc-demo-client-secret",
-    ),
+    clientSecretDigests: [
+      await createClientSecretDigest("test-oidc-demo-client-secret"),
+    ],
     displayName: "Demo Site",
     description: "",
     ownerSubjectId: "subj_demo",
