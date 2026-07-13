@@ -12,7 +12,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     OIDC_ISSUER: "http://127.0.0.1:3003",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
   });
   const persistence = new OidcPersistenceImpl(config);
   await persistence.init();
@@ -26,7 +26,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
       subjectId: "subj_demo",
       status: "active",
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
     },
     {
       subjectId: "subj_demo",
@@ -36,8 +36,8 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
       currentStudentStatus: "active",
       school: "cqut",
       createdAt: now,
-      updatedAt: now
-    }
+      updatedAt: now,
+    },
   );
 
   const identity = await persistence.findIdentity("mock", "cqut:20240001");
@@ -49,14 +49,19 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     displayName: "CQUT User 20240001",
     email: "demo@example.com",
     emailVerified: false,
-    updatedAt: now
+    updatedAt: now,
   });
   const principal = await persistence.findPrincipalBySubjectId("subj_demo");
   assert.equal(principal?.preferredUsername, "20240001");
 
   await persistence.upsertOidcClient({
     clientId: "demo-site",
-    clientSecretDigest: await createClientSecretDigest("test-oidc-demo-client-secret"),
+    clientSecretDigest: await createClientSecretDigest(
+      "test-oidc-demo-client-secret",
+    ),
+    displayName: "Demo Site",
+    description: "",
+    ownerSubjectId: "subj_demo",
     applicationType: "web",
     tokenEndpointAuthMethod: "client_secret_basic",
     redirectUris: ["http://localhost:3002/demo/callback"],
@@ -69,7 +74,8 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     autoConsent: true,
     status: "active",
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    version: 1,
   });
   const clients = await persistence.listActiveOidcClients();
   assert.equal(clients.length, 1);
@@ -84,9 +90,9 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
       userCode: "uc-1",
       grantId: "grant-1",
       accountId: "subj_demo",
-      value: "ok"
+      value: "ok",
     },
-    120
+    120,
   );
   await persistence.upsertArtifact(
     "Session:session-1",
@@ -94,25 +100,39 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     {
       uid: "uid-1",
       accountId: "subj_demo",
-      value: "session-payload"
+      value: "session-payload",
     },
-    120
+    120,
   );
   const artifact = await persistence.findArtifact("AuthorizationCode:code-1");
   assert.equal(artifact?.["value"], "ok");
   assert.equal((await persistence.findArtifactByUid("uid-1"))?.["value"], "ok");
-  assert.equal((await persistence.findArtifactByUid("uid-1", "AuthorizationCode"))?.["value"], "ok");
-  assert.equal((await persistence.findArtifactByUid("uid-1", "Session"))?.["value"], "session-payload");
-  assert.equal((await persistence.findArtifactByUserCode("uc-1"))?.["value"], "ok");
+  assert.equal(
+    (await persistence.findArtifactByUid("uid-1", "AuthorizationCode"))?.[
+      "value"
+    ],
+    "ok",
+  );
+  assert.equal(
+    (await persistence.findArtifactByUid("uid-1", "Session"))?.["value"],
+    "session-payload",
+  );
+  assert.equal(
+    (await persistence.findArtifactByUserCode("uc-1"))?.["value"],
+    "ok",
+  );
   await persistence.consumeArtifact("AuthorizationCode:code-1");
   const consumed = await persistence.findArtifact("AuthorizationCode:code-1");
   assert.equal(typeof consumed?.["consumed"], "number");
   await persistence.revokeArtifactsByGrantId("grant-1");
-  assert.equal(await persistence.findArtifact("AuthorizationCode:code-1"), undefined);
+  assert.equal(
+    await persistence.findArtifact("AuthorizationCode:code-1"),
+    undefined,
+  );
 
   await persistence.saveInteractionLogin("uid-login", {
     principal: principal!,
-    authTime: Math.floor(Date.now() / 1000)
+    authTime: Math.floor(Date.now() / 1000),
   });
   assert.ok(await persistence.getInteractionLogin("uid-login"));
   await persistence.deleteInteractionLogin("uid-login");
@@ -122,7 +142,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     kty: "RSA",
     n: "n",
     e: "AQAB",
-    d: "d"
+    d: "d",
   });
   await persistence.upsertSigningKey({
     kid: "kid-1",
@@ -131,12 +151,12 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     publicJwk: {
       kty: "RSA",
       n: "n",
-      e: "AQAB"
+      e: "AQAB",
     } as JsonWebKey,
     privateJwkCiphertext: encryptedPrivate,
     status: "active",
     createdAt: now,
-    activatedAt: now
+    activatedAt: now,
   });
   const signingKeys = await persistence.listSigningKeys(["active"]);
   assert.equal(signingKeys.length, 1);
