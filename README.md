@@ -1,17 +1,13 @@
-<div align="center">
-  <h1>CQUT Auth</h1>
-  <p>面向重庆理工大学统一身份认证的专属 OpenID Connect (OIDC) Provider</p>
-
-  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-  [![Node.js](https://img.shields.io/badge/Node.js-24+-green.svg)](https://nodejs.org/)
-  [![pnpm](https://img.shields.io/badge/pnpm-10+-orange.svg)](https://pnpm.io/)
-</div>
-
-<br/>
+![仓库封面](./.github/assets/repository-cover.svg)
 
 > [!NOTE]
->
 > 本项目大部分代码、测试和文档均由智能体编写。维护者仅对体感功能进行简单测试，对数据安全与代码质量不作任何保障，但我们会尽最大努力修复问题。
+
+<div align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat" alt="License: MIT"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-24+-green.svg?style=flat" alt="Node.js 24+"></a>
+  <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-10+-orange.svg?style=flat" alt="pnpm 10+"></a>
+</div>
 
 ## ✨ 特性 (Features)
 

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="CQUT Auth OIDC Provider 仓库封面">
+  <rect width="1280" height="640" fill="#071F33"/>
+  <g opacity=".18" stroke="#9FC1F9">
+    <path d="M0 80h1280M0 160h1280M0 240h1280M0 320h1280M0 400h1280M0 480h1280M0 560h1280"/>
+    <path d="M80 0v640M160 0v640M240 0v640M320 0v640M400 0v640M480 0v640M560 0v640M640 0v640M720 0v640M800 0v640M880 0v640M960 0v640M1040 0v640M1120 0v640M1200 0v640"/>
+  </g>
+  <circle cx="1088" cy="80" r="240" fill="#055088" opacity=".35"/>
+  <circle cx="1200" cy="540" r="300" fill="#6ADFA3" opacity=".12"/>
+  <text x="88" y="240" fill="#FFFFFF" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="76" font-weight="700">CQUT-Auth</text>
+  <text x="88" y="310" fill="#B8DCEB" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="32">面向重庆理工大学统一身份认证的专属 OpenID Connect (OIDC) Provider</text>
+  <foreignObject x="88" y="494" width="400" height="54">
+    <div xmlns="http://www.w3.org/1999/xhtml" style="display: inline-flex; align-items: center; justify-content: center; height: 54px; padding: 0 24px; border-radius: 8px; background: #6ADFA3; color: #0B1F33; font-family: system-ui, -apple-system, sans-serif; font-size: 24px; font-weight: 700; white-space: nowrap; box-sizing: border-box;">OIDC · PKCE · Secure</div>
+  </foreignObject>
+  <g transform="translate(948 483) scale(0.6)">
+    <g transform="translate(-2.5 0)">
+      <g fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M56 24a21 21 0 1 0 0 32"/>
+        <circle cx="91" cy="40" r="21"/>
+        <path d="M21 76v18a18 18 0 0 0 36 0V76"/>
+        <path d="M76 76h34M93 76v36"/>
+      </g>
+      <circle cx="110" cy="59" r="5.5" fill="#6ADFA3"/>
+    </g>
+    <line x1="136" y1="20" x2="136" y2="108" stroke="#FFFFFF" stroke-width="2" opacity="0.2" stroke-linecap="round"/>
+    <text x="160" y="56" fill="#FFFFFF" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="40" font-weight="700">OpenProject</text>
+    <text x="160" y="98" fill="#B8DCEB" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="22">重庆理工大学开源计划</text>
+  </g>
+</svg>
