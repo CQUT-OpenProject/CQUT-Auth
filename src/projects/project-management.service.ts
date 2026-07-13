@@ -8,7 +8,7 @@ import type {
 } from "../persistence/contracts.js";
 import { SYSTEM_PROJECT_ID } from "../persistence/contracts.js";
 import { randomId } from "../utils.js";
-import { ClientManagementError } from "../clients/client-management.service.js";
+import { ClientManagementError } from "../management/management-error.js";
 import { ProjectAccessService, type ProjectActor } from "./project-access.js";
 
 export class ProjectManagementService {
@@ -19,6 +19,10 @@ export class ProjectManagementService {
     private readonly now: () => Date = () => new Date(),
     private readonly createProjectId: () => string = () =>
       randomId("project", 18),
+    private readonly limits: {
+      maxActiveProjects?: number;
+      adminQuotaExempt?: boolean;
+    } = {},
   ) {
     this.access = new ProjectAccessService(repository);
   }
@@ -71,7 +75,16 @@ export class ProjectManagementService {
       this.audit(actor, project.projectId, "project.created", timestamp, {
         changedFields: ["name", "description", "status"],
       }),
+      actor.isAdmin && (this.limits.adminQuotaExempt ?? true)
+        ? undefined
+        : { maxActiveProjects: this.limits.maxActiveProjects ?? 5 },
     );
+    if (!created)
+      throw new ClientManagementError(
+        409,
+        "project_quota_exceeded",
+        "active project quota exceeded for this subject",
+      );
     return this.publicProject(actor, created, "owner");
   }
 
@@ -253,10 +266,12 @@ export class ProjectManagementService {
     const toSubjectId = this.text(body["toSubjectId"], "toSubjectId", 1, 200);
     if (fromSubjectId === toSubjectId) this.invalid("toSubjectId");
     const timestamp = this.now().toISOString();
-    const target = (await this.repository.listProjectMembers(projectId)).find(
-      (member) => member.subjectId === toSubjectId,
+    const members = await this.repository.listProjectMembers(projectId);
+    const source = members.find(
+      (member) => member.subjectId === fromSubjectId && member.role === "owner",
     );
-    if (!target || target.role === "owner")
+    const target = members.find((member) => member.subjectId === toSubjectId);
+    if (!source || !target || target.role === "owner")
       throw new ClientManagementError(
         404,
         "not_found",
@@ -270,18 +285,42 @@ export class ProjectManagementService {
         toSubjectId,
         this.version(body["expectedProjectVersion"]),
         timestamp,
-        this.audit(
-          actor,
-          projectId,
-          "project.ownership_transferred",
-          timestamp,
-          {
-            targetSubjectId: toSubjectId,
-            previousRole: target.role,
-            newRole: "owner",
-            changedFields: ["role"],
-          },
-        ),
+        [
+          this.audit(
+            actor,
+            projectId,
+            "project.ownership_transferred",
+            timestamp,
+            {
+              targetSubjectId: toSubjectId,
+              changedFields: ["role"],
+            },
+          ),
+          this.audit(
+            actor,
+            projectId,
+            "project.member_role_changed",
+            timestamp,
+            {
+              targetSubjectId: fromSubjectId,
+              previousRole: "owner",
+              newRole: "maintainer",
+              changedFields: ["role"],
+            },
+          ),
+          this.audit(
+            actor,
+            projectId,
+            "project.member_role_changed",
+            timestamp,
+            {
+              targetSubjectId: toSubjectId,
+              previousRole: target.role,
+              newRole: "owner",
+              changedFields: ["role"],
+            },
+          ),
+        ],
       ),
     );
   }

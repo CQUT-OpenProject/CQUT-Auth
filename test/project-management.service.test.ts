@@ -191,9 +191,25 @@ test("project owner protection, optimistic concurrency, and transfer are atomic"
         ?.role,
       "owner",
     );
+    const audits = await projects.audits(maintainer, initial.projectId, 100);
     assert.ok(
-      (await projects.audits(maintainer, initial.projectId, 100)).some(
-        (entry) => entry.action === "project.ownership_transferred",
+      audits.some((entry) => entry.action === "project.ownership_transferred"),
+    );
+    assert.ok(
+      audits.some(
+        (entry) =>
+          entry.action === "project.member_role_changed" &&
+          entry.targetSubjectId === owner.subjectId &&
+          entry.previousRole === "owner" &&
+          entry.newRole === "maintainer",
+      ),
+    );
+    assert.ok(
+      audits.some(
+        (entry) =>
+          entry.action === "project.member_role_changed" &&
+          entry.targetSubjectId === maintainer.subjectId &&
+          entry.newRole === "owner",
       ),
     );
     assert.ok(project.version > initial.version);

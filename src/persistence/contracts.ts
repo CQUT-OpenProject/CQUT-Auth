@@ -6,6 +6,7 @@ import type {
   SubjectRecord,
 } from "../identity/index.js";
 import type { OidcScope } from "../shared/oidc-contracts.js";
+import type { ProjectWriteAuthorization } from "../projects/project-access.js";
 
 export type ClientLifecycleStatus = "draft" | "active" | "disabled";
 export type ClientSecretStatus = "active" | "retiring" | "revoked";
@@ -187,6 +188,17 @@ export type ProjectMutationResult =
   | { status: "member_exists" }
   | { status: "subject_not_found" };
 
+export type ClientProjectLimits = {
+  maxNonDisabledClients: number;
+  maxPendingClients: number;
+  maxNonDisabledClientsPerSubject: number;
+  maxPendingClientsPerSubject: number;
+};
+
+export type ProjectCreateLimits = {
+  maxActiveProjects: number;
+};
+
 export type ManagementSessionRecord = {
   tokenHash: string;
   subjectId: string;
@@ -258,16 +270,15 @@ export interface OidcClientRepository {
     revision: OidcClientRevisionRecord,
     secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
-    projectLimits?: {
-      maxNonDisabledClients: number;
-      maxPendingClients: number;
-    },
+    projectLimits: ClientProjectLimits | undefined,
+    authorization: ProjectWriteAuthorization,
   ): Promise<ManagedOidcClientRecord | null>;
   updateOidcClientMetadata(
     clientId: string,
     patch: Pick<OidcClientRecord, "displayName" | "description" | "updatedAt">,
     expectedVersion: number,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ): Promise<ManagedOidcClientRecord | null>;
   saveOidcClientRevision(
     clientId: string,
@@ -275,7 +286,8 @@ export interface OidcClientRepository {
     expectedRevisionId: number | null,
     expectedRevisionVersion: number | null,
     audits: OidcClientAuditRecord[],
-    maxPendingClients?: number,
+    projectLimits: ClientProjectLimits | undefined,
+    authorization: ProjectWriteAuthorization,
   ): Promise<RevisionMutationResult>;
   transitionOidcClientRevision(
     clientId: string,
@@ -284,19 +296,22 @@ export interface OidcClientRepository {
     nextStatus: ClientRevisionStatus,
     reason: string | undefined,
     audit: OidcClientAuditRecord,
-    maxPendingClients?: number,
+    projectLimits: ClientProjectLimits | undefined,
+    authorization: ProjectWriteAuthorization,
   ): Promise<RevisionMutationResult>;
   approveOidcClientRevision(
     clientId: string,
     revisionId: number,
     expectedVersion: number,
     audits: OidcClientAuditRecord[],
+    authorization: ProjectWriteAuthorization,
   ): Promise<ManagedOidcClientRecord | null>;
   disableOidcClient(
     clientId: string,
     expectedVersion: number,
     updatedAt: string,
     audits: OidcClientAuditRecord[],
+    authorization: ProjectWriteAuthorization,
   ): Promise<ManagedOidcClientRecord | null>;
   rotateOidcClientSecret(
     clientId: string,
@@ -305,6 +320,7 @@ export interface OidcClientRepository {
     gracePeriodSeconds: number,
     minimumRotationIntervalSeconds: number,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ): Promise<ClientSecurityMutationResult>;
   revokeOidcClientSecret(
     clientId: string,
@@ -313,12 +329,14 @@ export interface OidcClientRepository {
     expectedSecretVersion: number,
     updatedAt: string,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ): Promise<ClientSecurityMutationResult>;
   revokeOidcClientAuthorizations(
     clientId: string,
     expectedClientVersion: number,
     updatedAt: string,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ): Promise<ManagedOidcClientRecord | null>;
   findManagedOidcClient(
     clientId: string,
@@ -339,7 +357,8 @@ export interface ProjectRepository {
     project: ProjectRecord,
     owner: ProjectMemberRecord,
     audit: ProjectAuditRecord,
-  ): Promise<ProjectRecord>;
+    limits?: ProjectCreateLimits,
+  ): Promise<ProjectRecord | null>;
   findProject(projectId: string): Promise<ProjectRecord | null>;
   findProjectRole(
     projectId: string,
@@ -382,7 +401,7 @@ export interface ProjectRepository {
     toSubjectId: string,
     expectedVersion: number,
     updatedAt: string,
-    audit: ProjectAuditRecord,
+    audits: ProjectAuditRecord[],
   ): Promise<ProjectMutationResult>;
   listProjectAuditLogs(
     projectId: string,

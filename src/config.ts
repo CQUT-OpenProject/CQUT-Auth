@@ -51,8 +51,15 @@ export type OidcOpConfig = {
   loginFailureWindowSeconds: number;
   tokenRateLimitMax: number;
   tokenRateLimitWindowSeconds: number;
+  managementProjectMaxActivePerSubject: number;
+  managementProjectCreateRateLimitSubjectMax: number;
+  managementProjectCreateRateLimitIpMax: number;
+  managementProjectCreateRateLimitWindowSeconds: number;
+  managementProjectQuotaAdminExempt: boolean;
   managementClientMaxPerProject: number;
   managementClientMaxPendingPerProject: number;
+  managementClientMaxPerSubject: number;
+  managementClientMaxPendingPerSubject: number;
   managementClientCreateRateLimitSubjectMax: number;
   managementClientCreateRateLimitIpMax: number;
   managementClientCreateRateLimitWindowSeconds: number;
@@ -413,6 +420,24 @@ export function readOidcOpConfig(
   const managementClientMaxPendingPerProject = Number(
     env["OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT"] ?? 5,
   );
+  const managementClientMaxPerSubject = Number(
+    env["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT"] ?? 30,
+  );
+  const managementClientMaxPendingPerSubject = Number(
+    env["OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT"] ?? 15,
+  );
+  const managementProjectMaxActivePerSubject = Number(
+    env["OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT"] ?? 5,
+  );
+  const managementProjectCreateRateLimitSubjectMax = Number(
+    env["OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX"] ?? 3,
+  );
+  const managementProjectCreateRateLimitIpMax = Number(
+    env["OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX"] ?? 10,
+  );
+  const managementProjectCreateRateLimitWindowSeconds = Number(
+    env["OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_WINDOW_SECONDS"] ?? 3600,
+  );
   const managementClientCreateRateLimitSubjectMax = Number(
     env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX"] ?? 5,
   );
@@ -456,9 +481,30 @@ export function readOidcOpConfig(
   }
   for (const [key, value] of [
     ["OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT", managementClientMaxPerProject],
+    ["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT", managementClientMaxPerSubject],
     [
       "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT",
       managementClientMaxPendingPerProject,
+    ],
+    [
+      "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT",
+      managementClientMaxPendingPerSubject,
+    ],
+    [
+      "OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT",
+      managementProjectMaxActivePerSubject,
+    ],
+    [
+      "OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX",
+      managementProjectCreateRateLimitSubjectMax,
+    ],
+    [
+      "OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX",
+      managementProjectCreateRateLimitIpMax,
+    ],
+    [
+      "OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_WINDOW_SECONDS",
+      managementProjectCreateRateLimitWindowSeconds,
     ],
     [
       "OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX",
@@ -504,6 +550,11 @@ export function readOidcOpConfig(
   if (managementClientMaxPendingPerProject > managementClientMaxPerProject) {
     throw new Error(
       "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT must not exceed OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT",
+    );
+  }
+  if (managementClientMaxPendingPerSubject > managementClientMaxPerSubject) {
+    throw new Error(
+      "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT must not exceed OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT",
     );
   }
   if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
@@ -714,8 +765,16 @@ export function readOidcOpConfig(
     tokenRateLimitWindowSeconds: Number(
       env["OIDC_TOKEN_RATE_LIMIT_WINDOW_SECONDS"] ?? 60,
     ),
+    managementProjectMaxActivePerSubject,
+    managementProjectCreateRateLimitSubjectMax,
+    managementProjectCreateRateLimitIpMax,
+    managementProjectCreateRateLimitWindowSeconds,
+    managementProjectQuotaAdminExempt:
+      env["OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT"] !== "false",
     managementClientMaxPerProject,
     managementClientMaxPendingPerProject,
+    managementClientMaxPerSubject,
+    managementClientMaxPendingPerSubject,
     managementClientCreateRateLimitSubjectMax,
     managementClientCreateRateLimitIpMax,
     managementClientCreateRateLimitWindowSeconds,

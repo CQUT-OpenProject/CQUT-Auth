@@ -678,6 +678,104 @@ test("management API rate limits client creation by subject", async () => {
   }
 });
 
+test("management API rate limits project creation by subject", async () => {
+  const { app, state } = await createApp({
+    OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT: "false",
+    OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT: "10",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX: "1",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX: "10",
+  });
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    assert.equal(
+      (
+        await admin
+          .post("/api/management/projects")
+          .set("X-CSRF-Token", signedIn.body.csrfToken)
+          .send({ name: "First project", description: "" })
+      ).status,
+      201,
+    );
+    const limited = await admin
+      .post("/api/management/projects")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ name: "Second project", description: "" });
+    assert.equal(limited.status, 429);
+    assert.ok(limited.headers["retry-after"]);
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
+test("management API rate limits project creation by source IP", async () => {
+  const { app, state } = await createApp({
+    OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT: "false",
+    OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT: "10",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX: "5",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX: "1",
+  });
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    assert.equal(
+      (
+        await admin
+          .post("/api/management/projects")
+          .set("X-CSRF-Token", signedIn.body.csrfToken)
+          .send({ name: "First project", description: "" })
+      ).status,
+      201,
+    );
+    const limited = await admin
+      .post("/api/management/projects")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ name: "Second project", description: "" });
+    assert.equal(limited.status, 429);
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
+test("management API enforces active project quota", async () => {
+  const { app, state } = await createApp({
+    OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT: "false",
+    OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT: "1",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX: "5",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX: "5",
+  });
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    assert.equal(
+      (
+        await admin
+          .post("/api/management/projects")
+          .set("X-CSRF-Token", signedIn.body.csrfToken)
+          .send({ name: "Only project", description: "" })
+      ).status,
+      201,
+    );
+    const limited = await admin
+      .post("/api/management/projects")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ name: "Too many", description: "" });
+    assert.equal(limited.status, 409);
+    assert.equal(limited.body.error, "project_quota_exceeded");
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
 test("management API rate limits client creation by source IP", async () => {
   const { app, state } = await createApp({
     OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX: "5",
