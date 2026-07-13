@@ -332,6 +332,41 @@ td code {
   white-space: nowrap;
   border: 0;
 }
+
+.revision-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.revision-grid > div {
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.diff-field {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.8rem;
+}
+
+.diff-added {
+  color: #176b3a;
+  background: #e8f7ed;
+}
+
+.diff-removed {
+  color: #a12622;
+  background: #fdeceb;
+  text-decoration: line-through;
+}
+
+@media (max-width: 760px) {
+  .revision-grid {
+    grid-template-columns: 1fr;
+  }
+}
 @media (max-width: 720px) {
   .topbar,
   .page-heading,
