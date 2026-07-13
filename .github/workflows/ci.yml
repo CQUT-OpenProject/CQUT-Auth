@@ -25,24 +25,30 @@ jobs:
 
   server-tests:
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: cqut_auth
-          POSTGRES_PASSWORD: cqut_auth_test
-          POSTGRES_DB: cqut_auth_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U cqut_auth -d cqut_auth_test"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
     env:
       TEST_DATABASE_URL: postgres://cqut_auth:cqut_auth_test@127.0.0.1:5432/cqut_auth_test
     steps:
       - uses: actions/checkout@v4
+      - name: Start PostgreSQL with pg_cron
+        run: |
+          docker build --tag cqut-auth-postgres-ci --file docker/postgres/Dockerfile .
+          docker run --detach --name cqut-auth-postgres-ci \
+            --env POSTGRES_USER=cqut_auth \
+            --env POSTGRES_PASSWORD=cqut_auth_test \
+            --env POSTGRES_DB=cqut_auth_test \
+            --publish 5432:5432 \
+            cqut-auth-postgres-ci \
+            postgres \
+            -c shared_preload_libraries=pg_cron \
+            -c cron.database_name=cqut_auth_test
+          for attempt in {1..30}; do
+            if docker exec cqut-auth-postgres-ci pg_isready -U cqut_auth -d cqut_auth_test; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs cqut-auth-postgres-ci
+          exit 1
       - uses: pnpm/action-setup@v4
         with:
           version: 10.32.1
@@ -52,6 +58,9 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:server
+      - name: Stop PostgreSQL
+        if: always()
+        run: docker rm --force cqut-auth-postgres-ci || true
 
   ui-tests:
     runs-on: ubuntu-latest
