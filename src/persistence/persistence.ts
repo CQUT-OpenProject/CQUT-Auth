@@ -19,6 +19,10 @@ import type {
   OidcClientRecord,
   OidcClientSecretRecord,
   OidcClientRevisionRecord,
+  ProjectAuditRecord,
+  ProjectMemberRecord,
+  ProjectRecord,
+  ProjectRole,
   OidcPersistence,
   OidcSigningKeyRecord,
   PendingInteractionLogin,
@@ -28,6 +32,7 @@ import { JwkCipherServiceImpl } from "./jwk-cipher.service.js";
 import { OidcArtifactRepositoryImpl } from "./oidc-artifact.repository.js";
 import { OidcClientRepositoryImpl } from "./oidc-client.repository.js";
 import { ManagementSessionRepositoryImpl } from "./management-session.repository.js";
+import { ProjectRepositoryImpl } from "./project.repository.js";
 import { SigningKeyRepositoryImpl } from "./signing-key.repository.js";
 
 export class OidcPersistenceImpl implements OidcPersistence {
@@ -37,6 +42,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
   private readonly artifactPayloadCipherService: ArtifactPayloadCipherServiceImpl;
   private readonly identityRepository: IdentityRepositoryImpl;
   private readonly oidcClientRepository: OidcClientRepositoryImpl;
+  private readonly projectRepository: ProjectRepositoryImpl;
   private readonly managementSessionRepository: ManagementSessionRepositoryImpl;
   private readonly oidcArtifactRepository: OidcArtifactRepositoryImpl;
   private readonly signingKeyRepository: SigningKeyRepositoryImpl;
@@ -50,6 +56,12 @@ export class OidcPersistenceImpl implements OidcPersistence {
       config.artifactEncryptionSecret,
     );
     this.identityRepository = new IdentityRepositoryImpl(poolProvider);
+    this.projectRepository = new ProjectRepositoryImpl(
+      poolProvider,
+      async (subjectId) =>
+        (await this.identityRepository.findSubject(subjectId))?.status ===
+        "active",
+    );
     this.managementSessionRepository = new ManagementSessionRepositoryImpl(
       poolProvider,
     );
@@ -92,6 +104,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
         this.logger.warn(
           "DATABASE_URL not configured for oidc-op, using in-memory store",
         );
+        await this.projectRepository.ensureSystemProject();
         return;
       }
       throw new Error("DATABASE_URL is required for oidc-op");
@@ -108,6 +121,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
         schedule: this.config.artifactCleanupCron,
         batchSize: this.config.artifactCleanupBatchSize,
       });
+      await this.projectRepository.ensureSystemProject();
     } catch (error) {
       await this.pool?.end().catch(() => undefined);
       this.pool = undefined;
@@ -120,6 +134,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       this.logger.warn(
         `database unavailable for oidc-op, using in-memory store: ${error instanceof Error ? error.message : "unknown error"}`,
       );
+      await this.projectRepository.ensureSystemProject();
     }
   }
 
@@ -188,6 +203,143 @@ export class OidcPersistenceImpl implements OidcPersistence {
     return this.identityRepository.findPrincipalBySubjectId(subjectId);
   }
 
+  async ensureSystemProject() {
+    return this.projectRepository.ensureSystemProject();
+  }
+
+  async createProject(
+    project: ProjectRecord,
+    owner: ProjectMemberRecord,
+    audit: ProjectAuditRecord,
+  ) {
+    return this.projectRepository.createProject(project, owner, audit);
+  }
+
+  async findProject(projectId: string) {
+    return this.projectRepository.findProject(projectId);
+  }
+
+  async findProjectRole(projectId: string, subjectId: string) {
+    return this.projectRepository.findProjectRole(projectId, subjectId);
+  }
+
+  async listProjectsForSubject(subjectId: string, includeAll: boolean) {
+    return this.projectRepository.listProjectsForSubject(subjectId, includeAll);
+  }
+
+  async listProjectMembers(projectId: string) {
+    return this.projectRepository.listProjectMembers(projectId);
+  }
+
+  async updateProject(
+    projectId: string,
+    expectedVersion: number,
+    patch: Pick<ProjectRecord, "name" | "description" | "status" | "updatedAt">,
+    audit: ProjectAuditRecord,
+  ) {
+    return this.projectRepository.updateProject(
+      projectId,
+      expectedVersion,
+      patch,
+      audit,
+    );
+  }
+
+  async addProjectMember(
+    member: ProjectMemberRecord,
+    expectedVersion: number,
+    audit: ProjectAuditRecord,
+  ) {
+    return this.projectRepository.addProjectMember(
+      member,
+      expectedVersion,
+      audit,
+    );
+  }
+
+  async updateProjectMemberRole(
+    projectId: string,
+    subjectId: string,
+    role: ProjectRole,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: ProjectAuditRecord,
+  ) {
+    return this.projectRepository.updateProjectMemberRole(
+      projectId,
+      subjectId,
+      role,
+      expectedVersion,
+      updatedAt,
+      audit,
+    );
+  }
+
+  async removeProjectMember(
+    projectId: string,
+    subjectId: string,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: ProjectAuditRecord,
+  ) {
+    return this.projectRepository.removeProjectMember(
+      projectId,
+      subjectId,
+      expectedVersion,
+      updatedAt,
+      audit,
+    );
+  }
+
+  async transferProjectOwnership(
+    projectId: string,
+    fromSubjectId: string,
+    toSubjectId: string,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: ProjectAuditRecord,
+  ) {
+    return this.projectRepository.transferProjectOwnership(
+      projectId,
+      fromSubjectId,
+      toSubjectId,
+      expectedVersion,
+      updatedAt,
+      audit,
+    );
+  }
+
+  async listProjectAuditLogs(
+    projectId: string,
+    limit: number,
+    beforeId?: number,
+  ) {
+    const projectAudits = await this.projectRepository.listProjectAuditLogs(
+      projectId,
+      limit,
+      beforeId,
+    );
+    if (this.pool) return projectAudits;
+    const clientAudits =
+      await this.oidcClientRepository.listOidcClientAuditLogs();
+    const matching = [];
+    for (const audit of clientAudits) {
+      const client = await this.oidcClientRepository.findManagedOidcClient(
+        audit.clientId,
+      );
+      if (client?.client.projectId === projectId) {
+        matching.push({ ...audit, projectId });
+      }
+    }
+    return [...projectAudits, ...matching]
+      .filter(
+        (audit) =>
+          !beforeId || (audit.id ?? Number.MAX_SAFE_INTEGER) < beforeId,
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
+  }
+
   async upsertOidcClient(
     client: ActiveOidcClientRecord,
   ): Promise<ActiveOidcClientRecord> {
@@ -213,7 +365,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
     revision: OidcClientRevisionRecord,
     secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
-    ownerLimits?: {
+    projectLimits?: {
       maxNonDisabledClients: number;
       maxPendingClients: number;
     },
@@ -223,7 +375,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       revision,
       secret,
       audits,
-      ownerLimits,
+      projectLimits,
     );
   }
 
@@ -371,8 +523,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
     return this.oidcClientRepository.listActiveOidcClients();
   }
 
-  async listOidcClientsByOwner(ownerSubjectId: string) {
-    return this.oidcClientRepository.listOidcClientsByOwner(ownerSubjectId);
+  async listOidcClientsByProject(projectId: string) {
+    return this.oidcClientRepository.listOidcClientsByProject(projectId);
   }
 
   async listOidcClients() {
@@ -541,11 +693,34 @@ export class OidcPersistenceImpl implements OidcPersistence {
       );
     `);
     await this.pool.query(`
+      create table if not exists projects (
+        project_id text primary key,
+        name text not null,
+        description text not null default '',
+        status text not null default 'active' check (status in ('active', 'archived')),
+        created_by_subject_id text references subjects(subject_id),
+        version integer not null default 1 check (version > 0),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
+      );
+      create table if not exists project_members (
+        project_id text not null references projects(project_id),
+        subject_id text not null references subjects(subject_id),
+        role text not null check (role in ('owner', 'maintainer', 'viewer')),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        primary key (project_id, subject_id)
+      );
+      create index if not exists idx_project_members_subject
+      on project_members (subject_id, project_id);
+    `);
+    await this.pool.query(`
       create table if not exists oidc_clients (
         client_id text primary key,
+        project_id text not null references projects(project_id),
         display_name text not null,
         description text not null default '',
-        owner_subject_id text references subjects(subject_id),
+        created_by_subject_id text references subjects(subject_id),
         client_type text not null check (client_type in ('web', 'spa')),
         auto_consent boolean not null default false,
         lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
@@ -611,8 +786,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
     `);
     await this.assertFreshOidcClientSchema();
     await this.pool.query(`
-      create index if not exists idx_oidc_clients_owner_updated
-      on oidc_clients (owner_subject_id, updated_at desc);
+      create index if not exists idx_oidc_clients_project_updated
+      on oidc_clients (project_id, updated_at desc);
     `);
     await this.pool.query(`
       create index if not exists idx_oidc_clients_status_updated
@@ -628,27 +803,33 @@ export class OidcPersistenceImpl implements OidcPersistence {
       on oidc_client_revisions (review_status, updated_at desc);
     `);
     await this.pool.query(`
-      create table if not exists oidc_client_audit_logs (
+      create table if not exists project_audit_logs (
         id bigserial primary key,
-        client_id text not null,
+        project_id text not null references projects(project_id),
+        client_id text,
         revision_id bigint,
         revision_number integer,
         secret_id text,
         actor_subject_id text,
+        target_subject_id text,
         action text not null,
         changed_fields jsonb not null default '[]'::jsonb,
         previous_client_status text,
         new_client_status text,
         previous_revision_status text,
         new_revision_status text,
+        previous_role text,
+        new_role text,
         reason text,
         source_ip text,
         created_at timestamptz not null default now()
       );
     `);
     await this.pool.query(`
-      create index if not exists idx_oidc_client_audit_logs_client_created
-      on oidc_client_audit_logs (client_id, created_at desc);
+      create index if not exists idx_project_audit_logs_project_created
+      on project_audit_logs (project_id, id desc);
+      create index if not exists idx_project_audit_logs_client_created
+      on project_audit_logs (client_id, id desc) where client_id is not null;
     `);
     await this.pool.query(`
       create table if not exists management_sessions (
@@ -743,7 +924,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
     const required = [
       "display_name",
       "description",
-      "owner_subject_id",
+      "project_id",
+      "created_by_subject_id",
       "client_type",
       "lifecycle_status",
       "active_revision_id",

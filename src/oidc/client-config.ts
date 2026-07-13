@@ -10,6 +10,7 @@ import type {
   OidcClientAuditRecord,
   OidcPersistence,
 } from "../persistence/contracts.js";
+import { SYSTEM_PROJECT_ID } from "../persistence/contracts.js";
 
 export type ManagedClientType = "web" | "spa";
 
@@ -360,10 +361,11 @@ function parseBootstrapClient(
   };
   return {
     clientId,
+    projectId: SYSTEM_PROJECT_ID,
     clientSecretDigests: typeof digest === "string" ? [digest] : [],
     displayName: configuration.displayName,
     description: configuration.description,
-    ownerSubjectId: null,
+    createdBySubjectId: null,
     clientType,
     lifecycleStatus: "active",
     activeRevisionId: 0,
@@ -427,6 +429,7 @@ export async function initializeOidcClientsFromConfig(
   const now = new Date().toISOString();
   const audits: OidcClientAuditRecord[] = clients.flatMap((client) => [
     {
+      projectId: SYSTEM_PROJECT_ID,
       clientId: client.clientId,
       actorSubjectId: null,
       action: "client.initialized",
@@ -435,6 +438,7 @@ export async function initializeOidcClientsFromConfig(
       createdAt: now,
     },
     {
+      projectId: SYSTEM_PROJECT_ID,
       clientId: client.clientId,
       actorSubjectId: null,
       action: "revision.created",
@@ -447,6 +451,7 @@ export async function initializeOidcClientsFromConfig(
       createdAt: now,
     },
     {
+      projectId: SYSTEM_PROJECT_ID,
       clientId: client.clientId,
       actorSubjectId: null,
       action: "revision.activated",

@@ -16,11 +16,35 @@ export type ClientRevisionStatus =
   | "rejected"
   | "cancelled";
 
+export const SYSTEM_PROJECT_ID = "system";
+export type ProjectStatus = "active" | "archived";
+export type ProjectRole = "owner" | "maintainer" | "viewer";
+
+export type ProjectRecord = {
+  projectId: string;
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  createdBySubjectId: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ProjectMemberRecord = {
+  projectId: string;
+  subjectId: string;
+  role: ProjectRole;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type OidcClientRecord = {
   clientId: string;
+  projectId: string;
   displayName: string;
   description: string;
-  ownerSubjectId: string | null;
+  createdBySubjectId: string | null;
   clientType: "web" | "spa";
   autoConsent: boolean;
   lifecycleStatus: ClientLifecycleStatus;
@@ -114,8 +138,19 @@ export type OidcClientAuditAction =
   | "revision.cancelled"
   | "revision.activated";
 
+export type ProjectAuditAction =
+  | OidcClientAuditAction
+  | "project.created"
+  | "project.updated"
+  | "project.archived"
+  | "project.member_added"
+  | "project.member_removed"
+  | "project.member_role_changed"
+  | "project.ownership_transferred";
+
 export type OidcClientAuditRecord = {
   id?: number;
+  projectId?: string;
   clientId: string;
   revisionId?: number | undefined;
   revisionNumber?: number | undefined;
@@ -131,6 +166,26 @@ export type OidcClientAuditRecord = {
   sourceIp?: string | undefined;
   createdAt: string;
 };
+
+export type ProjectAuditRecord = Omit<
+  OidcClientAuditRecord,
+  "clientId" | "action"
+> & {
+  projectId: string;
+  clientId?: string;
+  targetSubjectId?: string;
+  action: ProjectAuditAction;
+  previousRole?: ProjectRole;
+  newRole?: ProjectRole;
+};
+
+export type ProjectMutationResult =
+  | { status: "updated"; project: ProjectRecord }
+  | { status: "version_conflict" }
+  | { status: "last_owner_required" }
+  | { status: "member_not_found" }
+  | { status: "member_exists" }
+  | { status: "subject_not_found" };
 
 export type ManagementSessionRecord = {
   tokenHash: string;
@@ -203,7 +258,7 @@ export interface OidcClientRepository {
     revision: OidcClientRevisionRecord,
     secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
-    ownerLimits?: {
+    projectLimits?: {
       maxNonDisabledClients: number;
       maxPendingClients: number;
     },
@@ -270,12 +325,70 @@ export interface OidcClientRepository {
   ): Promise<ManagedOidcClientRecord | null>;
   findOidcClient(clientId: string): Promise<ActiveOidcClientRecord | null>;
   listActiveOidcClients(): Promise<ActiveOidcClientRecord[]>;
-  listOidcClientsByOwner(
-    ownerSubjectId: string,
+  listOidcClientsByProject(
+    projectId: string,
   ): Promise<ManagedOidcClientRecord[]>;
   listOidcClients(): Promise<ManagedOidcClientRecord[]>;
   listPendingOidcClients(): Promise<ManagedOidcClientRecord[]>;
   listOidcClientAuditLogs(clientId?: string): Promise<OidcClientAuditRecord[]>;
+}
+
+export interface ProjectRepository {
+  ensureSystemProject(): Promise<ProjectRecord>;
+  createProject(
+    project: ProjectRecord,
+    owner: ProjectMemberRecord,
+    audit: ProjectAuditRecord,
+  ): Promise<ProjectRecord>;
+  findProject(projectId: string): Promise<ProjectRecord | null>;
+  findProjectRole(
+    projectId: string,
+    subjectId: string,
+  ): Promise<ProjectRole | null>;
+  listProjectsForSubject(
+    subjectId: string,
+    includeAll: boolean,
+  ): Promise<Array<{ project: ProjectRecord; role: ProjectRole | null }>>;
+  listProjectMembers(projectId: string): Promise<ProjectMemberRecord[]>;
+  updateProject(
+    projectId: string,
+    expectedVersion: number,
+    patch: Pick<ProjectRecord, "name" | "description" | "status" | "updatedAt">,
+    audit: ProjectAuditRecord,
+  ): Promise<ProjectMutationResult>;
+  addProjectMember(
+    member: ProjectMemberRecord,
+    expectedVersion: number,
+    audit: ProjectAuditRecord,
+  ): Promise<ProjectMutationResult>;
+  updateProjectMemberRole(
+    projectId: string,
+    subjectId: string,
+    role: ProjectRole,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: ProjectAuditRecord,
+  ): Promise<ProjectMutationResult>;
+  removeProjectMember(
+    projectId: string,
+    subjectId: string,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: ProjectAuditRecord,
+  ): Promise<ProjectMutationResult>;
+  transferProjectOwnership(
+    projectId: string,
+    fromSubjectId: string,
+    toSubjectId: string,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: ProjectAuditRecord,
+  ): Promise<ProjectMutationResult>;
+  listProjectAuditLogs(
+    projectId: string,
+    limit: number,
+    beforeId?: number,
+  ): Promise<ProjectAuditRecord[]>;
 }
 
 export interface ManagementSessionRepository {
@@ -343,6 +456,7 @@ export interface OidcPersistence
   extends
     PersistenceRuntime,
     IdentityRepository,
+    ProjectRepository,
     OidcClientRepository,
     ManagementSessionRepository,
     OidcArtifactRepository,

@@ -17,6 +17,7 @@ import {
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
+import { ProjectManagementService } from "../projects/project-management.service.js";
 import {
   clearManagementSessionCookie,
   ensureManagementNonce,
@@ -45,15 +46,21 @@ export function createManagementRouter(
     config.sessionTtlSeconds,
     config.sessionIdleTtlSeconds,
   );
-  const clients = new ClientManagementService(store, config.appEnv, {
-    maxClientsPerOwner: config.managementClientMaxPerSubject,
-    maxPendingClientsPerOwner: config.managementClientMaxPendingPerSubject,
-    adminQuotaExempt: config.managementClientQuotaAdminExempt,
-    defaultSecretGraceSeconds: config.clientSecretDefaultGraceSeconds,
-    maxSecretGraceSeconds: config.clientSecretMaxGraceSeconds,
-    minimumSecretRotationIntervalSeconds:
-      config.clientSecretRotateMinimumIntervalSeconds,
-  });
+  const projects = new ProjectManagementService(store);
+  const clients = new ClientManagementService(
+    store,
+    projects.access,
+    config.appEnv,
+    {
+      maxClientsPerProject: config.managementClientMaxPerProject,
+      maxPendingClientsPerProject: config.managementClientMaxPendingPerProject,
+      adminQuotaExempt: config.managementClientQuotaAdminExempt,
+      defaultSecretGraceSeconds: config.clientSecretDefaultGraceSeconds,
+      maxSecretGraceSeconds: config.clientSecretMaxGraceSeconds,
+      minimumSecretRotationIntervalSeconds:
+        config.clientSecretRotateMinimumIntervalSeconds,
+    },
+  );
   const adminIds = new Set(config.adminSubjectIds);
 
   router.use((_request, response, next) => {
@@ -202,52 +209,221 @@ export function createManagementRouter(
     }
   });
 
-  router.get("/clients", async (request, response, next) => {
+  router.get("/projects", async (request, response, next) => {
     await withActor(request, response, next, async (auth) => {
-      const viewAll = request.query["view"] === "all";
-      response.json({ clients: await clients.list(auth.actor, viewAll) });
+      response.json({ projects: await projects.list(auth.actor) });
     });
   });
 
-  router.post("/clients", jsonParser, async (request, response, next) => {
+  router.post("/projects", jsonParser, async (request, response, next) => {
     await withMutation(request, response, next, async (auth) => {
-      const limits = [
-        {
-          key: `oidc:management:client-create:subject:${sha256(auth.actor.subjectId)}`,
-          max: config.managementClientCreateRateLimitSubjectMax,
-        },
-        {
-          key: `oidc:management:client-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
-          max: config.managementClientCreateRateLimitIpMax,
-        },
-      ];
-      for (const limit of limits) {
-        const decision = await rateLimitService.consume(
-          limit.key,
-          limit.max,
-          config.managementClientCreateRateLimitWindowSeconds,
-        );
-        if (!decision.allowed) {
-          response.setHeader("Retry-After", String(decision.retryAfterSeconds));
-          response.status(429).json({
-            error: "rate_limited",
-            error_description: "client creation rate limit exceeded",
-          });
-          return;
-        }
-      }
-      const result = await clients.create(auth.actor, request.body);
-      response.status(201).json(result);
+      response
+        .status(201)
+        .json({ project: await projects.create(auth.actor, request.body) });
     });
   });
+
+  router.get("/projects/:projectId", async (request, response, next) => {
+    await withActor(request, response, next, async (auth) => {
+      response.json({
+        project: await projects.get(auth.actor, param(request, "projectId")),
+      });
+    });
+  });
+
+  router.patch(
+    "/projects/:projectId",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        response.json({
+          project: await projects.update(
+            auth.actor,
+            param(request, "projectId"),
+            request.body,
+          ),
+        });
+      });
+    },
+  );
+
+  router.get(
+    "/projects/:projectId/members",
+    async (request, response, next) => {
+      await withActor(request, response, next, async (auth) => {
+        response.json({
+          members: await projects.members(
+            auth.actor,
+            param(request, "projectId"),
+          ),
+        });
+      });
+    },
+  );
 
   router.post(
-    "/clients/:clientId/revision/submit",
+    "/projects/:projectId/members",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        response
+          .status(201)
+          .json({
+            project: await projects.addMember(
+              auth.actor,
+              param(request, "projectId"),
+              request.body,
+            ),
+          });
+      });
+    },
+  );
+
+  router.patch(
+    "/projects/:projectId/members/:subjectId",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        response.json({
+          project: await projects.updateMember(
+            auth.actor,
+            param(request, "projectId"),
+            param(request, "subjectId"),
+            request.body,
+          ),
+        });
+      });
+    },
+  );
+
+  router.delete(
+    "/projects/:projectId/members/:subjectId",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        response.json({
+          project: await projects.removeMember(
+            auth.actor,
+            param(request, "projectId"),
+            param(request, "subjectId"),
+            request.body,
+          ),
+        });
+      });
+    },
+  );
+
+  router.post(
+    "/projects/:projectId/ownership/transfer",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        response.json({
+          project: await projects.transfer(
+            auth.actor,
+            param(request, "projectId"),
+            request.body,
+          ),
+        });
+      });
+    },
+  );
+
+  router.get(
+    "/projects/:projectId/audit-logs",
+    async (request, response, next) => {
+      await withActor(request, response, next, async (auth) => {
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(request.query["limit"] ?? 50) || 50),
+        );
+        const rawBeforeId = request.query["beforeId"];
+        const beforeId =
+          rawBeforeId === undefined ? undefined : Number(rawBeforeId);
+        if (
+          beforeId !== undefined &&
+          (!Number.isInteger(beforeId) || beforeId <= 0)
+        ) {
+          throw new ClientManagementError(
+            400,
+            "invalid_request",
+            "beforeId must be a positive integer",
+          );
+        }
+        response.json({
+          auditLogs: await projects.audits(
+            auth.actor,
+            param(request, "projectId"),
+            limit,
+            beforeId,
+          ),
+        });
+      });
+    },
+  );
+
+  router.get(
+    "/projects/:projectId/clients",
+    async (request, response, next) => {
+      await withActor(request, response, next, async (auth) => {
+        response.json({
+          clients: await clients.list(auth.actor, param(request, "projectId")),
+        });
+      });
+    },
+  );
+
+  router.post(
+    "/projects/:projectId/clients",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        const limits = [
+          {
+            key: `oidc:management:client-create:subject:${sha256(auth.actor.subjectId)}`,
+            max: config.managementClientCreateRateLimitSubjectMax,
+          },
+          {
+            key: `oidc:management:client-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
+            max: config.managementClientCreateRateLimitIpMax,
+          },
+        ];
+        for (const limit of limits) {
+          const decision = await rateLimitService.consume(
+            limit.key,
+            limit.max,
+            config.managementClientCreateRateLimitWindowSeconds,
+          );
+          if (!decision.allowed) {
+            response.setHeader(
+              "Retry-After",
+              String(decision.retryAfterSeconds),
+            );
+            response.status(429).json({
+              error: "rate_limited",
+              error_description: "client creation rate limit exceeded",
+            });
+            return;
+          }
+        }
+        const result = await clients.create(
+          auth.actor,
+          param(request, "projectId"),
+          request.body,
+        );
+        response.status(201).json(result);
+      });
+    },
+  );
+
+  router.post(
+    "/projects/:projectId/clients/:clientId/revision/submit",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.submit(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
           request.body,
         );
@@ -257,12 +433,13 @@ export function createManagementRouter(
   );
 
   router.post(
-    "/clients/:clientId/revision/withdraw",
+    "/projects/:projectId/clients/:clientId/revision/withdraw",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.withdraw(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
           request.body,
         );
@@ -271,21 +448,29 @@ export function createManagementRouter(
     },
   );
 
-  router.get("/clients/:clientId", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      response.json({
-        client: await clients.get(auth.actor, param(request, "clientId")),
+  router.get(
+    "/projects/:projectId/clients/:clientId",
+    async (request, response, next) => {
+      await withActor(request, response, next, async (auth) => {
+        response.json({
+          client: await clients.get(
+            auth.actor,
+            param(request, "projectId"),
+            param(request, "clientId"),
+          ),
+        });
       });
-    });
-  });
+    },
+  );
 
   router.put(
-    "/clients/:clientId/revision",
+    "/projects/:projectId/clients/:clientId/revision",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.saveRevision(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
           request.body,
         );
@@ -295,12 +480,13 @@ export function createManagementRouter(
   );
 
   router.patch(
-    "/clients/:clientId",
+    "/projects/:projectId/clients/:clientId",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.update(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
           request.body,
         );
@@ -310,7 +496,7 @@ export function createManagementRouter(
   );
 
   router.post(
-    "/clients/:clientId/secrets/rotate",
+    "/projects/:projectId/clients/:clientId/secrets/rotate",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
@@ -349,6 +535,7 @@ export function createManagementRouter(
         }
         const result = await clients.rotateSecret(
           auth.actor,
+          param(request, "projectId"),
           clientId,
           request.body,
         );
@@ -358,12 +545,13 @@ export function createManagementRouter(
   );
 
   router.post(
-    "/clients/:clientId/secrets/:secretId/revoke",
+    "/projects/:projectId/clients/:clientId/secrets/:secretId/revoke",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.revokeSecret(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
           param(request, "secretId"),
           request.body,
@@ -374,12 +562,13 @@ export function createManagementRouter(
   );
 
   router.post(
-    "/clients/:clientId/authorizations/revoke",
+    "/projects/:projectId/clients/:clientId/authorizations/revoke",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.revokeAuthorizations(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
           request.body,
         );
@@ -389,12 +578,13 @@ export function createManagementRouter(
   );
 
   router.post(
-    "/clients/:clientId/disable",
+    "/projects/:projectId/clients/:clientId/disable",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.disable(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
           request.body,
         );
@@ -411,14 +601,15 @@ export function createManagementRouter(
   });
 
   router.post(
-    "/admin/reviews/:clientId/approve",
+    "/admin/projects/:projectId/clients/:clientId/revisions/:revisionId/approve",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.approve(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
-          request.body,
+          { ...request.body, revisionId: Number(param(request, "revisionId")) },
         );
         onClientsChanged();
         response.json({ client });
@@ -427,14 +618,15 @@ export function createManagementRouter(
   );
 
   router.post(
-    "/admin/reviews/:clientId/reject",
+    "/admin/projects/:projectId/clients/:clientId/revisions/:revisionId/reject",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.reject(
           auth.actor,
+          param(request, "projectId"),
           param(request, "clientId"),
-          request.body,
+          { ...request.body, revisionId: Number(param(request, "revisionId")) },
         );
         response.json({ client });
       });

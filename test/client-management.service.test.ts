@@ -7,6 +7,8 @@ import {
 import { readOidcOpConfig } from "../src/config.js";
 import { verifyClientSecretDigest } from "../src/crypto.js";
 import { OidcPersistenceImpl } from "../src/persistence/persistence.js";
+import { ProjectAccessService } from "../src/projects/project-access.js";
+import { SYSTEM_PROJECT_ID } from "../src/persistence/contracts.js";
 
 function config() {
   return readOidcOpConfig({
@@ -25,20 +27,25 @@ const webInput = {
   postLogoutRedirectUris: ["http://localhost:3002/logout"],
   scopeWhitelist: ["openid", "profile"],
 };
-const owner = { subjectId: "subj_owner", isAdmin: false };
+const owner = { subjectId: "subj_owner", isAdmin: true };
 const admin = { subjectId: "subj_admin", isAdmin: true };
 
 async function activeClient(
   service: ClientManagementService,
   input = webInput,
 ) {
-  const created = await service.create(owner, input);
+  const created = await service.create(owner, SYSTEM_PROJECT_ID, input);
   const draft = created.client.proposedRevision!;
-  const pending = await service.submit(owner, created.client.clientId, {
-    revisionId: draft.revisionId,
-    revisionVersion: draft.version,
-  });
-  return service.approve(admin, created.client.clientId, {
+  const pending = await service.submit(
+    owner,
+    SYSTEM_PROJECT_ID,
+    created.client.clientId,
+    {
+      revisionId: draft.revisionId,
+      revisionVersion: draft.version,
+    },
+  );
+  return service.approve(admin, SYSTEM_PROJECT_ID, created.client.clientId, {
     revisionId: pending.proposedRevision!.revisionId,
     revisionVersion: pending.proposedRevision!.version,
   });
@@ -48,11 +55,16 @@ test("client creation produces a draft revision and never exposes secrets in aud
   const store = new OidcPersistenceImpl(config());
   await store.init();
   try {
-    const service = new ClientManagementService(store, "test", {
-      createClientId: () => "client_fixed",
-      createSecret: () => "one-time-plaintext-secret",
-    });
-    const result = await service.create(owner, webInput);
+    const service = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+      {
+        createClientId: () => "client_fixed",
+        createSecret: () => "one-time-plaintext-secret",
+      },
+    );
+    const result = await service.create(owner, SYSTEM_PROJECT_ID, webInput);
     assert.equal(result.client.lifecycleStatus, "draft");
     assert.equal(result.client.proposedRevision?.status, "draft");
     assert.equal(result.clientSecret, "one-time-plaintext-secret");
@@ -92,29 +104,49 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
   const store = new OidcPersistenceImpl(config());
   await store.init();
   let secretNumber = 0;
-  const service = new ClientManagementService(store, "test", {
-    createClientId: () => "client_secret_lifecycle",
-    createSecretId: () => `secret_${secretNumber + 1}`,
-    createSecret: () => `plaintext_secret_${++secretNumber}`,
-  });
+  const service = new ClientManagementService(
+    store,
+    new ProjectAccessService(store),
+    "test",
+    {
+      createClientId: () => "client_secret_lifecycle",
+      createSecretId: () => `secret_${secretNumber + 1}`,
+      createSecret: () => `plaintext_secret_${++secretNumber}`,
+    },
+  );
   try {
-    const created = await service.create(owner, webInput);
+    const created = await service.create(owner, SYSTEM_PROJECT_ID, webInput);
     const originalValue = created.clientSecret!;
     assert.equal(created.client.secrets.length, 1);
     assert.equal("secretDigest" in created.client.secrets[0]!, false);
-    const submitted = await service.submit(owner, created.client.clientId, {
-      revisionId: created.client.proposedRevision!.revisionId,
-      revisionVersion: created.client.proposedRevision!.version,
-    });
-    const approved = await service.approve(admin, created.client.clientId, {
-      revisionId: submitted.proposedRevision!.revisionId,
-      revisionVersion: submitted.proposedRevision!.version,
-    });
+    const submitted = await service.submit(
+      owner,
+      SYSTEM_PROJECT_ID,
+      created.client.clientId,
+      {
+        revisionId: created.client.proposedRevision!.revisionId,
+        revisionVersion: created.client.proposedRevision!.version,
+      },
+    );
+    const approved = await service.approve(
+      admin,
+      SYSTEM_PROJECT_ID,
+      created.client.clientId,
+      {
+        revisionId: submitted.proposedRevision!.revisionId,
+        revisionVersion: submitted.proposedRevision!.version,
+      },
+    );
 
-    const rotated = await service.rotateSecret(owner, created.client.clientId, {
-      clientVersion: approved.clientVersion,
-      gracePeriodSeconds: 1,
-    });
+    const rotated = await service.rotateSecret(
+      owner,
+      SYSTEM_PROJECT_ID,
+      created.client.clientId,
+      {
+        clientVersion: approved.clientVersion,
+        gracePeriodSeconds: 1,
+      },
+    );
     assert.equal(rotated.secret.value, "plaintext_secret_2");
     assert.deepEqual(
       rotated.client.secrets.map((secret) => secret.status).sort(),
@@ -136,10 +168,15 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
 
     await assert.rejects(
       () =>
-        service.rotateSecret(owner, created.client.clientId, {
-          clientVersion: rotated.client.clientVersion,
-          gracePeriodSeconds: 60,
-        }),
+        service.rotateSecret(
+          owner,
+          SYSTEM_PROJECT_ID,
+          created.client.clientId,
+          {
+            clientVersion: rotated.client.clientVersion,
+            gracePeriodSeconds: 60,
+          },
+        ),
       (error: unknown) =>
         error instanceof ClientManagementError &&
         error.code === "secret_limit_exceeded",
@@ -158,11 +195,11 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
 
     const concurrentVersion = rotated.client.clientVersion;
     const attempts = await Promise.allSettled([
-      service.rotateSecret(owner, created.client.clientId, {
+      service.rotateSecret(owner, SYSTEM_PROJECT_ID, created.client.clientId, {
         clientVersion: concurrentVersion,
         gracePeriodSeconds: 0,
       }),
-      service.rotateSecret(owner, created.client.clientId, {
+      service.rotateSecret(owner, SYSTEM_PROJECT_ID, created.client.clientId, {
         clientVersion: concurrentVersion,
         gracePeriodSeconds: 0,
       }),
@@ -171,12 +208,17 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
       attempts.filter((attempt) => attempt.status === "fulfilled").length,
       1,
     );
-    const current = await service.get(owner, created.client.clientId);
+    const current = await service.get(
+      owner,
+      SYSTEM_PROJECT_ID,
+      created.client.clientId,
+    );
     const active = current.secrets.find(
       (secret) => secret.status === "active",
     )!;
     const revoked = await service.revokeSecret(
       owner,
+      SYSTEM_PROJECT_ID,
       created.client.clientId,
       active.secretId,
       {
@@ -214,43 +256,63 @@ test("secret rotation preflight and cooldown run before scrypt digest work", asy
   await store.init();
   let now = new Date("2026-07-13T00:00:00.000Z");
   let digestCalls = 0;
-  const service = new ClientManagementService(store, "test", {
-    now: () => now,
-    createClientId: () => "client_rotation_amplification",
-    createSecret: () => `secret-value-${digestCalls + 1}`,
-    createSecretId: () => `secret-id-${digestCalls + 1}`,
-    digestSecret: async () => {
-      digestCalls += 1;
-      return `scrypt$test-${digestCalls}`;
+  const service = new ClientManagementService(
+    store,
+    new ProjectAccessService(store),
+    "test",
+    {
+      now: () => now,
+      createClientId: () => "client_rotation_amplification",
+      createSecret: () => `secret-value-${digestCalls + 1}`,
+      createSecretId: () => `secret-id-${digestCalls + 1}`,
+      digestSecret: async () => {
+        digestCalls += 1;
+        return `scrypt$test-${digestCalls}`;
+      },
+      minimumSecretRotationIntervalSeconds: 60,
     },
-    minimumSecretRotationIntervalSeconds: 60,
-  });
+  );
   try {
-    const created = await service.create(owner, webInput);
+    const created = await service.create(owner, SYSTEM_PROJECT_ID, webInput);
     assert.equal(digestCalls, 1);
     await assert.rejects(
       () =>
-        service.rotateSecret(owner, created.client.clientId, {
-          clientVersion: created.client.clientVersion,
-          gracePeriodSeconds: 0,
-        }),
+        service.rotateSecret(
+          owner,
+          SYSTEM_PROJECT_ID,
+          created.client.clientId,
+          {
+            clientVersion: created.client.clientVersion,
+            gracePeriodSeconds: 0,
+          },
+        ),
       (error: unknown) =>
         error instanceof ClientManagementError && error.code === "rate_limited",
     );
     assert.equal(digestCalls, 1);
 
     now = new Date("2026-07-13T00:01:01.000Z");
-    const rotated = await service.rotateSecret(owner, created.client.clientId, {
-      clientVersion: created.client.clientVersion,
-      gracePeriodSeconds: 0,
-    });
+    const rotated = await service.rotateSecret(
+      owner,
+      SYSTEM_PROJECT_ID,
+      created.client.clientId,
+      {
+        clientVersion: created.client.clientVersion,
+        gracePeriodSeconds: 0,
+      },
+    );
     assert.equal(digestCalls, 2);
     await assert.rejects(
       () =>
-        service.rotateSecret(owner, created.client.clientId, {
-          clientVersion: created.client.clientVersion,
-          gracePeriodSeconds: 0,
-        }),
+        service.rotateSecret(
+          owner,
+          SYSTEM_PROJECT_ID,
+          created.client.clientId,
+          {
+            clientVersion: created.client.clientVersion,
+            gracePeriodSeconds: 0,
+          },
+        ),
       (error: unknown) =>
         error instanceof ClientManagementError &&
         error.code === "version_conflict",
@@ -266,21 +328,31 @@ test("client type is immutable and pending changes keep the active revision onli
   const store = new OidcPersistenceImpl(config());
   await store.init();
   try {
-    const service = new ClientManagementService(store, "test", {
-      createClientId: () => "client_active",
-    });
+    const service = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+      {
+        createClientId: () => "client_active",
+      },
+    );
     const active = await activeClient(service);
     await assert.rejects(
       () =>
-        service.update(owner, active.clientId, {
+        service.update(owner, SYSTEM_PROJECT_ID, active.clientId, {
           clientVersion: active.clientVersion,
           clientType: "spa",
         }),
       /unsupported request field: clientType/,
     );
-    const pending = await service.saveRevision(owner, active.clientId, {
-      redirectUris: ["http://localhost:3002/new-callback"],
-    });
+    const pending = await service.saveRevision(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        redirectUris: ["http://localhost:3002/new-callback"],
+      },
+    );
     assert.equal(pending.proposedRevision?.status, "pending");
     assert.deepEqual(
       pending.activeRevision?.redirectUris,
@@ -299,32 +371,62 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
   const store = new OidcPersistenceImpl(config());
   await store.init();
   try {
-    const service = new ClientManagementService(store, "test", {
-      createClientId: () => "client_revision",
-    });
+    const service = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+      {
+        createClientId: () => "client_revision",
+      },
+    );
     const active = await activeClient(service);
-    const pending = await service.saveRevision(owner, active.clientId, {
-      scopeWhitelist: ["openid", "email"],
-    });
-    const withdrawn = await service.withdraw(owner, active.clientId, {
-      revisionId: pending.proposedRevision!.revisionId,
-      revisionVersion: pending.proposedRevision!.version,
-    });
+    const pending = await service.saveRevision(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        scopeWhitelist: ["openid", "email"],
+      },
+    );
+    const withdrawn = await service.withdraw(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        revisionId: pending.proposedRevision!.revisionId,
+        revisionVersion: pending.proposedRevision!.version,
+      },
+    );
     assert.equal(withdrawn.proposedRevision?.status, "draft");
-    const edited = await service.saveRevision(owner, active.clientId, {
-      revisionId: withdrawn.proposedRevision!.revisionId,
-      revisionVersion: withdrawn.proposedRevision!.version,
-      scopeWhitelist: ["openid", "profile", "email"],
-    });
-    const resubmitted = await service.submit(owner, active.clientId, {
-      revisionId: edited.proposedRevision!.revisionId,
-      revisionVersion: edited.proposedRevision!.version,
-    });
-    const rejected = await service.reject(admin, active.clientId, {
-      revisionId: resubmitted.proposedRevision!.revisionId,
-      revisionVersion: resubmitted.proposedRevision!.version,
-      reason: "scope purpose is unclear",
-    });
+    const edited = await service.saveRevision(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        revisionId: withdrawn.proposedRevision!.revisionId,
+        revisionVersion: withdrawn.proposedRevision!.version,
+        scopeWhitelist: ["openid", "profile", "email"],
+      },
+    );
+    const resubmitted = await service.submit(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        revisionId: edited.proposedRevision!.revisionId,
+        revisionVersion: edited.proposedRevision!.version,
+      },
+    );
+    const rejected = await service.reject(
+      admin,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        revisionId: resubmitted.proposedRevision!.revisionId,
+        revisionVersion: resubmitted.proposedRevision!.version,
+        reason: "scope purpose is unclear",
+      },
+    );
     assert.equal(
       rejected.proposedRevision?.rejectionReason,
       "scope purpose is unclear",
@@ -333,9 +435,14 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
       rejected.activeRevision?.scopeWhitelist,
       webInput.scopeWhitelist,
     );
-    const newDraft = await service.saveRevision(owner, active.clientId, {
-      scopeWhitelist: ["openid", "email"],
-    });
+    const newDraft = await service.saveRevision(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        scopeWhitelist: ["openid", "email"],
+      },
+    );
     assert.equal(newDraft.proposedRevision?.status, "draft");
     assert.notEqual(
       newDraft.proposedRevision?.revisionId,
@@ -345,18 +452,33 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
       (await store.findOidcClient(active.clientId))?.scopeWhitelist,
       webInput.scopeWhitelist,
     );
-    const secondPending = await service.submit(owner, active.clientId, {
-      revisionId: newDraft.proposedRevision!.revisionId,
-      revisionVersion: newDraft.proposedRevision!.version,
-    });
-    const secondApproved = await service.approve(admin, active.clientId, {
-      revisionId: secondPending.proposedRevision!.revisionId,
-      revisionVersion: secondPending.proposedRevision!.version,
-    });
+    const secondPending = await service.submit(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        revisionId: newDraft.proposedRevision!.revisionId,
+        revisionVersion: newDraft.proposedRevision!.version,
+      },
+    );
+    const secondApproved = await service.approve(
+      admin,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        revisionId: secondPending.proposedRevision!.revisionId,
+        revisionVersion: secondPending.proposedRevision!.version,
+      },
+    );
     assert.equal(secondApproved.proposedRevision, null);
-    const nextPending = await service.saveRevision(owner, active.clientId, {
-      redirectUris: ["http://localhost:3002/revision-4"],
-    });
+    const nextPending = await service.saveRevision(
+      owner,
+      SYSTEM_PROJECT_ID,
+      active.clientId,
+      {
+        redirectUris: ["http://localhost:3002/revision-4"],
+      },
+    );
     assert.equal(nextPending.proposedRevision?.revisionNumber, 4);
     assert.deepEqual(nextPending.proposedRevision?.scopeWhitelist, [
       "openid",
@@ -371,25 +493,35 @@ test("concurrent approval atomically activates one revision", async () => {
   const store = new OidcPersistenceImpl(config());
   await store.init();
   try {
-    const service = new ClientManagementService(store, "test", {
-      createClientId: () => "client_concurrent",
-    });
-    const created = await service.create(owner, {
+    const service = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+      {
+        createClientId: () => "client_concurrent",
+      },
+    );
+    const created = await service.create(owner, SYSTEM_PROJECT_ID, {
       ...webInput,
       clientType: "spa",
     });
     const draft = created.client.proposedRevision!;
-    const pending = await service.submit(owner, created.client.clientId, {
-      revisionId: draft.revisionId,
-      revisionVersion: draft.version,
-    });
+    const pending = await service.submit(
+      owner,
+      SYSTEM_PROJECT_ID,
+      created.client.clientId,
+      {
+        revisionId: draft.revisionId,
+        revisionVersion: draft.version,
+      },
+    );
     const input = {
       revisionId: pending.proposedRevision!.revisionId,
       revisionVersion: pending.proposedRevision!.version,
     };
     const results = await Promise.allSettled([
-      service.approve(admin, created.client.clientId, input),
-      service.approve(admin, created.client.clientId, input),
+      service.approve(admin, SYSTEM_PROJECT_ID, created.client.clientId, input),
+      service.approve(admin, SYSTEM_PROJECT_ID, created.client.clientId, input),
     ]);
     assert.equal(
       results.filter((result) => result.status === "fulfilled").length,
@@ -414,14 +546,22 @@ test("configuration validation requires openid and forbids SPA offline_access", 
   const store = new OidcPersistenceImpl(config());
   await store.init();
   try {
-    const service = new ClientManagementService(store, "test");
+    const service = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+    );
     await assert.rejects(
-      () => service.create(owner, { ...webInput, scopeWhitelist: ["profile"] }),
+      () =>
+        service.create(owner, SYSTEM_PROJECT_ID, {
+          ...webInput,
+          scopeWhitelist: ["profile"],
+        }),
       /must include openid/,
     );
     await assert.rejects(
       () =>
-        service.create(owner, {
+        service.create(owner, SYSTEM_PROJECT_ID, {
           ...webInput,
           clientType: "spa",
           scopeWhitelist: ["openid", "offline_access"],
@@ -438,42 +578,67 @@ test("client and pending revision quotas cannot be bypassed", async () => {
   await store.init();
   try {
     let id = 0;
-    const pendingLimited = new ClientManagementService(store, "test", {
-      createClientId: () => `quota_${++id}`,
-      maxClientsPerOwner: 3,
-      maxPendingClientsPerOwner: 1,
-      adminQuotaExempt: false,
-    });
-    const first = await pendingLimited.create(owner, {
+    const pendingLimited = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+      {
+        createClientId: () => `quota_${++id}`,
+        maxClientsPerProject: 3,
+        maxPendingClientsPerProject: 1,
+        adminQuotaExempt: false,
+      },
+    );
+    const first = await pendingLimited.create(owner, SYSTEM_PROJECT_ID, {
       ...webInput,
       clientType: "spa",
     });
-    const second = await pendingLimited.create(owner, {
+    const second = await pendingLimited.create(owner, SYSTEM_PROJECT_ID, {
       ...webInput,
       clientType: "spa",
     });
-    await pendingLimited.submit(owner, first.client.clientId, {
-      revisionId: first.client.proposedRevision!.revisionId,
-      revisionVersion: first.client.proposedRevision!.version,
-    });
+    await pendingLimited.submit(
+      owner,
+      SYSTEM_PROJECT_ID,
+      first.client.clientId,
+      {
+        revisionId: first.client.proposedRevision!.revisionId,
+        revisionVersion: first.client.proposedRevision!.version,
+      },
+    );
     await assert.rejects(
       () =>
-        pendingLimited.submit(owner, second.client.clientId, {
-          revisionId: second.client.proposedRevision!.revisionId,
-          revisionVersion: second.client.proposedRevision!.version,
-        }),
+        pendingLimited.submit(
+          owner,
+          SYSTEM_PROJECT_ID,
+          second.client.clientId,
+          {
+            revisionId: second.client.proposedRevision!.revisionId,
+            revisionVersion: second.client.proposedRevision!.version,
+          },
+        ),
       (error: unknown) =>
         error instanceof ClientManagementError &&
         error.status === 409 &&
         error.code === "pending_revision_quota_exceeded",
     );
 
-    const firstPending = await pendingLimited.get(owner, first.client.clientId);
-    await pendingLimited.disable(owner, first.client.clientId, {
-      clientVersion: firstPending.clientVersion,
-    });
+    const firstPending = await pendingLimited.get(
+      owner,
+      SYSTEM_PROJECT_ID,
+      first.client.clientId,
+    );
+    await pendingLimited.disable(
+      owner,
+      SYSTEM_PROJECT_ID,
+      first.client.clientId,
+      {
+        clientVersion: firstPending.clientVersion,
+      },
+    );
     const released = await pendingLimited.submit(
       owner,
+      SYSTEM_PROJECT_ID,
       second.client.clientId,
       {
         revisionId: second.client.proposedRevision!.revisionId,
@@ -482,7 +647,13 @@ test("client and pending revision quotas cannot be bypassed", async () => {
     );
     assert.equal(released.proposedRevision?.status, "pending");
     assert.equal(
-      (await pendingLimited.get(owner, first.client.clientId)).proposedRevision,
+      (
+        await pendingLimited.get(
+          owner,
+          SYSTEM_PROJECT_ID,
+          first.client.clientId,
+        )
+      ).proposedRevision,
       null,
     );
     assert.ok(
@@ -491,14 +662,23 @@ test("client and pending revision quotas cannot be bypassed", async () => {
       ),
     );
 
-    const totalLimited = new ClientManagementService(store, "test", {
-      createClientId: () => `total_${++id}`,
-      maxClientsPerOwner: 1,
-      maxPendingClientsPerOwner: 2,
-      adminQuotaExempt: false,
-    });
+    const totalLimited = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+      {
+        createClientId: () => `total_${++id}`,
+        maxClientsPerProject: 1,
+        maxPendingClientsPerProject: 2,
+        adminQuotaExempt: false,
+      },
+    );
     await assert.rejects(
-      () => totalLimited.create(owner, { ...webInput, clientType: "spa" }),
+      () =>
+        totalLimited.create(owner, SYSTEM_PROJECT_ID, {
+          ...webInput,
+          clientType: "spa",
+        }),
       (error: unknown) =>
         error instanceof ClientManagementError &&
         error.code === "client_quota_exceeded",

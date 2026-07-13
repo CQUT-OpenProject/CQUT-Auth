@@ -17,6 +17,10 @@ import type {
   RevisionMutationResult,
 } from "../persistence/contracts.js";
 import { base64Url, randomId } from "../utils.js";
+import {
+  ProjectAccessService,
+  type ProjectAction,
+} from "../projects/project-access.js";
 
 export type ClientActor = {
   subjectId: string;
@@ -39,9 +43,10 @@ export type PublicClientRevision = {
 
 export type PublicOidcClient = {
   clientId: string;
+  projectId: string;
   displayName: string;
   description: string;
-  ownerSubjectId: string | null;
+  createdBySubjectId: string | null;
   clientType: ManagedClientType;
   lifecycleStatus: ClientLifecycleStatus;
   activeRevision: PublicClientRevision | null;
@@ -80,8 +85,8 @@ type ServiceDependencies = {
   createSecret?: () => string;
   createSecretId?: () => string;
   digestSecret?: (secret: string) => Promise<string>;
-  maxClientsPerOwner?: number;
-  maxPendingClientsPerOwner?: number;
+  maxClientsPerProject?: number;
+  maxPendingClientsPerProject?: number;
   adminQuotaExempt?: boolean;
   defaultSecretGraceSeconds?: number;
   maxSecretGraceSeconds?: number;
@@ -101,13 +106,14 @@ const createFields = [
 ] as const;
 
 export class ClientManagementService {
+  private readonly access: ProjectAccessService;
   private readonly now: () => Date;
   private readonly createClientId: () => string;
   private readonly createSecret: () => string;
   private readonly createSecretId: () => string;
   private readonly digestSecret: (secret: string) => Promise<string>;
-  private readonly maxClientsPerOwner: number;
-  private readonly maxPendingClientsPerOwner: number;
+  private readonly maxClientsPerProject: number;
+  private readonly maxPendingClientsPerProject: number;
   private readonly adminQuotaExempt: boolean;
   private readonly defaultSecretGraceSeconds: number;
   private readonly maxSecretGraceSeconds: number;
@@ -115,9 +121,11 @@ export class ClientManagementService {
 
   constructor(
     private readonly repository: OidcClientRepository,
+    projectAccess: ProjectAccessService,
     private readonly appEnv: string,
     dependencies: ServiceDependencies = {},
   ) {
+    this.access = projectAccess;
     this.now = dependencies.now ?? (() => new Date());
     this.createClientId =
       dependencies.createClientId ?? (() => randomId("client", 18));
@@ -126,9 +134,9 @@ export class ClientManagementService {
     this.createSecretId =
       dependencies.createSecretId ?? (() => randomId("secret", 18));
     this.digestSecret = dependencies.digestSecret ?? createClientSecretDigest;
-    this.maxClientsPerOwner = dependencies.maxClientsPerOwner ?? 10;
-    this.maxPendingClientsPerOwner =
-      dependencies.maxPendingClientsPerOwner ?? 5;
+    this.maxClientsPerProject = dependencies.maxClientsPerProject ?? 10;
+    this.maxPendingClientsPerProject =
+      dependencies.maxPendingClientsPerProject ?? 5;
     this.adminQuotaExempt = dependencies.adminQuotaExempt ?? true;
     this.defaultSecretGraceSeconds =
       dependencies.defaultSecretGraceSeconds ?? 86_400;
@@ -137,11 +145,9 @@ export class ClientManagementService {
       dependencies.minimumSecretRotationIntervalSeconds ?? 0;
   }
 
-  async list(actor: ClientActor, viewAll = false) {
-    if (viewAll && !actor.isAdmin) this.denyAdmin();
-    const clients = viewAll
-      ? await this.repository.listOidcClients()
-      : await this.repository.listOidcClientsByOwner(actor.subjectId);
+  async list(actor: ClientActor, projectId: string) {
+    await this.access.require(actor, projectId, "view");
+    const clients = await this.repository.listOidcClientsByProject(projectId);
     return clients.map(toPublicClient);
   }
 
@@ -150,11 +156,14 @@ export class ClientManagementService {
     return (await this.repository.listPendingOidcClients()).map(toPublicClient);
   }
 
-  async get(actor: ClientActor, clientId: string) {
-    return toPublicClient(await this.requireAccessible(actor, clientId));
+  async get(actor: ClientActor, projectId: string, clientId: string) {
+    return toPublicClient(
+      await this.requireAccessible(actor, projectId, clientId, "view"),
+    );
   }
 
-  async create(actor: ClientActor, raw: unknown) {
+  async create(actor: ClientActor, projectId: string, raw: unknown) {
+    await this.access.require(actor, projectId, "write_client");
     this.assertAllowedKeys(raw, createFields);
     const configuration = this.validate(raw);
     const clientId = this.createClientId();
@@ -164,9 +173,10 @@ export class ClientManagementService {
     const timestamp = this.now().toISOString();
     const client: OidcClientRecord = {
       clientId,
+      projectId,
       displayName: configuration.displayName,
       description: configuration.description,
-      ownerSubjectId: actor.subjectId,
+      createdBySubjectId: actor.subjectId,
       clientType: configuration.clientType,
       autoConsent: false,
       lifecycleStatus: "draft",
@@ -241,15 +251,15 @@ export class ClientManagementService {
       actor.isAdmin && this.adminQuotaExempt
         ? undefined
         : {
-            maxNonDisabledClients: this.maxClientsPerOwner,
-            maxPendingClients: this.maxPendingClientsPerOwner,
+            maxNonDisabledClients: this.maxClientsPerProject,
+            maxPendingClients: this.maxPendingClientsPerProject,
           },
     );
     if (!created)
       throw new ClientManagementError(
         409,
         "client_quota_exceeded",
-        "client quota exceeded for this account",
+        "client quota exceeded for this project",
       );
     return {
       client: toPublicClient(created),
@@ -257,14 +267,24 @@ export class ClientManagementService {
     };
   }
 
-  async update(actor: ClientActor, clientId: string, raw: unknown) {
+  async update(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, [
       "clientVersion",
       "displayName",
       "description",
     ]);
-    const current = await this.requireAccessible(actor, clientId);
+    const current = await this.requireAccessible(
+      actor,
+      projectId,
+      clientId,
+      "write_client",
+    );
     this.requireEnabled(current);
     const clientVersion = this.parseVersion(
       body["clientVersion"],
@@ -298,14 +318,24 @@ export class ClientManagementService {
     return toPublicClient(this.requireUpdated(updated));
   }
 
-  async saveRevision(actor: ClientActor, clientId: string, raw: unknown) {
+  async saveRevision(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, [
       "revisionId",
       "revisionVersion",
       ...configurationFields,
     ]);
-    const current = await this.requireAccessible(actor, clientId);
+    const current = await this.requireAccessible(
+      actor,
+      projectId,
+      clientId,
+      "write_client",
+    );
     this.requireEnabled(current);
     if (current.proposedRevision?.status === "pending") {
       throw new ClientManagementError(
@@ -417,15 +447,21 @@ export class ClientManagementService {
       null,
       audits,
       nextStatus === "pending" && !(actor.isAdmin && this.adminQuotaExempt)
-        ? this.maxPendingClientsPerOwner
+        ? this.maxPendingClientsPerProject
         : undefined,
     );
     return toPublicClient(this.requireRevisionUpdated(updated));
   }
 
-  async submit(actor: ClientActor, clientId: string, raw: unknown) {
+  async submit(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     return this.transitionOwned(
       actor,
+      projectId,
       clientId,
       raw,
       "draft",
@@ -434,9 +470,15 @@ export class ClientManagementService {
     );
   }
 
-  async withdraw(actor: ClientActor, clientId: string, raw: unknown) {
+  async withdraw(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     return this.transitionOwned(
       actor,
+      projectId,
       clientId,
       raw,
       "pending",
@@ -445,10 +487,20 @@ export class ClientManagementService {
     );
   }
 
-  async rotateSecret(actor: ClientActor, clientId: string, raw: unknown) {
+  async rotateSecret(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, ["clientVersion", "gracePeriodSeconds"]);
-    const current = await this.requireAccessible(actor, clientId);
+    const current = await this.requireAccessible(
+      actor,
+      projectId,
+      clientId,
+      "rotate_secret",
+    );
     this.requireEnabled(current);
     if (current.client.clientType !== "web") {
       throw new ClientManagementError(
@@ -548,13 +600,19 @@ export class ClientManagementService {
 
   async revokeSecret(
     actor: ClientActor,
+    projectId: string,
     clientId: string,
     secretId: string,
     raw: unknown,
   ) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, ["clientVersion", "secretVersion"]);
-    const current = await this.requireAccessible(actor, clientId);
+    const current = await this.requireAccessible(
+      actor,
+      projectId,
+      clientId,
+      "revoke_secret",
+    );
     this.requireEnabled(current);
     const timestamp = this.now().toISOString();
     const result = await this.repository.revokeOidcClientSecret(
@@ -579,12 +637,18 @@ export class ClientManagementService {
 
   async revokeAuthorizations(
     actor: ClientActor,
+    projectId: string,
     clientId: string,
     raw: unknown,
   ) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, ["clientVersion"]);
-    const current = await this.requireAccessible(actor, clientId);
+    const current = await this.requireAccessible(
+      actor,
+      projectId,
+      clientId,
+      "revoke_authorizations",
+    );
     this.requireEnabled(current);
     const timestamp = this.now().toISOString();
     const updated = await this.repository.revokeOidcClientAuthorizations(
@@ -602,10 +666,20 @@ export class ClientManagementService {
     return toPublicClient(this.requireUpdated(updated));
   }
 
-  async disable(actor: ClientActor, clientId: string, raw: unknown) {
+  async disable(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, ["clientVersion"]);
-    const current = await this.requireAccessible(actor, clientId);
+    const current = await this.requireAccessible(
+      actor,
+      projectId,
+      clientId,
+      "disable_client",
+    );
     this.requireEnabled(current);
     const timestamp = this.now().toISOString();
     const updated = await this.repository.disableOidcClient(
@@ -643,8 +717,15 @@ export class ClientManagementService {
     return toPublicClient(this.requireUpdated(updated));
   }
 
-  async approve(actor: ClientActor, clientId: string, raw: unknown) {
+  async approve(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     this.requireAdmin(actor);
+    await this.access.require(actor, projectId, "review");
+    await this.requireProjectClient(projectId, clientId);
     const { current, revisionId, revisionVersion } = await this.reviewInput(
       clientId,
       raw,
@@ -676,8 +757,15 @@ export class ClientManagementService {
     return toPublicClient(this.requireUpdated(updated));
   }
 
-  async reject(actor: ClientActor, clientId: string, raw: unknown) {
+  async reject(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    raw: unknown,
+  ) {
     this.requireAdmin(actor);
+    await this.access.require(actor, projectId, "review");
+    await this.requireProjectClient(projectId, clientId);
     const { revisionId, revisionVersion, body } = await this.reviewInput(
       clientId,
       raw,
@@ -704,6 +792,7 @@ export class ClientManagementService {
 
   private async transitionOwned(
     actor: ClientActor,
+    projectId: string,
     clientId: string,
     raw: unknown,
     from: ClientRevisionStatus,
@@ -712,7 +801,12 @@ export class ClientManagementService {
   ) {
     const body = this.requireObject(raw);
     this.assertAllowedKeys(body, ["revisionId", "revisionVersion"]);
-    const current = await this.requireAccessible(actor, clientId);
+    const current = await this.requireAccessible(
+      actor,
+      projectId,
+      clientId,
+      "write_client",
+    );
     this.requireEnabled(current);
     const revision = current.proposedRevision;
     if (!revision || revision.status !== from)
@@ -735,7 +829,7 @@ export class ClientManagementService {
         newRevisionStatus: to,
       }),
       to === "pending" && !(actor.isAdmin && this.adminQuotaExempt)
-        ? this.maxPendingClientsPerOwner
+        ? this.maxPendingClientsPerProject
         : undefined,
     );
     return toPublicClient(this.requireRevisionUpdated(updated));
@@ -811,9 +905,20 @@ export class ClientManagementService {
     }
   }
 
-  private async requireAccessible(actor: ClientActor, clientId: string) {
+  private async requireAccessible(
+    actor: ClientActor,
+    projectId: string,
+    clientId: string,
+    action: ProjectAction,
+  ) {
+    await this.access.require(actor, projectId, action);
+    const managed = await this.requireProjectClient(projectId, clientId);
+    return managed;
+  }
+
+  private async requireProjectClient(projectId: string, clientId: string) {
     const managed = await this.requireExisting(clientId);
-    if (!actor.isAdmin && managed.client.ownerSubjectId !== actor.subjectId)
+    if (managed.client.projectId !== projectId)
       throw new ClientManagementError(404, "not_found", "client not found");
     return managed;
   }
@@ -1000,9 +1105,10 @@ export function toPublicClient(
   const client = managed.client;
   return {
     clientId: client.clientId,
+    projectId: client.projectId,
     displayName: client.displayName,
     description: client.description,
-    ownerSubjectId: client.ownerSubjectId,
+    createdBySubjectId: client.createdBySubjectId,
     clientType: client.clientType,
     lifecycleStatus: client.lifecycleStatus,
     activeRevision: toPublicRevision(managed.activeRevision),
