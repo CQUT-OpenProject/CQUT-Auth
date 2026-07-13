@@ -13,8 +13,11 @@ import {
 import { ArtifactPayloadCipherServiceImpl } from "./artifact-payload-cipher.service.js";
 import type {
   ManagementSessionRecord,
+  ActiveOidcClientRecord,
+  ClientRevisionStatus,
   OidcClientAuditRecord,
   OidcClientRecord,
+  OidcClientRevisionRecord,
   OidcPersistence,
   OidcSigningKeyRecord,
   PendingInteractionLogin,
@@ -169,7 +172,9 @@ export class OidcPersistenceImpl implements OidcPersistence {
     return this.identityRepository.findPrincipalBySubjectId(subjectId);
   }
 
-  async upsertOidcClient(client: OidcClientRecord): Promise<OidcClientRecord> {
+  async upsertOidcClient(
+    client: ActiveOidcClientRecord,
+  ): Promise<ActiveOidcClientRecord> {
     return this.oidcClientRepository.upsertOidcClient(client);
   }
 
@@ -178,7 +183,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
   }
 
   async initializeOidcClientsIfEmpty(
-    clients: OidcClientRecord[],
+    clients: ActiveOidcClientRecord[],
     audits: OidcClientAuditRecord[],
   ) {
     return this.oidcClientRepository.initializeOidcClientsIfEmpty(
@@ -189,6 +194,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
 
   async createOidcClient(
     client: OidcClientRecord,
+    revision: OidcClientRevisionRecord,
     audits: OidcClientAuditRecord[],
     ownerLimits?: {
       maxNonDisabledClients: number;
@@ -197,28 +203,103 @@ export class OidcPersistenceImpl implements OidcPersistence {
   ) {
     return this.oidcClientRepository.createOidcClient(
       client,
+      revision,
       audits,
       ownerLimits,
     );
   }
 
-  async updateOidcClient(
-    client: OidcClientRecord,
+  async updateOidcClientMetadata(
+    clientId: string,
+    patch: Pick<OidcClientRecord, "displayName" | "description" | "updatedAt">,
     expectedVersion: number,
     audit: OidcClientAuditRecord,
   ) {
-    return this.oidcClientRepository.updateOidcClient(
-      client,
+    return this.oidcClientRepository.updateOidcClientMetadata(
+      clientId,
+      patch,
       expectedVersion,
       audit,
     );
   }
 
-  async findOidcClient(clientId: string): Promise<OidcClientRecord | null> {
+  async saveOidcClientRevision(
+    clientId: string,
+    revision: OidcClientRevisionRecord,
+    expectedRevisionId: number | null,
+    expectedRevisionVersion: number | null,
+    audits: OidcClientAuditRecord[],
+    maxPendingClients?: number,
+  ) {
+    return this.oidcClientRepository.saveOidcClientRevision(
+      clientId,
+      revision,
+      expectedRevisionId,
+      expectedRevisionVersion,
+      audits,
+      maxPendingClients,
+    );
+  }
+
+  async transitionOidcClientRevision(
+    clientId: string,
+    revisionId: number,
+    expectedVersion: number,
+    nextStatus: ClientRevisionStatus,
+    reason: string | undefined,
+    audit: OidcClientAuditRecord,
+    maxPendingClients?: number,
+  ) {
+    return this.oidcClientRepository.transitionOidcClientRevision(
+      clientId,
+      revisionId,
+      expectedVersion,
+      nextStatus,
+      reason,
+      audit,
+      maxPendingClients,
+    );
+  }
+
+  async approveOidcClientRevision(
+    clientId: string,
+    revisionId: number,
+    expectedVersion: number,
+    audits: OidcClientAuditRecord[],
+  ) {
+    return this.oidcClientRepository.approveOidcClientRevision(
+      clientId,
+      revisionId,
+      expectedVersion,
+      audits,
+    );
+  }
+
+  async disableOidcClient(
+    clientId: string,
+    expectedVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
+  ) {
+    return this.oidcClientRepository.disableOidcClient(
+      clientId,
+      expectedVersion,
+      updatedAt,
+      audit,
+    );
+  }
+
+  async findManagedOidcClient(clientId: string) {
+    return this.oidcClientRepository.findManagedOidcClient(clientId);
+  }
+
+  async findOidcClient(
+    clientId: string,
+  ): Promise<ActiveOidcClientRecord | null> {
     return this.oidcClientRepository.findOidcClient(clientId);
   }
 
-  async listActiveOidcClients(): Promise<OidcClientRecord[]> {
+  async listActiveOidcClients(): Promise<ActiveOidcClientRecord[]> {
     return this.oidcClientRepository.listActiveOidcClients();
   }
 
@@ -392,22 +473,39 @@ export class OidcPersistenceImpl implements OidcPersistence {
         display_name text not null,
         description text not null default '',
         owner_subject_id text references subjects(subject_id),
-        application_type text not null check (application_type = 'web'),
-        token_endpoint_auth_method text not null,
-        redirect_uris jsonb not null,
-        post_logout_redirect_uris jsonb not null default '[]'::jsonb,
-        grant_types jsonb not null,
-        response_types jsonb not null,
-        scope_whitelist jsonb not null,
-        require_pkce boolean not null default true,
-        allow_refresh_token_for_public_client boolean not null default false,
+        client_type text not null check (client_type in ('web', 'spa')),
         auto_consent boolean not null default false,
-        status text not null default 'pending' check (status in ('draft', 'pending', 'active', 'disabled', 'rejected')),
-        rejection_reason text,
+        lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
+        active_revision_id bigint,
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now(),
         version integer not null default 1 check (version > 0)
       );
+    `);
+    await this.pool.query(`
+      create table if not exists oidc_client_revisions (
+        revision_id bigserial primary key,
+        client_id text not null references oidc_clients(client_id),
+        revision_number integer not null check (revision_number > 0),
+        review_status text not null check (review_status in ('draft', 'pending', 'approved', 'rejected')),
+        redirect_uris jsonb not null,
+        post_logout_redirect_uris jsonb not null default '[]'::jsonb,
+        scope_whitelist jsonb not null,
+        rejection_reason text,
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now(),
+        version integer not null default 1 check (version > 0),
+        unique (client_id, revision_number),
+        unique (client_id, revision_id)
+      );
+    `);
+    await this.pool.query(`
+      do $$ begin
+        alter table oidc_clients add constraint fk_oidc_clients_active_revision
+        foreign key (client_id, active_revision_id)
+        references oidc_client_revisions(client_id, revision_id);
+      exception when duplicate_object then null;
+      end $$;
     `);
     await this.assertFreshOidcClientSchema();
     await this.pool.query(`
@@ -416,17 +514,30 @@ export class OidcPersistenceImpl implements OidcPersistence {
     `);
     await this.pool.query(`
       create index if not exists idx_oidc_clients_status_updated
-      on oidc_clients (status, updated_at desc);
+      on oidc_clients (lifecycle_status, updated_at desc);
+    `);
+    await this.pool.query(`
+      create unique index if not exists uq_oidc_client_revisions_open
+      on oidc_client_revisions (client_id)
+      where review_status in ('draft', 'pending');
+    `);
+    await this.pool.query(`
+      create index if not exists idx_oidc_client_revisions_review_updated
+      on oidc_client_revisions (review_status, updated_at desc);
     `);
     await this.pool.query(`
       create table if not exists oidc_client_audit_logs (
         id bigserial primary key,
         client_id text not null,
+        revision_id bigint,
+        revision_number integer,
         actor_subject_id text,
         action text not null,
         changed_fields jsonb not null default '[]'::jsonb,
-        previous_status text,
-        new_status text,
+        previous_client_status text,
+        new_client_status text,
+        previous_revision_status text,
+        new_revision_status text,
         reason text,
         source_ip text,
         created_at timestamptz not null default now()
@@ -522,7 +633,9 @@ export class OidcPersistenceImpl implements OidcPersistence {
       "display_name",
       "description",
       "owner_subject_id",
-      "rejection_reason",
+      "client_type",
+      "lifecycle_status",
+      "active_revision_id",
       "version",
     ];
     const missing = required.filter((column) => !columns.has(column));
