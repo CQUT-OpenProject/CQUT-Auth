@@ -233,17 +233,31 @@ export function createManagementRouter(
         }
       }
       const result = await clients.create(auth.actor, request.body);
-      onClientsChanged();
       response.status(201).json(result);
     });
   });
 
   router.post(
-    "/clients/:clientId/submit",
+    "/clients/:clientId/revision/submit",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.submit(
+          auth.actor,
+          param(request, "clientId"),
+          request.body,
+        );
+        response.json({ client });
+      });
+    },
+  );
+
+  router.post(
+    "/clients/:clientId/revision/withdraw",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        const client = await clients.withdraw(
           auth.actor,
           param(request, "clientId"),
           request.body,
@@ -261,6 +275,21 @@ export function createManagementRouter(
     });
   });
 
+  router.put(
+    "/clients/:clientId/revision",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        const client = await clients.saveRevision(
+          auth.actor,
+          param(request, "clientId"),
+          request.body,
+        );
+        response.json({ client });
+      });
+    },
+  );
+
   router.patch(
     "/clients/:clientId",
     jsonParser,
@@ -271,7 +300,6 @@ export function createManagementRouter(
           param(request, "clientId"),
           request.body,
         );
-        onClientsChanged();
         response.json({ client });
       });
     },
@@ -325,7 +353,6 @@ export function createManagementRouter(
           param(request, "clientId"),
           request.body,
         );
-        onClientsChanged();
         response.json({ client });
       });
     },

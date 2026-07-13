@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createAdapter } from "../src/oidc/adapter.js";
 import type {
-  OidcClientRecord,
+  ActiveOidcClientRecord,
   OidcPersistence,
   PendingInteractionLogin,
 } from "../src/persistence/contracts.js";
@@ -14,7 +14,7 @@ function createMockStore(
   ) => Promise<Record<string, unknown> | undefined>,
   findOidcClientImpl: (
     clientId: string,
-  ) => Promise<OidcClientRecord | null> = async () => null,
+  ) => Promise<ActiveOidcClientRecord | null> = async () => null,
 ): Pick<
   OidcPersistence,
   | "upsertArtifact"
@@ -100,20 +100,37 @@ test("adapter findByUid returns payload when payload kind matches current model"
 });
 
 test("adapter Client.find returns provider metadata for active client only", async () => {
-  let status: OidcClientRecord["status"] = "active";
+  let enabled = true;
   const store = createMockStore(
     async () => undefined,
     async (clientId) => {
       if (clientId !== "client-a") {
         return null;
       }
+      if (!enabled) return null;
       const now = new Date().toISOString();
+      const activeRevision = {
+        revisionId: 1,
+        clientId: "client-a",
+        revisionNumber: 1,
+        status: "approved" as const,
+        redirectUris: ["http://localhost:3002/demo/callback"],
+        postLogoutRedirectUris: ["http://localhost:3002/demo/logout-complete"],
+        scopeWhitelist: ["openid", "profile"] as Array<"openid" | "profile">,
+        createdAt: now,
+        updatedAt: now,
+        version: 1,
+      };
       return {
         clientId: "client-a",
         clientSecretDigest: "scrypt$test",
         displayName: "Client A",
         description: "",
         ownerSubjectId: "subj_owner",
+        clientType: "web",
+        lifecycleStatus: "active",
+        activeRevisionId: 1,
+        activeRevision,
         applicationType: "web",
         tokenEndpointAuthMethod: "client_secret_basic",
         redirectUris: ["http://localhost:3002/demo/callback"],
@@ -124,17 +141,16 @@ test("adapter Client.find returns provider metadata for active client only", asy
         requirePkce: true,
         allowRefreshTokenForPublicClient: false,
         autoConsent: false,
-        status,
         createdAt: now,
         updatedAt: now,
         version: 1,
-      } satisfies OidcClientRecord;
+      } satisfies ActiveOidcClientRecord;
     },
   );
   const Adapter = createAdapter(store);
   const clientAdapter = new Adapter("Client");
   const active = await clientAdapter.find("client-a");
-  status = "draft";
+  enabled = false;
   const draft = await clientAdapter.find("client-a");
   const missing = await clientAdapter.find("client-b");
   assert.equal(active?.["client_id"], "client-a");

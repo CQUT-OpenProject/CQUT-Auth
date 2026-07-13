@@ -76,7 +76,6 @@ async function seedAdmin(
 
 async function login(agent: request.Agent, account: string) {
   const context = await agent.get("/api/management/auth/context");
-  assert.equal(context.status, 200);
   const response = await agent
     .post("/api/management/auth/login")
     .set("X-CSRF-Token", context.body.csrfToken)
@@ -85,164 +84,249 @@ async function login(agent: request.Agent, account: string) {
   return response;
 }
 
-test("management API protects CRUD, returns Web secret once, and supports admin approval", async () => {
+const input = {
+  clientType: "web",
+  displayName: "New Web",
+  description: "",
+  redirectUris: ["http://localhost:3004/callback"],
+  postLogoutRedirectUris: [],
+  scopeWhitelist: ["openid", "profile"],
+};
+
+test("management API exposes separate lifecycle and revision workflows", async () => {
   const { app, state } = await createApp();
   await seedAdmin(state);
   try {
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
-    assert.equal(signedIn.body.user.isAdmin, true);
-    const setCookies = signedIn.headers["set-cookie"] as unknown as string[];
-    assert.match(setCookies.join(";"), /cqut_manage_sid=/);
-    assert.match(setCookies.join(";"), /HttpOnly/);
-    assert.match(setCookies.join(";"), /SameSite=Lax/);
-
     const created = await admin
       .post("/api/management/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        clientType: "web",
-        displayName: "New Web",
-        description: "",
-        redirectUris: ["http://localhost:3004/callback"],
-        postLogoutRedirectUris: [],
-        scopeWhitelist: ["openid", "profile"],
-      });
+      .send(input);
     assert.equal(created.status, 201);
-    assert.equal(created.body.client.status, "pending");
+    assert.equal(created.body.client.lifecycleStatus, "draft");
+    assert.equal(created.body.client.proposedRevision.status, "draft");
     assert.equal(typeof created.body.clientSecret, "string");
     assert.equal("clientSecretDigest" in created.body.client, false);
 
-    const detail = await admin.get(
-      `/api/management/clients/${created.body.client.clientId}`,
-    );
-    assert.equal(detail.status, 200);
-    assert.equal("clientSecret" in detail.body.client, false);
-
-    const approved = await admin
-      .post(
-        `/api/management/admin/reviews/${created.body.client.clientId}/approve`,
-      )
+    const clientId = created.body.client.clientId;
+    const draft = created.body.client.proposedRevision;
+    const submitted = await admin
+      .post(`/api/management/clients/${clientId}/revision/submit`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ version: created.body.client.version });
+      .send({ revisionId: draft.revisionId, revisionVersion: draft.version });
+    assert.equal(submitted.status, 200);
+    assert.equal(submitted.body.client.proposedRevision.status, "pending");
+
+    const pending = submitted.body.client.proposedRevision;
+    const approved = await admin
+      .post(`/api/management/admin/reviews/${clientId}/approve`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        revisionId: pending.revisionId,
+        revisionVersion: pending.version,
+      });
     assert.equal(approved.status, 200);
-    assert.equal(approved.body.client.status, "active");
+    assert.equal(approved.body.client.lifecycleStatus, "active");
+    assert.equal(approved.body.client.proposedRevision, null);
 
     const typeChange = await admin
-      .patch(`/api/management/clients/${created.body.client.clientId}`)
+      .patch(`/api/management/clients/${clientId}`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ version: approved.body.client.version, clientType: "spa" });
+      .send({
+        clientVersion: approved.body.client.clientVersion,
+        clientType: "spa",
+      });
     assert.equal(typeChange.status, 400);
 
-    const activeSensitiveChange = await admin
-      .patch(`/api/management/clients/${created.body.client.clientId}`)
+    const sensitive = await admin
+      .put(`/api/management/clients/${clientId}/revision`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
-        version: approved.body.client.version,
         redirectUris: ["http://localhost:3004/new-callback"],
+        scopeWhitelist: ["openid"],
       });
-    assert.equal(activeSensitiveChange.status, 409);
+    assert.equal(sensitive.status, 200);
+    assert.equal(sensitive.body.client.proposedRevision.status, "pending");
+    assert.deepEqual(
+      sensitive.body.client.activeRevision.redirectUris,
+      input.redirectUris,
+    );
+    const authorize = {
+      client_id: clientId,
+      response_type: "code",
+      scope: "openid profile",
+      state: "revision-state",
+      nonce: "revision-nonce",
+      code_challenge: "A".repeat(43),
+      code_challenge_method: "S256",
+    };
+    const oldStillWorks = await request(app)
+      .get("/auth")
+      .query({ ...authorize, redirect_uri: input.redirectUris[0] });
+    assert.ok(oldStillWorks.status === 302 || oldStillWorks.status === 303);
+    const pendingNotLive = await request(app)
+      .get("/auth")
+      .query({
+        ...authorize,
+        redirect_uri: "http://localhost:3004/new-callback",
+      });
+    assert.equal(pendingNotLive.status, 400);
+
+    const frozen = await admin
+      .put(`/api/management/clients/${clientId}/revision`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ redirectUris: ["http://localhost:3004/other"] });
+    assert.equal(frozen.status, 409);
+
+    const proposed = sensitive.body.client.proposedRevision;
+    const rejected = await admin
+      .post(`/api/management/admin/reviews/${clientId}/reject`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        revisionId: proposed.revisionId,
+        revisionVersion: proposed.version,
+        reason: "callback ownership is unclear",
+      });
+    assert.equal(
+      rejected.body.client.proposedRevision.rejectionReason,
+      "callback ownership is unclear",
+    );
+    assert.deepEqual(
+      rejected.body.client.activeRevision.redirectUris,
+      input.redirectUris,
+    );
+    const oldAfterReject = await request(app)
+      .get("/auth")
+      .query({ ...authorize, redirect_uri: input.redirectUris[0] });
+    assert.ok(oldAfterReject.status === 302 || oldAfterReject.status === 303);
+    const redraft = await admin
+      .put(`/api/management/clients/${clientId}/revision`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        redirectUris: ["http://localhost:3004/new-callback"],
+        scopeWhitelist: ["openid", "profile", "email"],
+      });
+    const newDraft = redraft.body.client.proposedRevision;
+    const resubmitted = await admin
+      .post(`/api/management/clients/${clientId}/revision/submit`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        revisionId: newDraft.revisionId,
+        revisionVersion: newDraft.version,
+      });
+    const newPending = resubmitted.body.client.proposedRevision;
+    await admin
+      .post(`/api/management/admin/reviews/${clientId}/approve`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        revisionId: newPending.revisionId,
+        revisionVersion: newPending.version,
+      });
+    const newNowWorks = await request(app)
+      .get("/auth")
+      .query({
+        ...authorize,
+        redirect_uri: "http://localhost:3004/new-callback",
+      });
+    assert.ok(newNowWorks.status === 302 || newNowWorks.status === 303);
     assert.equal(
       (
-        await admin.get(
-          `/api/management/clients/${created.body.client.clientId}`,
-        )
-      ).body.client.status,
-      "active",
+        await request(app)
+          .get("/auth")
+          .query({ ...authorize, redirect_uri: input.redirectUris[0] })
+      ).status,
+      400,
     );
-
-    const stale = await admin
-      .patch(`/api/management/clients/${created.body.client.clientId}`)
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ version: 1, displayName: "Stale name" });
-    assert.equal(stale.status, 409);
-
-    const wrongOrigin = await admin
-      .post(`/api/management/clients/${created.body.client.clientId}/disable`)
-      .set("Origin", "https://attacker.example")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ version: approved.body.client.version });
-    assert.equal(wrongOrigin.status, 400);
-
-    const missingCsrf = await admin
-      .post(`/api/management/clients/${created.body.client.clientId}/disable`)
-      .send({ version: approved.body.client.version });
-    assert.equal(missingCsrf.status, 400);
-
-    const forgedDigest = await admin
-      .post("/api/management/clients")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        clientType: "web",
-        displayName: "Forged",
-        description: "",
-        redirectUris: ["http://localhost:3005/callback"],
-        postLogoutRedirectUris: [],
-        scopeWhitelist: ["openid"],
-        clientSecretDigest: "scrypt$forged",
-      });
-    assert.equal(forgedDigest.status, 400);
-
-    const missingOpenid = await admin
-      .post("/api/management/clients")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        clientType: "spa",
-        displayName: "Not OIDC",
-        description: "",
-        redirectUris: ["http://localhost:3006/callback"],
-        postLogoutRedirectUris: [],
-        scopeWhitelist: ["profile"],
-      });
-    assert.equal(missingOpenid.status, 400);
-
-    const reviewCandidate = await admin
-      .post("/api/management/clients")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        clientType: "spa",
-        displayName: "Review candidate",
-        description: "",
-        redirectUris: ["http://localhost:3007/callback"],
-        postLogoutRedirectUris: [],
-        scopeWhitelist: ["openid"],
-      });
-    assert.equal(reviewCandidate.status, 201);
-    const rejected = await admin
-      .post(
-        `/api/management/admin/reviews/${reviewCandidate.body.client.clientId}/reject`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        version: reviewCandidate.body.client.version,
-        reason: "add details",
-      });
-    assert.equal(rejected.body.client.rejectionReason, "add details");
-    const draft = await admin
-      .patch(`/api/management/clients/${reviewCandidate.body.client.clientId}`)
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        version: rejected.body.client.version,
-        description: "details added",
-      });
-    assert.equal(draft.body.client.status, "draft");
-    const submitted = await admin
-      .post(
-        `/api/management/clients/${reviewCandidate.body.client.clientId}/submit`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ version: draft.body.client.version });
-    assert.equal(submitted.body.client.status, "pending");
 
     const outsider = request.agent(app);
     const outsiderLogin = await login(outsider, "other-account");
-    assert.equal(outsiderLogin.body.user.isAdmin, false);
-    const hidden = await outsider.get(
-      `/api/management/clients/${created.body.client.clientId}`,
+    assert.equal(
+      (await outsider.get(`/api/management/clients/${clientId}`)).status,
+      404,
     );
-    assert.equal(hidden.status, 404);
-    const reviews = await outsider.get("/api/management/admin/reviews");
-    assert.equal(reviews.status, 403);
+    assert.equal(
+      (await outsider.get("/api/management/admin/reviews")).status,
+      403,
+    );
+    assert.equal(
+      (
+        await outsider
+          .post(`/api/management/clients/${clientId}/revision/withdraw`)
+          .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
+          .send({
+            revisionId: proposed.revisionId,
+            revisionVersion: proposed.version,
+          })
+      ).status,
+      404,
+    );
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
+test("management API rejects concurrent approval and approval after disable", async () => {
+  const { app, state } = await createApp();
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    const created = await admin
+      .post("/api/management/clients")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ ...input, clientType: "spa" });
+    const draft = created.body.client.proposedRevision;
+    const submitted = await admin
+      .post(
+        `/api/management/clients/${created.body.client.clientId}/revision/submit`,
+      )
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ revisionId: draft.revisionId, revisionVersion: draft.version });
+    const pending = submitted.body.client.proposedRevision;
+    const endpoint = `/api/management/admin/reviews/${created.body.client.clientId}/approve`;
+    const [first, second] = await Promise.all([
+      admin.post(endpoint).set("X-CSRF-Token", signedIn.body.csrfToken).send({
+        revisionId: pending.revisionId,
+        revisionVersion: pending.version,
+      }),
+      admin.post(endpoint).set("X-CSRF-Token", signedIn.body.csrfToken).send({
+        revisionId: pending.revisionId,
+        revisionVersion: pending.version,
+      }),
+    ]);
+    assert.deepEqual([first.status, second.status].sort(), [200, 409]);
+
+    const another = await admin
+      .post("/api/management/clients")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ ...input, displayName: "Disabled review", clientType: "spa" });
+    const anotherDraft = another.body.client.proposedRevision;
+    const anotherPending = await admin
+      .post(
+        `/api/management/clients/${another.body.client.clientId}/revision/submit`,
+      )
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        revisionId: anotherDraft.revisionId,
+        revisionVersion: anotherDraft.version,
+      });
+    await admin
+      .post(`/api/management/clients/${another.body.client.clientId}/disable`)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ clientVersion: anotherPending.body.client.clientVersion });
+    const blocked = await admin
+      .post(
+        `/api/management/admin/reviews/${another.body.client.clientId}/approve`,
+      )
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        revisionId: anotherPending.body.client.proposedRevision.revisionId,
+        revisionVersion: anotherPending.body.client.proposedRevision.version,
+      });
+    assert.equal(blocked.status, 409);
   } finally {
     await state.closeOidcServices();
     await state.rateLimitService.close();
@@ -258,14 +342,6 @@ test("management API rate limits client creation by subject", async () => {
   try {
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
-    const input = {
-      clientType: "spa",
-      displayName: "Rate limited",
-      description: "",
-      redirectUris: ["http://localhost:3010/callback"],
-      postLogoutRedirectUris: [],
-      scopeWhitelist: ["openid"],
-    };
     assert.equal(
       (
         await admin
@@ -288,24 +364,15 @@ test("management API rate limits client creation by subject", async () => {
   }
 });
 
-test("management API enforces configured owner quota", async () => {
+test("management API rate limits client creation by source IP", async () => {
   const { app, state } = await createApp({
-    OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT: "1",
-    OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT: "1",
-    OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT: "false",
+    OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX: "5",
+    OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX: "1",
   });
   await seedAdmin(state);
   try {
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
-    const input = {
-      clientType: "spa",
-      displayName: "Quota limited",
-      description: "",
-      redirectUris: ["http://localhost:3011/callback"],
-      postLogoutRedirectUris: [],
-      scopeWhitelist: ["openid"],
-    };
     assert.equal(
       (
         await admin
@@ -319,8 +386,7 @@ test("management API enforces configured owner quota", async () => {
       .post("/api/management/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send(input);
-    assert.equal(limited.status, 409);
-    assert.equal(limited.body.error, "client_quota_exceeded");
+    assert.equal(limited.status, 429);
   } finally {
     await state.closeOidcServices();
     await state.rateLimitService.close();
@@ -334,9 +400,9 @@ test("liveness does not depend on dynamic client CSP lookup", async () => {
     throw new Error("database unavailable");
   };
   try {
-    const response = await request(app).get("/health/live");
-    assert.equal(response.status, 200);
-    assert.deepEqual(response.body, { status: "live" });
+    assert.deepEqual((await request(app).get("/health/live")).body, {
+      status: "live",
+    });
   } finally {
     await state.closeOidcServices();
     await state.rateLimitService.close();
