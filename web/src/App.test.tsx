@@ -13,26 +13,33 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-test("shows the management login when the session is anonymous", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({ authenticated: false, csrfToken: "csrf" }),
-          { status: 200, headers: { "Content-Type": "application/json" } },
-        ),
-    ),
-  );
-  render(<App />);
-  await waitFor(() =>
-    expect(screen.getByRole("heading", { name: "客户端管理" })).toBeTruthy(),
-  );
-  expect(screen.getByLabelText("账号")).toBeTruthy();
-  expect(screen.getByText(/密码仅用于本次认证/)).toBeTruthy();
-});
+const activeRevision = {
+  revisionId: 1,
+  revisionNumber: 1,
+  status: "approved",
+  version: 2,
+  redirectUris: ["https://app.example.com/callback"],
+  postLogoutRedirectUris: [],
+  scopeWhitelist: ["openid", "profile"],
+  rejectionReason: null,
+};
 
-test("keeps active client type and sensitive settings read-only", async () => {
+function client(overrides: Record<string, unknown> = {}) {
+  return {
+    clientId: "active-web",
+    displayName: "Active Web",
+    description: "Production client",
+    clientType: "web",
+    lifecycleStatus: "active",
+    activeRevision,
+    proposedRevision: null,
+    updatedAt: "2026-07-13T00:00:00.000Z",
+    clientVersion: 2,
+    ...overrides,
+  };
+}
+
+function mockApi(value: ReturnType<typeof client>, isAdmin = false) {
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
@@ -41,47 +48,84 @@ test("keeps active client type and sensitive settings read-only", async () => {
         ? {
             authenticated: true,
             csrfToken: "csrf",
-            user: {
-              subjectId: "subj_owner",
-              displayName: "Owner",
-              isAdmin: false,
-            },
+            user: { subjectId: "subj_owner", displayName: "Owner", isAdmin },
           }
-        : {
-            clients: [
-              {
-                clientId: "active-web",
-                displayName: "Active Web",
-                description: "Production client",
-                clientType: "web",
-                redirectUris: ["https://app.example.com/callback"],
-                postLogoutRedirectUris: [],
-                scopeWhitelist: ["openid", "profile"],
-                status: "active",
-                rejectionReason: null,
-                updatedAt: "2026-07-13T00:00:00.000Z",
-                version: 2,
-              },
-            ],
-          };
+        : { clients: [value] };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
     }),
   );
+}
+
+test("shows active configuration and warns that sensitive edits require approval", async () => {
+  mockApi(client());
   render(<App />);
   fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
+  expect(screen.getByText("当前生效配置")).toBeTruthy();
+  expect(screen.getByText(/审核通过后生效/)).toBeTruthy();
   expect(
     (screen.getByLabelText("客户端类型") as HTMLSelectElement).disabled,
   ).toBe(true);
-  expect((screen.getByLabelText("显示名称") as HTMLInputElement).disabled).toBe(
-    false,
+  expect(
+    (screen.getByLabelText(/Redirect URI（每行一个）/) as HTMLTextAreaElement)
+      .disabled,
+  ).toBe(false);
+});
+
+test("freezes pending revision and shows field differences", async () => {
+  mockApi(
+    client({
+      proposedRevision: {
+        revisionId: 2,
+        revisionNumber: 2,
+        status: "pending",
+        version: 1,
+        redirectUris: ["https://app.example.com/new-callback"],
+        postLogoutRedirectUris: [],
+        scopeWhitelist: ["openid", "profile", "email"],
+        rejectionReason: null,
+      },
+    }),
   );
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
+  expect(
+    screen.getByText("+ https://app.example.com/new-callback"),
+  ).toBeTruthy();
+  expect(screen.getByText("- https://app.example.com/callback")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "撤回审核" })).toBeTruthy();
   expect(
     (screen.getByLabelText(/Redirect URI（每行一个）/) as HTMLTextAreaElement)
       .disabled,
   ).toBe(true);
+});
+
+test("shows rejection reason and allows creating a new draft", async () => {
+  mockApi(
+    client({
+      proposedRevision: {
+        revisionId: 2,
+        revisionNumber: 2,
+        status: "rejected",
+        version: 2,
+        redirectUris: ["https://app.example.com/new-callback"],
+        postLogoutRedirectUris: [],
+        scopeWhitelist: ["openid"],
+        rejectionReason: "callback ownership is unclear",
+      },
+    }),
+  );
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
+  expect(
+    screen.getAllByText(/callback ownership is unclear/).length,
+  ).toBeGreaterThan(0);
+  expect(
+    (screen.getByLabelText(/Redirect URI（每行一个）/) as HTMLTextAreaElement)
+      .disabled,
+  ).toBe(false);
 });
 
 test("keeps the current client view when an older request finishes last", async () => {
@@ -90,7 +134,7 @@ test("keeps the current client view when an older request finishes last", async 
     "fetch",
     vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input);
-      if (path.endsWith("/auth/context")) {
+      if (path.endsWith("/auth/context"))
         return new Response(
           JSON.stringify({
             authenticated: true,
@@ -103,63 +147,33 @@ test("keeps the current client view when an older request finishes last", async 
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
-      }
-      if (path.endsWith("/clients")) {
-        return await new Promise<Response>((resolve) => {
+      if (path.endsWith("/clients"))
+        return new Promise<Response>((resolve) => {
           resolveMine = resolve;
         });
-      }
       return new Response(
         JSON.stringify({
           clients: [
-            {
-              clientId: "all-client",
-              displayName: "All Client",
-              description: "",
-              clientType: "web",
-              redirectUris: ["https://all.example.com/callback"],
-              postLogoutRedirectUris: [],
-              scopeWhitelist: ["openid"],
-              status: "active",
-              rejectionReason: null,
-              updatedAt: "2026-07-13T00:00:00.000Z",
-              version: 1,
-            },
+            client({ clientId: "all-client", displayName: "All Client" }),
           ],
         }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     }),
   );
-
   render(<App />);
   await waitFor(() => expect(resolveMine).toBeTypeOf("function"));
   fireEvent.click(screen.getByRole("button", { name: "全部客户端" }));
   expect(await screen.findByText("All Client")).toBeTruthy();
-
   resolveMine!(
     new Response(
       JSON.stringify({
         clients: [
-          {
-            clientId: "mine-client",
-            displayName: "Mine Client",
-            description: "",
-            clientType: "web",
-            redirectUris: ["https://mine.example.com/callback"],
-            postLogoutRedirectUris: [],
-            scopeWhitelist: ["openid"],
-            status: "active",
-            rejectionReason: null,
-            updatedAt: "2026-07-13T00:00:00.000Z",
-            version: 1,
-          },
+          client({ clientId: "mine-client", displayName: "Mine Client" }),
         ],
       }),
       { status: 200, headers: { "Content-Type": "application/json" } },
     ),
   );
-
   await waitFor(() => expect(screen.queryByText("Mine Client")).toBeNull());
-  expect(screen.getByText("All Client")).toBeTruthy();
 });

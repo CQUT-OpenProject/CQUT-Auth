@@ -14,23 +14,30 @@ type Client = {
   displayName: string;
   description: string;
   clientType: "web" | "spa";
+  lifecycleStatus: "draft" | "active" | "disabled";
+  activeRevision: ClientRevision | null;
+  proposedRevision: ClientRevision | null;
+  updatedAt: string;
+  clientVersion: number;
+};
+type ClientRevision = {
+  revisionId: number;
+  revisionNumber: number;
+  status: "draft" | "pending" | "approved" | "rejected";
   redirectUris: string[];
   postLogoutRedirectUris: string[];
   scopeWhitelist: string[];
-  status: "draft" | "pending" | "active" | "disabled" | "rejected";
   rejectionReason: string | null;
-  updatedAt: string;
   version: number;
 };
 type ClientFormValue = Pick<
   Client,
-  | "clientType"
-  | "displayName"
-  | "description"
-  | "redirectUris"
-  | "postLogoutRedirectUris"
-  | "scopeWhitelist"
->;
+  "clientType" | "displayName" | "description"
+> &
+  Pick<
+    ClientRevision,
+    "redirectUris" | "postLogoutRedirectUris" | "scopeWhitelist"
+  >;
 
 const emptyClient: ClientFormValue = {
   clientType: "web",
@@ -344,7 +351,7 @@ function Dashboard({
                 context.csrfToken,
               );
               setCreating(false);
-              setNotice("客户端已创建并进入待审核状态。");
+              setNotice("客户端草稿已创建，请确认配置后提交审核。");
               if (result.clientSecret)
                 setSecret({
                   clientId: result.client.clientId,
@@ -355,110 +362,183 @@ function Dashboard({
           />
         )}
         {selected && !creating && (
-          <ClientEditor
-            title="编辑客户端"
-            initial={selected}
-            submitLabel="保存设置"
-            disabled={selected.status === "disabled"}
-            configurationDisabled={selected.status === "active"}
-            rejectionReason={selected.rejectionReason}
-            onCancel={() => setSelectedClientId(null)}
-            onSubmit={async (value) => {
-              try {
-                const result = await api<{ client: Client }>(
-                  `/clients/${encodeURIComponent(selected.clientId)}`,
-                  {
-                    method: "PATCH",
-                    body: JSON.stringify({
-                      displayName: value.displayName,
-                      description: value.description,
-                      redirectUris: value.redirectUris,
-                      postLogoutRedirectUris: value.postLogoutRedirectUris,
-                      scopeWhitelist: value.scopeWhitelist,
-                      version: selected.version,
-                    }),
-                  },
-                  context.csrfToken,
-                );
-                setNotice("客户端设置已保存。");
-                await refreshClients();
-              } catch (reason) {
-                if (reason instanceof ApiError && reason.status === 409)
-                  throw new Error(
-                    "客户端已被其他操作更新，请关闭编辑器并重新加载。",
-                  );
-                throw reason;
+          <>
+            <RevisionComparison client={selected} />
+            <ClientEditor
+              title="编辑客户端"
+              initial={formValue(selected)}
+              submitLabel={
+                selected.lifecycleStatus === "active"
+                  ? "保存并提交敏感修改"
+                  : "保存设置"
               }
-            }}
-            extraActions={
-              <>
-                {selected.status === "draft" && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void mutateClient(
-                        `/clients/${encodeURIComponent(selected.clientId)}/submit`,
-                        { version: selected.version },
-                        "客户端已重新提交审核。",
-                      )
-                    }
-                  >
-                    重新提交审核
-                  </button>
-                )}
-                {selected.status !== "disabled" && (
-                  <button
-                    className="danger"
-                    type="button"
-                    onClick={() =>
-                      window.confirm("停用后第一轮无法恢复，确定继续吗？") &&
-                      void mutateClient(
-                        `/clients/${encodeURIComponent(selected.clientId)}/disable`,
-                        { version: selected.version },
-                        "客户端已停用。",
-                      )
-                    }
-                  >
-                    停用客户端
-                  </button>
-                )}
-                {context.user.isAdmin && selected.status === "pending" && (
-                  <>
+              disabled={selected.lifecycleStatus === "disabled"}
+              configurationDisabled={
+                selected.proposedRevision?.status === "pending"
+              }
+              sensitiveNotice={selected.lifecycleStatus === "active"}
+              rejectionReason={selected.proposedRevision?.rejectionReason}
+              onCancel={() => setSelectedClientId(null)}
+              onSubmit={async (value) => {
+                try {
+                  const metadataChanged =
+                    value.displayName !== selected.displayName ||
+                    value.description !== selected.description;
+                  const baseRevision =
+                    selected.proposedRevision ?? selected.activeRevision;
+                  const revisionChanged =
+                    !!baseRevision && configurationChanged(value, baseRevision);
+                  if (!metadataChanged && !revisionChanged)
+                    throw new Error("至少修改一项设置。");
+                  if (metadataChanged) {
+                    await api(
+                      `/clients/${encodeURIComponent(selected.clientId)}`,
+                      {
+                        method: "PATCH",
+                        body: JSON.stringify({
+                          displayName: value.displayName,
+                          description: value.description,
+                          clientVersion: selected.clientVersion,
+                        }),
+                      },
+                      context.csrfToken,
+                    );
+                  }
+                  if (revisionChanged) {
+                    await api(
+                      `/clients/${encodeURIComponent(selected.clientId)}/revision`,
+                      {
+                        method: "PUT",
+                        body: JSON.stringify({
+                          redirectUris: value.redirectUris,
+                          postLogoutRedirectUris: value.postLogoutRedirectUris,
+                          scopeWhitelist: value.scopeWhitelist,
+                          ...(selected.proposedRevision?.status === "draft"
+                            ? {
+                                revisionId:
+                                  selected.proposedRevision.revisionId,
+                                revisionVersion:
+                                  selected.proposedRevision.version,
+                              }
+                            : {}),
+                        }),
+                      },
+                      context.csrfToken,
+                    );
+                  }
+                  setNotice("客户端设置已保存。");
+                  await refreshClients();
+                } catch (reason) {
+                  if (reason instanceof ApiError && reason.status === 409)
+                    throw new Error(
+                      "客户端已被其他操作更新，请关闭编辑器并重新加载。",
+                    );
+                  throw reason;
+                }
+              }}
+              extraActions={
+                <>
+                  {selected.proposedRevision?.status === "draft" && (
                     <button
                       type="button"
                       onClick={() =>
                         void mutateClient(
-                          `/admin/reviews/${encodeURIComponent(selected.clientId)}/approve`,
-                          { version: selected.version },
-                          "客户端已批准。",
+                          `/clients/${encodeURIComponent(selected.clientId)}/revision/submit`,
+                          {
+                            revisionId: selected.proposedRevision!.revisionId,
+                            revisionVersion: selected.proposedRevision!.version,
+                          },
+                          "客户端配置已提交审核。",
                         )
                       }
                     >
-                      批准客户端
+                      提交审核
                     </button>
+                  )}
+                  {selected.proposedRevision?.status === "pending" && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        void mutateClient(
+                          `/clients/${encodeURIComponent(selected.clientId)}/revision/withdraw`,
+                          {
+                            revisionId: selected.proposedRevision!.revisionId,
+                            revisionVersion: selected.proposedRevision!.version,
+                          },
+                          "待审核配置已撤回为草稿。",
+                        )
+                      }
+                    >
+                      撤回审核
+                    </button>
+                  )}
+                  {selected.lifecycleStatus !== "disabled" && (
                     <button
                       className="danger"
                       type="button"
-                      onClick={() => {
-                        const reason =
-                          window.prompt("可选：填写拒绝原因") ?? undefined;
+                      onClick={() =>
+                        window.confirm("停用后第一轮无法恢复，确定继续吗？") &&
                         void mutateClient(
-                          `/admin/reviews/${encodeURIComponent(selected.clientId)}/reject`,
-                          {
-                            version: selected.version,
-                            ...(reason ? { reason } : {}),
-                          },
-                          "客户端已拒绝。",
-                        );
-                      }}
+                          `/clients/${encodeURIComponent(selected.clientId)}/disable`,
+                          { clientVersion: selected.clientVersion },
+                          "客户端已停用。",
+                        )
+                      }
                     >
-                      拒绝客户端
+                      停用客户端
                     </button>
-                  </>
-                )}
-              </>
-            }
-          />
+                  )}
+                  {context.user.isAdmin &&
+                    selected.proposedRevision?.status === "pending" &&
+                    selected.lifecycleStatus !== "disabled" && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void mutateClient(
+                              `/admin/reviews/${encodeURIComponent(selected.clientId)}/approve`,
+                              {
+                                revisionId:
+                                  selected.proposedRevision!.revisionId,
+                                revisionVersion:
+                                  selected.proposedRevision!.version,
+                              },
+                              "客户端已批准。",
+                            )
+                          }
+                        >
+                          批准客户端
+                        </button>
+                        <button
+                          className="danger"
+                          type="button"
+                          onClick={() => {
+                            const reason = window
+                              .prompt("请填写拒绝原因（必填）")
+                              ?.trim();
+                            if (!reason) return;
+                            void mutateClient(
+                              `/admin/reviews/${encodeURIComponent(selected.clientId)}/reject`,
+                              {
+                                revisionId:
+                                  selected.proposedRevision!.revisionId,
+                                revisionVersion:
+                                  selected.proposedRevision!.version,
+                                reason,
+                              },
+                              "客户端已拒绝。",
+                            );
+                          }}
+                        >
+                          拒绝客户端
+                        </button>
+                      </>
+                    )}
+                </>
+              }
+            />
+          </>
         )}
         {!creating && !selected && (
           <ClientTable
@@ -481,6 +561,7 @@ function ClientEditor({
   disabled,
   allowTypeChange,
   configurationDisabled,
+  sensitiveNotice,
   rejectionReason,
   extraActions,
 }: {
@@ -492,6 +573,7 @@ function ClientEditor({
   disabled?: boolean;
   allowTypeChange?: boolean;
   configurationDisabled?: boolean;
+  sensitiveNotice?: boolean;
   rejectionReason?: string | null;
   extraActions?: React.ReactNode;
 }) {
@@ -530,6 +612,12 @@ function ClientEditor({
       </div>
       {rejectionReason && (
         <Notice tone="danger">最近一次拒绝原因：{rejectionReason}</Notice>
+      )}
+      {sensitiveNotice && (
+        <Notice tone="success">
+          Redirect URI、Logout URI 和 Scope
+          的修改审核通过后生效；审核期间继续使用当前生效配置。
+        </Notice>
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       <form onSubmit={submit} className="form-grid">
@@ -673,8 +761,12 @@ function ClientTable({
               </td>
               <td>{client.clientType.toUpperCase()}</td>
               <td>
-                <span className={`status ${client.status}`}>
-                  {statusLabel(client.status)}
+                <span
+                  className={`status ${client.proposedRevision?.status ?? client.lifecycleStatus}`}
+                >
+                  {client.proposedRevision
+                    ? `${statusLabel(client.lifecycleStatus)} · ${revisionStatusLabel(client.proposedRevision.status)}`
+                    : statusLabel(client.lifecycleStatus)}
                 </span>
               </td>
               <td>
@@ -763,12 +855,122 @@ function lines(value: string) {
     ),
   ];
 }
-function statusLabel(status: Client["status"]) {
+function statusLabel(status: Client["lifecycleStatus"]) {
   return {
     draft: "草稿",
-    pending: "待审核",
     active: "已启用",
-    rejected: "已拒绝",
     disabled: "已停用",
   }[status];
+}
+
+function revisionStatusLabel(status: ClientRevision["status"]) {
+  return {
+    draft: "配置草稿",
+    pending: "待审核",
+    approved: "已批准",
+    rejected: "已拒绝",
+  }[status];
+}
+
+function formValue(client: Client): ClientFormValue {
+  const revision = client.proposedRevision ?? client.activeRevision;
+  return {
+    clientType: client.clientType,
+    displayName: client.displayName,
+    description: client.description,
+    redirectUris: revision?.redirectUris ?? [],
+    postLogoutRedirectUris: revision?.postLogoutRedirectUris ?? [],
+    scopeWhitelist: revision?.scopeWhitelist ?? ["openid"],
+  };
+}
+
+function configurationChanged(
+  value: ClientFormValue,
+  revision: ClientRevision,
+) {
+  return (
+    JSON.stringify(value.redirectUris) !==
+      JSON.stringify(revision.redirectUris) ||
+    JSON.stringify(value.postLogoutRedirectUris) !==
+      JSON.stringify(revision.postLogoutRedirectUris) ||
+    JSON.stringify(value.scopeWhitelist) !==
+      JSON.stringify(revision.scopeWhitelist)
+  );
+}
+
+function RevisionComparison({ client }: { client: Client }) {
+  const active = client.activeRevision;
+  const proposed = client.proposedRevision;
+  if (!active && !proposed) return null;
+  return (
+    <section className="panel revision-comparison">
+      <div className="panel-title">
+        <h2>配置版本</h2>
+      </div>
+      <div className="revision-grid">
+        <RevisionSnapshot title="当前生效配置" revision={active} />
+        <RevisionSnapshot
+          title={
+            proposed
+              ? `待处理配置 · ${revisionStatusLabel(proposed.status)}`
+              : "待处理配置"
+          }
+          revision={proposed}
+          compare={active}
+        />
+      </div>
+    </section>
+  );
+}
+
+function RevisionSnapshot({
+  title,
+  revision,
+  compare,
+}: {
+  title: string;
+  revision: ClientRevision | null;
+  compare?: ClientRevision | null;
+}) {
+  if (!revision)
+    return (
+      <div>
+        <h3>{title}</h3>
+        <p className="muted">暂无配置</p>
+      </div>
+    );
+  return (
+    <div>
+      <h3>{title}</h3>
+      {revision.rejectionReason && (
+        <Notice tone="danger">拒绝原因：{revision.rejectionReason}</Notice>
+      )}
+      {(
+        ["redirectUris", "postLogoutRedirectUris", "scopeWhitelist"] as const
+      ).map((field) => {
+        const before = new Set(compare?.[field] ?? []);
+        return (
+          <div key={field} className="diff-field">
+            <strong>{field}</strong>
+            {revision[field].map((item) => (
+              <code
+                className={compare && !before.has(item) ? "diff-added" : ""}
+                key={item}
+              >
+                {compare && !before.has(item) ? "+ " : ""}
+                {item}
+              </code>
+            ))}
+            {compare?.[field]
+              .filter((item) => !revision[field].includes(item))
+              .map((item) => (
+                <code className="diff-removed" key={item}>
+                  - {item}
+                </code>
+              ))}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
