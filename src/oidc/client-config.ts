@@ -367,6 +367,7 @@ function parseBootstrapClient(
     clientType,
     lifecycleStatus: "active",
     activeRevisionId: 0,
+    authorizationGeneration: 1,
     activeRevision: revision,
     ...protocol,
     redirectUris: configuration.redirectUris,

@@ -88,9 +88,10 @@ test("upsertArtifact stores encrypted envelope instead of plaintext payload", as
   assert.ok(insertCall);
   assert.equal(insertCall.values?.[2], lookupHash("grant-1"));
   assert.equal(insertCall.values?.[3], lookupHash("client-a"));
-  assert.equal(insertCall.values?.[4], lookupHash("uid-1"));
-  assert.equal(insertCall.values?.[5], null);
-  const serializedPayload = insertCall.values?.[6];
+  assert.equal(insertCall.values?.[4], 1);
+  assert.equal(insertCall.values?.[5], lookupHash("uid-1"));
+  assert.equal(insertCall.values?.[6], null);
+  const serializedPayload = insertCall.values?.[7];
   assert.equal(typeof serializedPayload, "string");
   const payload = JSON.parse(serializedPayload as string) as Record<
     string,

@@ -51,6 +51,8 @@ export function createManagementRouter(
     adminQuotaExempt: config.managementClientQuotaAdminExempt,
     defaultSecretGraceSeconds: config.clientSecretDefaultGraceSeconds,
     maxSecretGraceSeconds: config.clientSecretMaxGraceSeconds,
+    minimumSecretRotationIntervalSeconds:
+      config.clientSecretRotateMinimumIntervalSeconds,
   });
   const adminIds = new Set(config.adminSubjectIds);
 
@@ -312,9 +314,42 @@ export function createManagementRouter(
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
+        const clientId = param(request, "clientId");
+        const limits = [
+          {
+            key: `oidc:management:secret-rotate:subject:${sha256(auth.actor.subjectId)}`,
+            max: config.clientSecretRotateRateLimitSubjectMax,
+          },
+          {
+            key: `oidc:management:secret-rotate:client:${sha256(clientId)}`,
+            max: config.clientSecretRotateRateLimitClientMax,
+          },
+          {
+            key: `oidc:management:secret-rotate:ip:${auth.actor.sourceIp ?? "unknown"}`,
+            max: config.clientSecretRotateRateLimitIpMax,
+          },
+        ];
+        for (const limit of limits) {
+          const decision = await rateLimitService.consume(
+            limit.key,
+            limit.max,
+            config.clientSecretRotateRateLimitWindowSeconds,
+          );
+          if (!decision.allowed) {
+            response.setHeader(
+              "Retry-After",
+              String(decision.retryAfterSeconds),
+            );
+            response.status(429).json({
+              error: "rate_limited",
+              error_description: "secret rotation rate limit exceeded",
+            });
+            return;
+          }
+        }
         const result = await clients.rotateSecret(
           auth.actor,
-          param(request, "clientId"),
+          clientId,
           request.body,
         );
         response.status(201).json(result);
@@ -513,6 +548,10 @@ function contextPayload(
       displayName: principal.displayName ?? principal.preferredUsername,
       isAdmin,
     },
+    clientSecretPolicy: {
+      defaultGraceSeconds: config.clientSecretDefaultGraceSeconds,
+      maxGraceSeconds: config.clientSecretMaxGraceSeconds,
+    },
   };
 }
 
@@ -522,6 +561,9 @@ function handleManagementError(
   next: NextFunction,
 ) {
   if (error instanceof ClientManagementError) {
+    if (error.retryAfterSeconds !== undefined) {
+      response.setHeader("Retry-After", String(error.retryAfterSeconds));
+    }
     response.status(error.status).json({
       error: error.code,
       error_description: error.message,

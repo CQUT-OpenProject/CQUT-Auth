@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import request from "supertest";
+import { Pool } from "pg";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { createOidcApp } from "../src/app.js";
 import { readOidcOpConfig } from "../src/config.js";
@@ -201,6 +202,7 @@ async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
     OIDC_ISSUER: "http://127.0.0.1:3003",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+    OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS: "0",
     OIDC_CLIENTS_CONFIG_PATH: clientsConfigPath,
     ...overrides,
   };
@@ -370,6 +372,7 @@ async function upsertDemoClient(
     clientType: "web",
     lifecycleStatus: patch.status ?? "active",
     activeRevisionId: 0,
+    authorizationGeneration: 1,
     activeRevision: {
       revisionId: 0,
       clientId: "demo-site",
@@ -425,6 +428,7 @@ async function upsertPublicNoneClient(
     clientType: "spa",
     lifecycleStatus: "active",
     activeRevisionId: 0,
+    authorizationGeneration: 1,
     activeRevision: {
       revisionId: 0,
       clientId,
@@ -1407,6 +1411,132 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
 
   await state.store.close();
 });
+
+test(
+  "PostgreSQL application flow stores HMAC client indexes and enforces authorization generations",
+  { skip: !process.env["TEST_DATABASE_URL"] },
+  async () => {
+    const databaseUrl = process.env["TEST_DATABASE_URL"]!;
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `oidc_app_${randomUUID().replaceAll("-", "_")}`;
+    await adminPool.query(`create schema "${schema}"`);
+    const scopedUrl = new URL(databaseUrl);
+    scopedUrl.searchParams.set("options", `-c search_path=${schema}`);
+    let state: Awaited<ReturnType<typeof createTestApp>>["state"] | undefined;
+    try {
+      const created = await createTestApp({
+        DATABASE_URL: scopedUrl.toString(),
+        OIDC_ALLOW_IN_MEMORY_STORE: "false",
+      });
+      state = created.state;
+      assert.equal(state.store.hasDatabase(), true);
+      const agent = request.agent(created.app);
+      const { code, codeVerifier } = await runAuthorizationFlow(
+        agent,
+        created.emailSender,
+        "postgres-generation-state",
+      );
+      const token = await request(created.app)
+        .post("/token")
+        .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
+        .type("form")
+        .send({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: TEST_REDIRECT_URI,
+          code_verifier: codeVerifier,
+        });
+      assert.equal(token.status, 200);
+      const artifactRows = await adminPool.query(
+        `select client_id_hash, authorization_generation
+         from "${schema}".oidc_artifacts
+         where kind in ('AuthorizationCode', 'AccessToken', 'RefreshToken', 'Grant')`,
+      );
+      assert.ok(artifactRows.rowCount && artifactRows.rowCount >= 3);
+      const expectedHash = createHmac("sha256", "test-oidc-artifact-secret")
+        .update("demo-site")
+        .digest("hex");
+      assert.ok(
+        artifactRows.rows.every(
+          (row) =>
+            row["client_id_hash"] === expectedHash &&
+            row["client_id_hash"] !== "demo-site" &&
+            Number(row["authorization_generation"]) === 1,
+        ),
+      );
+
+      const managed = await state.store.findManagedOidcClient("demo-site");
+      const management = new ClientManagementService(state.store, "test");
+      let releaseLateIssue!: () => void;
+      const revocationBarrier = new Promise<void>((resolve) => {
+        releaseLateIssue = resolve;
+      });
+      const lateIssue = (async () => {
+        await revocationBarrier;
+        await state!.store.upsertArtifact(
+          "AccessToken:late-postgres-token",
+          "AccessToken",
+          { clientId: "demo-site", accountId: "late-subject" },
+          300,
+          1,
+        );
+      })();
+      await management.revokeAuthorizations(
+        { subjectId: "subj_admin", isAdmin: true },
+        "demo-site",
+        { clientVersion: managed!.client.version },
+      );
+      releaseLateIssue();
+      await lateIssue;
+      assert.equal(
+        await state.store.findArtifact("AccessToken:late-postgres-token"),
+        undefined,
+      );
+      const revokedAccess = await request(created.app)
+        .get("/userinfo")
+        .set("Authorization", `Bearer ${token.body.access_token as string}`);
+      assert.equal(revokedAccess.status, 401);
+      const revokedRefresh = await request(created.app)
+        .post("/token")
+        .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
+        .type("form")
+        .send({
+          grant_type: "refresh_token",
+          refresh_token: token.body.refresh_token as string,
+        });
+      assert.equal(revokedRefresh.status, 400);
+      assert.equal(revokedRefresh.body.error, "invalid_grant");
+
+      const sessionReuse = await agent.get("/auth").query({
+        client_id: "demo-site",
+        redirect_uri: TEST_REDIRECT_URI,
+        response_type: "code",
+        scope: "openid profile",
+        prompt: "none",
+        state: "postgres-session-preserved",
+        nonce: "postgres-session-preserved",
+        code_challenge: sha256Base64Url(
+          "postgres-session-verifier-postgres-session-verifier",
+        ),
+        code_challenge_method: "S256",
+      });
+      assert.ok(sessionReuse.status === 302 || sessionReuse.status === 303);
+      const redirect = await followToRedirectUriOrigin(
+        agent,
+        sessionReuse,
+        TEST_REDIRECT_URI,
+      );
+      assert.equal(
+        new URL(redirect).searchParams.get("state"),
+        "postgres-session-preserved",
+      );
+    } finally {
+      await state?.store.close();
+      await adminPool.query(`drop schema if exists "${schema}" cascade`);
+      await adminPool.end();
+    }
+  },
+);
 
 test("userinfo normalizes legacy active_student status to active", async () => {
   const { app, state, emailSender } = await createTestApp();
@@ -2732,6 +2862,11 @@ test("config defaults client creation quotas and rate limits", () => {
   assert.equal(config.managementClientQuotaAdminExempt, true);
   assert.equal(config.clientSecretDefaultGraceSeconds, 86_400);
   assert.equal(config.clientSecretMaxGraceSeconds, 604_800);
+  assert.equal(config.clientSecretRotateRateLimitSubjectMax, 10);
+  assert.equal(config.clientSecretRotateRateLimitClientMax, 5);
+  assert.equal(config.clientSecretRotateRateLimitIpMax, 20);
+  assert.equal(config.clientSecretRotateRateLimitWindowSeconds, 3_600);
+  assert.equal(config.clientSecretRotateMinimumIntervalSeconds, 60);
 });
 
 test("config rejects client secret grace defaults above the maximum", () => {

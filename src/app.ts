@@ -10,6 +10,7 @@ import { OidcPersistenceImpl } from "./persistence/persistence.js";
 import { createInteractionRouter } from "./routes/interactions.js";
 import { createManagementRouter } from "./routes/management.js";
 import type { EmailSender } from "./email/email-sender.js";
+import { withAuthorizationContext } from "./oidc/authorization-context.js";
 
 type AppState = {
   config: OidcOpConfig;
@@ -140,6 +141,7 @@ export async function createOidcApp(
   });
 
   app.use(applySecurityHeaders(getFormActionSources));
+  app.use(withAuthorizationContext);
 
   app.get("/health/ready", async (_request, response) => {
     const databaseReady = await store.checkReadiness();

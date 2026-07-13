@@ -45,6 +45,7 @@ create table if not exists oidc_clients (
   auto_consent boolean not null default false,
   lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
   active_revision_id bigint,
+  authorization_generation integer not null default 1 check (authorization_generation > 0),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   version integer not null default 1 check (version > 0)
@@ -74,6 +75,10 @@ on oidc_client_secrets (client_id, created_at desc);
 
 create index if not exists idx_oidc_client_secrets_expires
 on oidc_client_secrets (expires_at) where status = 'retiring';
+
+create index if not exists idx_oidc_client_secrets_usable
+on oidc_client_secrets (client_id, status, expires_at)
+where status in ('active', 'retiring');
 
 create table if not exists oidc_client_revisions (
   revision_id bigserial primary key,
@@ -149,6 +154,7 @@ create table if not exists oidc_artifacts (
   kind text not null,
   grant_id_hash text,
   client_id_hash text,
+  authorization_generation integer,
   uid_hash text,
   user_code_hash text,
   payload jsonb not null,

@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 import type { ArtifactPayloadCipherServiceImpl } from "./artifact-payload-cipher.service.js";
 import type {
   OidcArtifactRepository,
@@ -18,10 +18,25 @@ type ArtifactRecord = {
   consumedAt: string | undefined;
   grantIdHash: string | undefined;
   clientIdHash: string | undefined;
+  authorizationGeneration: number | undefined;
   uidHash: string | undefined;
   userCodeHash: string | undefined;
   createdAt: string;
 };
+
+type ClientAuthorizationState = {
+  lifecycleStatus: "draft" | "active" | "disabled";
+  authorizationGeneration: number;
+};
+
+const revocableKinds = new Set([
+  "AuthorizationCode",
+  "AccessToken",
+  "RefreshToken",
+  "Grant",
+]);
+const internalGenerationKey = "__cqutAuthorizationGeneration";
+const internalClientIdKey = "__cqutAuthorizationClientId";
 
 type OpportunisticCleanupOptions = {
   enabled: boolean;
@@ -41,6 +56,12 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     private readonly interactionTtlSeconds: number,
     private readonly cleanupOptions: OpportunisticCleanupOptions,
     private readonly artifactPayloadCipherService: ArtifactPayloadCipherServiceImpl,
+    private readonly findMemoryClientAuthorizationState: (
+      clientId: string,
+    ) => Promise<ClientAuthorizationState | null> = async () => ({
+      lifecycleStatus: "active",
+      authorizationGeneration: 1,
+    }),
   ) {
     if (cleanupOptions.enabled) {
       this.logger.warn(
@@ -54,11 +75,50 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     kind: string,
     payload: Record<string, unknown>,
     expiresIn: number,
+    authorizationGeneration?: number,
   ): Promise<void> {
     this.maybeCleanupExpiredArtifacts();
     const pool = this.poolProvider();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
+    const clientId =
+      typeof payload["clientId"] === "string" ? payload["clientId"] : undefined;
+    let resolvedGeneration = authorizationGeneration;
+    let connection: PoolClient | undefined;
+    if (clientId) {
+      if (pool && typeof pool.connect === "function") {
+        connection = await pool.connect();
+        try {
+          await connection.query("begin");
+          const state = await connection.query(
+            `select lifecycle_status, authorization_generation
+             from oidc_clients where client_id = $1 for share`,
+            [clientId],
+          );
+          if (
+            !state.rows[0] ||
+            state.rows[0]["lifecycle_status"] === "disabled"
+          ) {
+            await connection.query("rollback");
+            connection.release();
+            return;
+          }
+          resolvedGeneration ??= Number(
+            state.rows[0]["authorization_generation"],
+          );
+        } catch (error) {
+          await connection.query("rollback").catch(() => undefined);
+          connection.release();
+          throw error;
+        }
+      } else if (!pool) {
+        const state = await this.findMemoryClientAuthorizationState(clientId);
+        if (!state || state.lifecycleStatus === "disabled") return;
+        resolvedGeneration ??= state.authorizationGeneration;
+      } else {
+        resolvedGeneration ??= 1;
+      }
+    }
     const artifact: ArtifactRecord = {
       id,
       kind,
@@ -69,10 +129,8 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         typeof payload["grantId"] === "string"
           ? this.computeLookupHash(payload["grantId"])
           : undefined,
-      clientIdHash:
-        typeof payload["clientId"] === "string"
-          ? this.computeLookupHash(payload["clientId"])
-          : undefined,
+      clientIdHash: clientId ? this.computeLookupHash(clientId) : undefined,
+      authorizationGeneration: resolvedGeneration,
       uidHash:
         typeof payload["uid"] === "string"
           ? this.computeLookupHash(payload["uid"])
@@ -87,14 +145,16 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       this.artifacts.set(id, artifact);
       return;
     }
-    const encryptedPayload = await this.encryptPayload(payload);
-    await pool.query(
-      `
+    try {
+      const encryptedPayload = await this.encryptPayload(payload);
+      await (connection ?? pool).query(
+        `
       insert into oidc_artifacts (
         id,
         kind,
         grant_id_hash,
         client_id_hash,
+        authorization_generation,
         uid_hash,
         user_code_hash,
         payload,
@@ -102,36 +162,45 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         consumed_at,
         created_at
       )
-      values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz, $9::timestamptz, $10::timestamptz)
+      values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::timestamptz, $10::timestamptz, $11::timestamptz)
       on conflict (id) do update
       set kind = excluded.kind,
           grant_id_hash = excluded.grant_id_hash,
           client_id_hash = excluded.client_id_hash,
+          authorization_generation = excluded.authorization_generation,
           uid_hash = excluded.uid_hash,
           user_code_hash = excluded.user_code_hash,
           payload = excluded.payload,
           expires_at = excluded.expires_at,
           consumed_at = excluded.consumed_at
       `,
-      [
-        artifact.id,
-        artifact.kind,
-        artifact.grantIdHash ?? null,
-        artifact.clientIdHash ?? null,
-        artifact.uidHash ?? null,
-        artifact.userCodeHash ?? null,
-        JSON.stringify(encryptedPayload),
-        artifact.expiresAt ?? null,
-        artifact.consumedAt ?? null,
-        artifact.createdAt,
-      ],
-    );
+        [
+          artifact.id,
+          artifact.kind,
+          artifact.grantIdHash ?? null,
+          artifact.clientIdHash ?? null,
+          artifact.authorizationGeneration ?? null,
+          artifact.uidHash ?? null,
+          artifact.userCodeHash ?? null,
+          JSON.stringify(encryptedPayload),
+          artifact.expiresAt ?? null,
+          artifact.consumedAt ?? null,
+          artifact.createdAt,
+        ],
+      );
+      if (connection) await connection.query("commit");
+    } catch (error) {
+      if (connection) await connection.query("rollback");
+      throw error;
+    } finally {
+      connection?.release();
+    }
   }
 
   async findArtifact(id: string): Promise<Record<string, unknown> | undefined> {
     this.maybeCleanupExpiredArtifacts();
     const record = await this.readArtifactById(id);
-    return record ? this.mapArtifactPayload(record) : undefined;
+    return record ? await this.mapArtifactPayload(record) : undefined;
   }
 
   async destroyArtifact(id: string): Promise<void> {
@@ -168,7 +237,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       this.computeLookupHash(uid),
       kind,
     );
-    return record ? this.mapArtifactPayload(record) : undefined;
+    return record ? await this.mapArtifactPayload(record) : undefined;
   }
 
   async findArtifactByUserCode(
@@ -179,7 +248,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       "user_code_hash",
       this.computeLookupHash(userCode),
     );
-    return record ? this.mapArtifactPayload(record) : undefined;
+    return record ? await this.mapArtifactPayload(record) : undefined;
   }
 
   async revokeArtifactsByGrantId(grantId: string): Promise<void> {
@@ -201,12 +270,6 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
   async revokeArtifactsByClientId(clientId: string): Promise<void> {
     const pool = this.poolProvider();
     const clientIdHash = this.computeLookupHash(clientId);
-    const revocableKinds = new Set([
-      "AuthorizationCode",
-      "AccessToken",
-      "RefreshToken",
-      "Grant",
-    ]);
     if (!pool) {
       for (const [id, artifact] of this.artifacts.entries()) {
         if (
@@ -338,6 +401,10 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       kind: String(row["kind"]),
       grantIdHash: (row["grant_id_hash"] as string | null) ?? undefined,
       clientIdHash: (row["client_id_hash"] as string | null) ?? undefined,
+      authorizationGeneration:
+        row["authorization_generation"] == null
+          ? undefined
+          : Number(row["authorization_generation"]),
       uidHash: (row["uid_hash"] as string | null) ?? undefined,
       userCodeHash: (row["user_code_hash"] as string | null) ?? undefined,
       payload,
@@ -388,14 +455,59 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     );
   }
 
-  private mapArtifactPayload(record: ArtifactRecord): Record<string, unknown> {
+  private async mapArtifactPayload(
+    record: ArtifactRecord,
+  ): Promise<Record<string, unknown> | undefined> {
+    const clientId =
+      typeof record.payload["clientId"] === "string"
+        ? record.payload["clientId"]
+        : undefined;
+    if (
+      clientId &&
+      record.authorizationGeneration !== undefined &&
+      revocableKinds.has(record.kind)
+    ) {
+      const state = await this.findClientAuthorizationState(clientId);
+      if (
+        !state ||
+        state.lifecycleStatus === "disabled" ||
+        state.authorizationGeneration !== record.authorizationGeneration
+      ) {
+        return undefined;
+      }
+    }
     return {
       ...record.payload,
+      ...(clientId && record.authorizationGeneration !== undefined
+        ? {
+            [internalClientIdKey]: clientId,
+            [internalGenerationKey]: record.authorizationGeneration,
+          }
+        : {}),
       ...(record.consumedAt
         ? {
             consumed: Math.floor(new Date(record.consumedAt).getTime() / 1000),
           }
         : {}),
+    };
+  }
+
+  private async findClientAuthorizationState(
+    clientId: string,
+  ): Promise<ClientAuthorizationState | null> {
+    const pool = this.poolProvider();
+    if (!pool) return this.findMemoryClientAuthorizationState(clientId);
+    const result = await pool.query(
+      `select lifecycle_status, authorization_generation
+       from oidc_clients where client_id = $1`,
+      [clientId],
+    );
+    if (!result.rows[0]) return null;
+    return {
+      lifecycleStatus: result.rows[0]["lifecycle_status"],
+      authorizationGeneration: Number(
+        result.rows[0]["authorization_generation"],
+      ),
     };
   }
 

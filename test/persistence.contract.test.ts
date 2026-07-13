@@ -65,6 +65,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     clientType: "web",
     lifecycleStatus: "active",
     activeRevisionId: 1,
+    authorizationGeneration: 1,
     activeRevision: {
       revisionId: 1,
       clientId: "demo-site",
@@ -101,6 +102,77 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
   assert.equal(clients.length, 1);
   assert.equal(clients[0]?.clientId, "demo-site");
   assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
+
+  let releaseLateIssue!: () => void;
+  const revocationCommitted = new Promise<void>((resolve) => {
+    releaseLateIssue = resolve;
+  });
+  const lateIssue = (async () => {
+    await revocationCommitted;
+    await persistence.upsertArtifact(
+      "AccessToken:late-token",
+      "AccessToken",
+      { clientId: "demo-site", accountId: "subj_demo" },
+      120,
+      1,
+    );
+  })();
+  const afterRevocation = await persistence.revokeOidcClientAuthorizations(
+    "demo-site",
+    1,
+    now,
+    {
+      clientId: "demo-site",
+      actorSubjectId: "subj_demo",
+      action: "client.authorizations_revoked",
+      changedFields: ["authorizations"],
+      createdAt: now,
+    },
+  );
+  assert.ok(afterRevocation);
+  releaseLateIssue();
+  await lateIssue;
+  assert.equal(
+    await persistence.findArtifact("AccessToken:late-token"),
+    undefined,
+  );
+  await persistence.upsertArtifact(
+    "AccessToken:new-generation",
+    "AccessToken",
+    { clientId: "demo-site", accountId: "subj_demo" },
+    120,
+  );
+  assert.ok(await persistence.findArtifact("AccessToken:new-generation"));
+  const disabled = await persistence.disableOidcClient(
+    "demo-site",
+    afterRevocation!.client.version,
+    now,
+    [
+      {
+        clientId: "demo-site",
+        actorSubjectId: "subj_demo",
+        action: "client.emergency_disabled",
+        changedFields: ["lifecycleStatus", "authorizations"],
+        createdAt: now,
+      },
+    ],
+  );
+  assert.ok(disabled);
+  assert.equal(
+    await persistence.findArtifact("AccessToken:new-generation"),
+    undefined,
+  );
+  await persistence.upsertArtifact(
+    "AccessToken:after-disable",
+    "AccessToken",
+    { clientId: "demo-site", accountId: "subj_demo" },
+    120,
+    2,
+  );
+  assert.equal(
+    await persistence.findArtifact("AccessToken:after-disable"),
+    undefined,
+  );
 
   await persistence.upsertArtifact(
     "AuthorizationCode:code-1",

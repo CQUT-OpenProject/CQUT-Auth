@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Pool } from "pg";
@@ -21,6 +22,9 @@ const input = {
   scopeWhitelist: ["openid", "profile"],
 };
 const webInput = { ...input, clientType: "web" as const };
+const artifactSecret = "postgres-client-artifact-secret";
+const clientHash = (clientId: string) =>
+  createHmac("sha256", artifactSecret).update(clientId).digest("hex");
 
 test(
   "PostgreSQL enforces client revision transactions and concurrency",
@@ -36,19 +40,23 @@ test(
     )[0]!;
     let sequence = 0;
 
-    async function reset(maxPendingClientsPerOwner = 5) {
+    async function reset(
+      maxPendingClientsPerOwner = 5,
+      now: () => Date = () => new Date(),
+    ) {
       await pool.query("drop schema public cascade; create schema public");
       await pool.query(schema);
       await pool.query(`insert into subjects (subject_id) values ($1), ($2)`, [
         owner.subjectId,
         admin.subjectId,
       ]);
-      const repository = new OidcClientRepositoryImpl(() => pool);
+      const repository = new OidcClientRepositoryImpl(() => pool, clientHash);
       const service = new ClientManagementService(repository, "test", {
         createClientId: () => `pg_client_${++sequence}`,
         maxClientsPerOwner: 20,
         maxPendingClientsPerOwner,
         adminQuotaExempt: false,
+        now,
       });
       return { repository, service };
     }
@@ -200,7 +208,7 @@ test(
              values ('Grant:owned', 'Grant', $1, '{}'::jsonb, now()),
                     ('Grant:other', 'Grant', 'other-client', '{}'::jsonb, now()),
                     ('Session:owned', 'Session', $1, '{}'::jsonb, now())`,
-            [created.client.clientId],
+            [clientHash(created.client.clientId)],
           );
           const revoked = await service.revokeAuthorizations(
             owner,
@@ -241,6 +249,39 @@ test(
           assert.equal(
             await repository.findOidcClient(created.client.clientId),
             null,
+          );
+        },
+      );
+
+      await context.test(
+        "uses PostgreSQL time for rotation creation and grace expiry",
+        async () => {
+          const { service } = await reset(
+            5,
+            () => new Date("2020-01-01T00:00:00.000Z"),
+          );
+          const created = await service.create(owner, webInput);
+          const before = Date.now();
+          const rotated = await service.rotateSecret(
+            owner,
+            created.client.clientId,
+            {
+              clientVersion: created.client.clientVersion,
+              gracePeriodSeconds: 60,
+            },
+          );
+          const createdAt = new Date(rotated.secret.createdAt).getTime();
+          assert.ok(
+            createdAt >= before - 2_000 && createdAt <= Date.now() + 2_000,
+          );
+          const retiring = rotated.client.secrets.find(
+            (secret) => secret.status === "retiring",
+          );
+          assert.ok(retiring?.expiresAt);
+          assert.ok(
+            Math.abs(
+              new Date(retiring.expiresAt).getTime() - createdAt - 60_000,
+            ) < 2_000,
           );
         },
       );

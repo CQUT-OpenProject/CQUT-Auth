@@ -59,6 +59,11 @@ export type OidcOpConfig = {
   managementClientQuotaAdminExempt: boolean;
   clientSecretDefaultGraceSeconds: number;
   clientSecretMaxGraceSeconds: number;
+  clientSecretRotateRateLimitSubjectMax: number;
+  clientSecretRotateRateLimitClientMax: number;
+  clientSecretRotateRateLimitIpMax: number;
+  clientSecretRotateRateLimitWindowSeconds: number;
+  clientSecretRotateMinimumIntervalSeconds: number;
   rateLimitFailClosed: boolean;
   rateLimitMemoryMaxKeys: number;
   rateLimitMemoryCleanupIntervalSeconds: number;
@@ -423,6 +428,21 @@ export function readOidcOpConfig(
   const clientSecretMaxGraceSeconds = Number(
     env["OIDC_CLIENT_SECRET_MAX_GRACE_SECONDS"] ?? 604_800,
   );
+  const clientSecretRotateRateLimitSubjectMax = Number(
+    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX"] ?? 10,
+  );
+  const clientSecretRotateRateLimitClientMax = Number(
+    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX"] ?? 5,
+  );
+  const clientSecretRotateRateLimitIpMax = Number(
+    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_IP_MAX"] ?? 20,
+  );
+  const clientSecretRotateRateLimitWindowSeconds = Number(
+    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_WINDOW_SECONDS"] ?? 3600,
+  );
+  const clientSecretRotateMinimumIntervalSeconds = Number(
+    env["OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS"] ?? 60,
+  );
   if (
     !Number.isInteger(clientSecretDefaultGraceSeconds) ||
     !Number.isInteger(clientSecretMaxGraceSeconds) ||
@@ -452,10 +472,34 @@ export function readOidcOpConfig(
       "OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS",
       managementClientCreateRateLimitWindowSeconds,
     ],
+    [
+      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX",
+      clientSecretRotateRateLimitSubjectMax,
+    ],
+    [
+      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX",
+      clientSecretRotateRateLimitClientMax,
+    ],
+    [
+      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_IP_MAX",
+      clientSecretRotateRateLimitIpMax,
+    ],
+    [
+      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_WINDOW_SECONDS",
+      clientSecretRotateRateLimitWindowSeconds,
+    ],
   ] as const) {
     if (!Number.isInteger(value) || value <= 0) {
       throw new Error(`${key} must be a positive integer`);
     }
+  }
+  if (
+    !Number.isInteger(clientSecretRotateMinimumIntervalSeconds) ||
+    clientSecretRotateMinimumIntervalSeconds < 0
+  ) {
+    throw new Error(
+      "OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS must be a non-negative integer",
+    );
   }
   if (managementClientMaxPendingPerSubject > managementClientMaxPerSubject) {
     throw new Error(
@@ -679,6 +723,11 @@ export function readOidcOpConfig(
       env["OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT"] !== "false",
     clientSecretDefaultGraceSeconds,
     clientSecretMaxGraceSeconds,
+    clientSecretRotateRateLimitSubjectMax,
+    clientSecretRotateRateLimitClientMax,
+    clientSecretRotateRateLimitIpMax,
+    clientSecretRotateRateLimitWindowSeconds,
+    clientSecretRotateMinimumIntervalSeconds,
     rateLimitFailClosed,
     rateLimitMemoryMaxKeys,
     rateLimitMemoryCleanupIntervalSeconds,

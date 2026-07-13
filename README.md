@@ -142,6 +142,10 @@ API 或管理台创建的客户端先进入客户端草稿，并生成 Draft Rev
 
 Web Client Secret 独立保存在 `oidc_client_secrets`，只有 `active` 和尚未到期的 `retiring` Secret 可用于客户端认证。轮换时新 Secret 仅显示一次；旧 Secret 默认保留 24 小时宽限期，可在 0–7 天内配置。一个客户端同时最多有两个可用 Secret，已撤销或过期 Secret 不可恢复。部署期 `oidc-clients.json` 仍可提供受信任的 scrypt bootstrap digest，但管理 API 不接受明文或摘要输入。
 
+Secret 轮换在 scrypt 计算前执行版本与数量预检，并同时按主体、客户端和来源 IP 限流；PostgreSQL 使用 `now()` 计算创建时间、宽限期和冷却时间。OIDC 认证只查询 active 或尚未到期的 retiring 摘要。管理台按页展示 Secret 历史，数据库仅保留最近 100 条已撤销或已到期的历史元数据，完整操作轨迹仍保留在不含摘要的审计日志中。
+
+每个客户端具有单调递增的授权 Generation。Authorization Code、Access Token、Refresh Token 和 Grant 保存签发请求捕获的 Generation；客户端级撤销或紧急停用会在删除现有 Artifact 的同一事务中递增 Generation。Artifact 每次读取都会核对客户端状态和 Generation，因此撤销提交后才落库的并发 Token 也不可使用，已停用客户端的 Artifact 始终无效。
+
 客户端生命周期（`draft`、`active`、`disabled`）与 Revision 审核状态（`draft`、`pending`、`approved`、`rejected`、`cancelled`）相互独立。Active 客户端修改 Redirect URI、Logout URI 或 Scope 时会创建 Pending Revision，审核期间 OIDC 仍读取旧的 Active Revision；批准后原子切换，拒绝不会影响线上配置。Pending Revision 必须先撤回才能编辑，拒绝原因必填且会展示给所有者。停用立即生效且不能恢复，并会原子取消开放的 Draft/Pending Revision、释放待审配额。
 
 普通主体默认最多拥有 10 个非停用客户端，其中最多 5 个 Revision 处于待审核状态；管理员默认豁免配额。创建操作还按主体（默认每小时 5 次）和来源 IP（默认每小时 20 次）限流。
@@ -156,6 +160,11 @@ Web Client Secret 独立保存在 `oidc_client_secrets`，只有 `active` 和尚
 | `OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS` |   `3600` | Subject/IP 创建限流窗口秒数。           |
 | `OIDC_CLIENT_SECRET_DEFAULT_GRACE_SECONDS`                |  `86400` | Secret 轮换默认宽限期秒数。             |
 | `OIDC_CLIENT_SECRET_MAX_GRACE_SECONDS`                    | `604800` | Secret 轮换允许的最大宽限期秒数。       |
+| `OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX`        |     `10` | 单个主体在轮换限流窗口内的请求上限。    |
+| `OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX`         |      `5` | 单个客户端在轮换限流窗口内的请求上限。  |
+| `OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_IP_MAX`             |     `20` | 单个来源 IP 在轮换窗口内的请求上限。    |
+| `OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_WINDOW_SECONDS`     |   `3600` | Secret 轮换限流窗口秒数。               |
+| `OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS`      |     `60` | 同一客户端成功轮换之间的最短间隔。      |
 
 <details>
 <summary><code>oidc-clients.json</code> 范例</summary>

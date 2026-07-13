@@ -67,6 +67,7 @@ export class ClientManagementError extends Error {
     readonly code: string,
     message: string,
     readonly field?: string,
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = "ClientManagementError";
@@ -84,6 +85,7 @@ type ServiceDependencies = {
   adminQuotaExempt?: boolean;
   defaultSecretGraceSeconds?: number;
   maxSecretGraceSeconds?: number;
+  minimumSecretRotationIntervalSeconds?: number;
 };
 
 const configurationFields = [
@@ -109,6 +111,7 @@ export class ClientManagementService {
   private readonly adminQuotaExempt: boolean;
   private readonly defaultSecretGraceSeconds: number;
   private readonly maxSecretGraceSeconds: number;
+  private readonly minimumSecretRotationIntervalSeconds: number;
 
   constructor(
     private readonly repository: OidcClientRepository,
@@ -130,6 +133,8 @@ export class ClientManagementService {
     this.defaultSecretGraceSeconds =
       dependencies.defaultSecretGraceSeconds ?? 86_400;
     this.maxSecretGraceSeconds = dependencies.maxSecretGraceSeconds ?? 604_800;
+    this.minimumSecretRotationIntervalSeconds =
+      dependencies.minimumSecretRotationIntervalSeconds ?? 0;
   }
 
   async list(actor: ClientActor, viewAll = false) {
@@ -166,6 +171,7 @@ export class ClientManagementService {
       autoConsent: false,
       lifecycleStatus: "draft",
       activeRevisionId: null,
+      authorizationGeneration: 1,
       createdAt: timestamp,
       updatedAt: timestamp,
       version: 1,
@@ -216,10 +222,17 @@ export class ClientManagementService {
         },
       ),
     ];
-    if (secret)
-      audits.push(
-        this.audit(actor, clientId, "client.secret_generated", [], timestamp),
-      );
+    if (secretRecord)
+      audits.push({
+        ...this.audit(
+          actor,
+          clientId,
+          "client.secret_generated",
+          ["status", "createdAt"],
+          timestamp,
+        ),
+        secretId: secretRecord.secretId,
+      });
     const created = await this.repository.createOidcClient(
       client,
       revision,
@@ -451,6 +464,46 @@ export class ClientManagementService {
     const gracePeriodSeconds = this.parseGracePeriod(
       body["gracePeriodSeconds"],
     );
+    if (current.client.version !== clientVersion) {
+      throw new ClientManagementError(
+        409,
+        "version_conflict",
+        "client changed concurrently",
+      );
+    }
+    const preflightNow = this.now().getTime();
+    const usableSecrets = current.secrets.filter(
+      (secret) =>
+        secret.status === "active" ||
+        (secret.status === "retiring" &&
+          secret.expiresAt !== null &&
+          new Date(secret.expiresAt).getTime() > preflightNow),
+    );
+    if (usableSecrets.length >= 2) {
+      throw new ClientManagementError(
+        409,
+        "secret_limit_exceeded",
+        "client already has two usable secrets",
+      );
+    }
+    const newestSecret = current.secrets[0];
+    if (newestSecret && this.minimumSecretRotationIntervalSeconds > 0) {
+      const retryAfterSeconds = Math.ceil(
+        (new Date(newestSecret.createdAt).getTime() +
+          this.minimumSecretRotationIntervalSeconds * 1000 -
+          preflightNow) /
+          1000,
+      );
+      if (retryAfterSeconds > 0) {
+        throw new ClientManagementError(
+          429,
+          "rate_limited",
+          `secret rotation cooldown active; retry after ${retryAfterSeconds} seconds`,
+          undefined,
+          retryAfterSeconds,
+        );
+      }
+    }
     const value = this.createSecret();
     const timestamp = this.now().toISOString();
     const secret: OidcClientSecretRecord = {
@@ -468,6 +521,7 @@ export class ClientManagementService {
       secret,
       clientVersion,
       gracePeriodSeconds,
+      this.minimumSecretRotationIntervalSeconds,
       {
         ...this.audit(
           actor,
@@ -481,10 +535,12 @@ export class ClientManagementService {
       },
     );
     const updated = this.requireSecurityUpdated(result);
+    const persistedSecret =
+      result.status === "updated" && result.secret ? result.secret : secret;
     return {
       client: toPublicClient(updated),
       secret: {
-        ...toPublicSecret(secret),
+        ...toPublicSecret(persistedSecret),
         value,
       },
     };
@@ -539,7 +595,7 @@ export class ClientManagementService {
         actor,
         clientId,
         "client.authorizations_revoked",
-        ["authorizations"],
+        ["authorizations", "authorizationGeneration"],
         timestamp,
       ),
     );
@@ -561,7 +617,12 @@ export class ClientManagementService {
           actor,
           clientId,
           "client.emergency_disabled",
-          ["lifecycleStatus", "secrets", "authorizations"],
+          [
+            "lifecycleStatus",
+            "secrets",
+            "authorizations",
+            "authorizationGeneration",
+          ],
           timestamp,
           {
             previousClientStatus: current.client.lifecycleStatus,
@@ -872,6 +933,15 @@ export class ClientManagementService {
     }
     if (result.status === "secret_not_found") {
       throw new ClientManagementError(404, "not_found", "secret not found");
+    }
+    if (result.status === "secret_rotation_cooldown") {
+      throw new ClientManagementError(
+        429,
+        "rate_limited",
+        `secret rotation cooldown active; retry after ${result.retryAfterSeconds} seconds`,
+        undefined,
+        result.retryAfterSeconds,
+      );
     }
     if (result.status === "version_conflict") this.conflict();
     return result.client;
