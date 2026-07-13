@@ -1,11 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAdapter } from "../src/oidc/adapter.js";
-import type { OidcClientRecord, OidcPersistence, PendingInteractionLogin } from "../src/persistence/contracts.js";
+import type {
+  OidcClientRecord,
+  OidcPersistence,
+  PendingInteractionLogin,
+} from "../src/persistence/contracts.js";
 
 function createMockStore(
-  findByUidImpl: (uid: string, kind?: string) => Promise<Record<string, unknown> | undefined>,
-  findOidcClientImpl: (clientId: string) => Promise<OidcClientRecord | null> = async () => null
+  findByUidImpl: (
+    uid: string,
+    kind?: string,
+  ) => Promise<Record<string, unknown> | undefined>,
+  findOidcClientImpl: (
+    clientId: string,
+  ) => Promise<OidcClientRecord | null> = async () => null,
 ): Pick<
   OidcPersistence,
   | "upsertArtifact"
@@ -34,14 +43,17 @@ function createMockStore(
       return undefined;
     },
     async revokeArtifactsByGrantId() {},
-    async saveInteractionLogin(_uid: string, _value: PendingInteractionLogin) {},
+    async saveInteractionLogin(
+      _uid: string,
+      _value: PendingInteractionLogin,
+    ) {},
     async getInteractionLogin() {
       return undefined;
     },
     async deleteInteractionLogin() {},
     async findOidcClient(clientId: string) {
       return findOidcClientImpl(clientId);
-    }
+    },
   };
 }
 
@@ -63,7 +75,7 @@ test("adapter findByUid returns undefined when payload kind mismatches current m
   const store = createMockStore(async () => ({
     kind: "AuthorizationCode",
     uid: "shared-uid",
-    value: "payload"
+    value: "payload",
   }));
   const Adapter = createAdapter(store);
   const sessionAdapter = new Adapter("Session");
@@ -77,7 +89,7 @@ test("adapter findByUid returns payload when payload kind matches current model"
   const store = createMockStore(async () => ({
     kind: "Session",
     uid: "session-uid",
-    value: "ok"
+    value: "ok",
   }));
   const Adapter = createAdapter(store);
   const sessionAdapter = new Adapter("Session");
@@ -88,6 +100,7 @@ test("adapter findByUid returns payload when payload kind matches current model"
 });
 
 test("adapter Client.find returns provider metadata for active client only", async () => {
+  let status: OidcClientRecord["status"] = "active";
   const store = createMockStore(
     async () => undefined,
     async (clientId) => {
@@ -98,6 +111,9 @@ test("adapter Client.find returns provider metadata for active client only", asy
       return {
         clientId: "client-a",
         clientSecretDigest: "scrypt$test",
+        displayName: "Client A",
+        description: "",
+        ownerSubjectId: "subj_owner",
         applicationType: "web",
         tokenEndpointAuthMethod: "client_secret_basic",
         redirectUris: ["http://localhost:3002/demo/callback"],
@@ -108,19 +124,23 @@ test("adapter Client.find returns provider metadata for active client only", asy
         requirePkce: true,
         allowRefreshTokenForPublicClient: false,
         autoConsent: false,
-        status: "active",
+        status,
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
+        version: 1,
       } satisfies OidcClientRecord;
-    }
+    },
   );
   const Adapter = createAdapter(store);
   const clientAdapter = new Adapter("Client");
   const active = await clientAdapter.find("client-a");
+  status = "draft";
+  const draft = await clientAdapter.find("client-a");
   const missing = await clientAdapter.find("client-b");
   assert.equal(active?.["client_id"], "client-a");
   assert.equal(active?.["client_secret"], "placeholder:client-a");
   assert.equal(active?.["scope"], "openid profile");
   assert.equal(active?.["allowRefreshTokenForPublicClient"], false);
+  assert.equal(draft, undefined);
   assert.equal(missing, undefined);
 });

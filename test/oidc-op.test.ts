@@ -301,6 +301,9 @@ async function upsertDemoClient(
   await state.store.upsertOidcClient({
     clientId: "demo-site",
     clientSecretDigest,
+    displayName: "Demo Site",
+    description: "",
+    ownerSubjectId: null,
     applicationType: "web",
     tokenEndpointAuthMethod: "client_secret_basic",
     redirectUris: patch.redirectUris ?? [TEST_REDIRECT_URI],
@@ -313,7 +316,8 @@ async function upsertDemoClient(
     autoConsent: patch.autoConsent ?? false,
     status: patch.status ?? "active",
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    version: 1
   });
 }
 
@@ -330,7 +334,10 @@ async function upsertPublicNoneClient(
   await state.store.upsertOidcClient({
     clientId,
     clientSecretDigest: undefined,
-    applicationType: "native",
+    displayName: clientId,
+    description: "",
+    ownerSubjectId: null,
+    applicationType: "web",
     tokenEndpointAuthMethod: "none",
     redirectUris: [TEST_REDIRECT_URI],
     postLogoutRedirectUris: [TEST_POST_LOGOUT_REDIRECT_URI],
@@ -342,7 +349,8 @@ async function upsertPublicNoneClient(
     autoConsent: false,
     status: "active",
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    version: 1
   });
 }
 
@@ -2150,6 +2158,35 @@ test("config defaults email verification global rate limits to strict profile", 
   assert.equal(config.emailVerifyRateLimitDomainWindowSeconds, 600);
   assert.equal(config.emailVerifyRateLimitIpMax, 12);
   assert.equal(config.emailVerifyRateLimitIpWindowSeconds, 600);
+});
+
+test("config defaults client creation quotas and rate limits", () => {
+  const config = readOidcOpConfig({
+    APP_ENV: "test",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true"
+  });
+  assert.equal(config.managementClientMaxPerSubject, 10);
+  assert.equal(config.managementClientMaxPendingPerSubject, 5);
+  assert.equal(config.managementClientCreateRateLimitSubjectMax, 5);
+  assert.equal(config.managementClientCreateRateLimitIpMax, 20);
+  assert.equal(config.managementClientCreateRateLimitWindowSeconds, 3600);
+  assert.equal(config.managementClientQuotaAdminExempt, true);
+});
+
+test("config rejects client pending quota above total quota", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig({
+        APP_ENV: "test",
+        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+        OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT: "1",
+        OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT: "2"
+      }),
+    /must not exceed/
+  );
 });
 
 test("config rejects non-positive email verification global rate limit values", () => {
