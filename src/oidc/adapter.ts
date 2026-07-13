@@ -1,5 +1,5 @@
 import type {
-  OidcClientRecord,
+  ActiveOidcClientRecord,
   OidcPersistence,
 } from "../persistence/contracts.js";
 
@@ -15,7 +15,7 @@ type AdapterStore = Pick<
   | "findOidcClient"
 >;
 
-function providerClientMetadata(client: OidcClientRecord) {
+function providerClientMetadata(client: ActiveOidcClientRecord) {
   const metadata: Record<string, unknown> = {
     client_id: client.clientId,
     client_name: client.displayName,
@@ -63,7 +63,7 @@ export function createAdapter(store: AdapterStore) {
     async find(id: string) {
       if (this.modelName === "Client") {
         const client = await store.findOidcClient(id);
-        if (!client || client.status !== "active") {
+        if (!client || client.lifecycleStatus !== "active") {
           return undefined;
         }
         return providerClientMetadata(client);

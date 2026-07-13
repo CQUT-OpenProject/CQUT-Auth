@@ -298,23 +298,40 @@ async function upsertDemoClient(
   const now = new Date().toISOString();
   const clientSecretDigest =
     patch.clientSecretDigest ?? (await createClientSecretDigest(TEST_DEMO_CLIENT_SECRET));
+  const redirectUris = patch.redirectUris ?? [TEST_REDIRECT_URI];
+  const postLogoutRedirectUris = patch.postLogoutRedirectUris ?? [TEST_POST_LOGOUT_REDIRECT_URI];
+  const scopeWhitelist = ["openid", "profile", "email", "student", "offline_access"] as const;
   await state.store.upsertOidcClient({
     clientId: "demo-site",
     clientSecretDigest,
     displayName: "Demo Site",
     description: "",
     ownerSubjectId: null,
+    clientType: "web",
+    lifecycleStatus: patch.status ?? "active",
+    activeRevisionId: 0,
+    activeRevision: {
+      revisionId: 0,
+      clientId: "demo-site",
+      revisionNumber: 1,
+      status: "approved",
+      redirectUris,
+      postLogoutRedirectUris,
+      scopeWhitelist: [...scopeWhitelist],
+      createdAt: now,
+      updatedAt: now,
+      version: 1
+    },
     applicationType: "web",
     tokenEndpointAuthMethod: "client_secret_basic",
-    redirectUris: patch.redirectUris ?? [TEST_REDIRECT_URI],
-    postLogoutRedirectUris: patch.postLogoutRedirectUris ?? [TEST_POST_LOGOUT_REDIRECT_URI],
+    redirectUris,
+    postLogoutRedirectUris,
     grantTypes: ["authorization_code", "refresh_token"],
     responseTypes: ["code"],
-    scopeWhitelist: ["openid", "profile", "email", "student", "offline_access"],
+    scopeWhitelist: [...scopeWhitelist],
     requirePkce: true,
     allowRefreshTokenForPublicClient: false,
     autoConsent: patch.autoConsent ?? false,
-    status: patch.status ?? "active",
     createdAt: now,
     updatedAt: now,
     version: 1
@@ -331,23 +348,38 @@ async function upsertPublicNoneClient(
   }> = {}
 ) {
   const now = new Date().toISOString();
+  const scopeWhitelist = patch.scopeWhitelist ?? ["openid", "profile", "email", "student"];
   await state.store.upsertOidcClient({
     clientId,
     clientSecretDigest: undefined,
     displayName: clientId,
     description: "",
     ownerSubjectId: null,
+    clientType: "spa",
+    lifecycleStatus: "active",
+    activeRevisionId: 0,
+    activeRevision: {
+      revisionId: 0,
+      clientId,
+      revisionNumber: 1,
+      status: "approved",
+      redirectUris: [TEST_REDIRECT_URI],
+      postLogoutRedirectUris: [TEST_POST_LOGOUT_REDIRECT_URI],
+      scopeWhitelist,
+      createdAt: now,
+      updatedAt: now,
+      version: 1
+    },
     applicationType: "web",
     tokenEndpointAuthMethod: "none",
     redirectUris: [TEST_REDIRECT_URI],
     postLogoutRedirectUris: [TEST_POST_LOGOUT_REDIRECT_URI],
     grantTypes: patch.grantTypes ?? ["refresh_token"],
     responseTypes: ["code"],
-    scopeWhitelist: patch.scopeWhitelist ?? ["openid", "profile", "email", "student", "offline_access"],
+    scopeWhitelist,
     requirePkce: true,
     allowRefreshTokenForPublicClient: patch.allowRefreshTokenForPublicClient ?? true,
     autoConsent: false,
-    status: "active",
     createdAt: now,
     updatedAt: now,
     version: 1
@@ -1869,17 +1901,17 @@ test("token endpoint rate limit blocks the same none-auth client_id across trust
     .post("/token")
     .set("X-Forwarded-For", "198.51.100.61")
     .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-1", client_id: "public-a" });
+    .send({ grant_type: "authorization_code", code: "missing-code-a-1", redirect_uri: TEST_REDIRECT_URI, code_verifier: "missing-verifier", client_id: "public-a" });
   const second = await request(app)
     .post("/token")
     .set("X-Forwarded-For", "198.51.100.62")
     .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-2", client_id: "public-a" });
+    .send({ grant_type: "authorization_code", code: "missing-code-a-2", redirect_uri: TEST_REDIRECT_URI, code_verifier: "missing-verifier", client_id: "public-a" });
   const third = await request(app)
     .post("/token")
     .set("X-Forwarded-For", "198.51.100.63")
     .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-3", client_id: "public-a" });
+    .send({ grant_type: "authorization_code", code: "missing-code-a-3", redirect_uri: TEST_REDIRECT_URI, code_verifier: "missing-verifier", client_id: "public-a" });
 
   assert.notEqual(first.status, 429);
   assert.notEqual(second.status, 429);
@@ -1903,17 +1935,17 @@ test("token endpoint rate limit blocks multiple none-auth client_ids from the sa
     .post("/token")
     .set("X-Forwarded-For", "198.51.100.70")
     .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-a-1", client_id: "public-a" });
+    .send({ grant_type: "authorization_code", code: "missing-code-a-1", redirect_uri: TEST_REDIRECT_URI, code_verifier: "missing-verifier", client_id: "public-a" });
   const second = await request(app)
     .post("/token")
     .set("X-Forwarded-For", "198.51.100.70")
     .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-b-1", client_id: "public-b" });
+    .send({ grant_type: "authorization_code", code: "missing-code-b-1", redirect_uri: TEST_REDIRECT_URI, code_verifier: "missing-verifier", client_id: "public-b" });
   const third = await request(app)
     .post("/token")
     .set("X-Forwarded-For", "198.51.100.70")
     .type("form")
-    .send({ grant_type: "refresh_token", refresh_token: "missing-token-c-1", client_id: "public-c" });
+    .send({ grant_type: "authorization_code", code: "missing-code-c-1", redirect_uri: TEST_REDIRECT_URI, code_verifier: "missing-verifier", client_id: "public-c" });
 
   assert.notEqual(first.status, 429);
   assert.notEqual(second.status, 429);
