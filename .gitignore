@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build outputs
+dist/
+build/
+coverage/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# env and local config
+.env
+.env.local
+.env.*.local
+deploy/.env
+deploy/oidc-clients.json
+
+# logs and temp
+*.log
+tmp/
+data/
+
+# OS/editor/tooling
+.DS_Store
+.serena/

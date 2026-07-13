@@ -1,0 +1,50 @@
+{
+  "name": "cqut-auth",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "pnpm@10.32.1",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check:env-source": "bash ../scripts/check-single-env-source.sh",
+    "dev": "tsx watch src/main.ts",
+    "dev:oidc": "tsx watch src/main.ts",
+    "docker:build": "docker build -t cqut-auth-oidc .",
+    "docker:up": "docker compose -f deploy/docker-compose.yml up -d --build",
+    "docker:down": "docker compose -f deploy/docker-compose.yml down",
+    "init-env": "node scripts/init-env.mjs",
+    "init-env:stdout": "node scripts/init-env.mjs --stdout",
+    "lint": "pnpm run check:env-source && tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/**/*.test.ts src/**/*.test.ts",
+    "seed:client": "tsx src/scripts/seed-oidc-client.ts",
+    "seed:key": "tsx src/scripts/seed-oidc-signing-key.ts",
+    "format": "prettier --write ."
+  },
+  "pnpm": {
+    "overrides": {
+      "lodash": "^4.18.0",
+      "path-to-regexp": "^8.4.0"
+    }
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "axios-cookiejar-support": "^6.0.4",
+    "express": "^5.1.0",
+    "ioredis": "^5.8.1",
+    "jose": "^6.2.2",
+    "oidc-provider": "^9.7.1",
+    "pg": "^8.16.3",
+    "resend": "^6.10.0",
+    "tough-cookie": "^5.1.2"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/node": "^24.6.0",
+    "@types/pg": "^8.15.5",
+    "@types/supertest": "^6.0.3",
+    "prettier": "^3.6.2",
+    "supertest": "^7.1.4",
+    "tsx": "4.20.6",
+    "typescript": "^6.0.2"
+  }
+}

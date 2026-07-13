@@ -1,0 +1,13 @@
+node_modules
+.pnpm-store
+dist
+coverage
+.git
+.serena
+docs
+deploy/.env
+deploy/oidc-clients.json
+*.log
+tmp
+data
+.DS_Store
