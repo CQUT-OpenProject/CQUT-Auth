@@ -3,6 +3,7 @@ WORKDIR /app
 
 COPY package.json pnpm-lock.yaml tsconfig.json tsconfig.build.json ./
 COPY src ./src
+COPY web ./web
 COPY scripts ./scripts
 
 RUN corepack enable && pnpm install --frozen-lockfile
