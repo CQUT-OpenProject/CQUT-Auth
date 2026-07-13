@@ -15,6 +15,13 @@ services:
       OIDC_COOKIE_SECURE: ${OIDC_COOKIE_SECURE:-false}
       TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-0}
       OIDC_CLIENTS_CONFIG_PATH: ${OIDC_CLIENTS_CONFIG_PATH:-/app/config/oidc-clients.json}
+      OIDC_ADMIN_SUBJECT_IDS: ${OIDC_ADMIN_SUBJECT_IDS:-}
+      OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT: ${OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT:-10}
+      OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT: ${OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT:-5}
+      OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT: ${OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT:-true}
+      OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX: ${OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX:-5}
+      OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX: ${OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX:-20}
+      OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS: ${OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS:-3600}
       OIDC_ARTIFACT_CLEANUP_ENABLED: ${OIDC_ARTIFACT_CLEANUP_ENABLED:-true}
       OIDC_ARTIFACT_CLEANUP_CRON: "${OIDC_ARTIFACT_CLEANUP_CRON:-*/5 * * * *}"
     ports:
@@ -27,7 +34,11 @@ services:
       postgres:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3003/health/ready >/dev/null || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:3003/health/ready >/dev/null || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 6
@@ -70,7 +81,11 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ../scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-postgres}",
+        ]
       interval: 10s
       timeout: 5s
       retries: 6

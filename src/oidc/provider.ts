@@ -19,7 +19,7 @@ import { resolveTrustedKoaRequestIp } from "../request-ip.js";
 import { createAdapter } from "./adapter.js";
 import { verifyClientSecretDigest } from "../crypto.js";
 import { randomId, parseScope, escapeHtml } from "../utils.js";
-import { upsertOidcClientsFromConfig } from "./client-config.js";
+import { initializeOidcClientsFromConfig } from "./client-config.js";
 import type { EmailSender, SendVerificationCodeInput } from "../email/email-sender.js";
 import { ResendEmailSender } from "../email/resend-email-sender.js";
 
@@ -505,7 +505,7 @@ export async function createOidcServices(
   rateLimitService: RateLimitService,
   providedEmailSender?: EmailSender
 ): Promise<OidcServices> {
-  await upsertOidcClientsFromConfig(store, config);
+  await initializeOidcClientsFromConfig(store, config);
   await ensureSigningKey(store, config);
 
   const providerRegistry = new ProviderRegistry(

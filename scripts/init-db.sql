@@ -39,7 +39,10 @@ create table if not exists subject_profiles (
 create table if not exists oidc_clients (
   client_id text primary key,
   client_secret_hash text,
-  application_type text not null,
+  display_name text not null,
+  description text not null default '',
+  owner_subject_id text references subjects(subject_id),
+  application_type text not null check (application_type = 'web'),
   token_endpoint_auth_method text not null,
   redirect_uris jsonb not null,
   post_logout_redirect_uris jsonb not null default '[]'::jsonb,
@@ -49,10 +52,45 @@ create table if not exists oidc_clients (
   require_pkce boolean not null default true,
   allow_refresh_token_for_public_client boolean not null default false,
   auto_consent boolean not null default false,
-  status text not null default 'active',
+  status text not null default 'pending' check (status in ('draft', 'pending', 'active', 'disabled', 'rejected')),
+  rejection_reason text,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  version integer not null default 1 check (version > 0)
 );
+
+create index if not exists idx_oidc_clients_owner_updated
+on oidc_clients (owner_subject_id, updated_at desc);
+
+create index if not exists idx_oidc_clients_status_updated
+on oidc_clients (status, updated_at desc);
+
+create table if not exists oidc_client_audit_logs (
+  id bigserial primary key,
+  client_id text not null,
+  actor_subject_id text,
+  action text not null,
+  changed_fields jsonb not null default '[]'::jsonb,
+  previous_status text,
+  new_status text,
+  reason text,
+  source_ip text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_oidc_client_audit_logs_client_created
+on oidc_client_audit_logs (client_id, created_at desc);
+
+create table if not exists management_sessions (
+  token_hash text primary key,
+  subject_id text not null references subjects(subject_id),
+  created_at timestamptz not null,
+  last_seen_at timestamptz not null,
+  expires_at timestamptz not null
+);
+
+create index if not exists idx_management_sessions_expires_at
+on management_sessions (expires_at);
 
 create table if not exists oidc_artifacts (
   id text primary key,
