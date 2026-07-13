@@ -19,6 +19,15 @@ type Client = {
   proposedRevision: ClientRevision | null;
   updatedAt: string;
   clientVersion: number;
+  secrets: ClientSecret[];
+};
+type ClientSecret = {
+  secretId: string;
+  status: "active" | "retiring" | "revoked";
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  version: number;
 };
 type ClientRevision = {
   revisionId: number;
@@ -364,6 +373,19 @@ function Dashboard({
         {selected && !creating && (
           <>
             <RevisionComparison client={selected} />
+            <ClientSecurity
+              client={selected}
+              csrfToken={context.csrfToken}
+              onChanged={async (message) => {
+                setNotice(message);
+                await refreshClients();
+              }}
+              onRotated={async (value) => {
+                setSecret({ clientId: selected.clientId, value });
+                setNotice("Client Secret 已轮换，请立即安全保存新 Secret。");
+                await refreshClients();
+              }}
+            />
             <ClientEditor
               title="基本信息"
               initial={formValue(selected)}
@@ -497,15 +519,17 @@ function Dashboard({
                       className="danger"
                       type="button"
                       onClick={() =>
-                        window.confirm("停用后第一轮无法恢复，确定继续吗？") &&
+                        window.confirm(
+                          "紧急停用不可恢复，并会立即撤销全部 Secret、Authorization Code、Access Token、Refresh Token 和 Grant。确定继续吗？",
+                        ) &&
                         void mutateClient(
                           `/clients/${encodeURIComponent(selected.clientId)}/disable`,
                           { clientVersion: selected.clientVersion },
-                          "客户端已停用。",
+                          "客户端已紧急停用，全部 Secret 与授权已撤销。",
                         )
                       }
                     >
-                      停用客户端
+                      紧急停用客户端
                     </button>
                   )}
                   {context.user.isAdmin &&
@@ -758,6 +782,191 @@ function ClientEditor({
       </form>
     </section>
   );
+}
+
+function ClientSecurity({
+  client,
+  csrfToken,
+  onChanged,
+  onRotated,
+}: {
+  client: Client;
+  csrfToken: string;
+  onChanged: (message: string) => Promise<void>;
+  onRotated: (value: string) => Promise<void>;
+}) {
+  const [graceHours, setGraceHours] = useState(24);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const disabled = client.lifecycleStatus === "disabled" || busy;
+
+  async function run(action: () => Promise<void>) {
+    setBusy(true);
+    setError("");
+    try {
+      await action();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "安全操作失败。");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className="panel stack" aria-labelledby="client-security-title">
+      <div>
+        <h2 id="client-security-title">凭据与授权</h2>
+        <p className="muted">
+          Secret 明文仅在生成响应中显示一次；历史 Secret 无法恢复。
+        </p>
+      </div>
+      {error && <Notice tone="danger">{error}</Notice>}
+      {client.clientType === "web" && (
+        <>
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Secret</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
+                  <th>到期时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(client.secrets ?? []).map((secret) => (
+                  <tr key={secret.secretId}>
+                    <td>
+                      <code>{secret.secretId}</code>
+                    </td>
+                    <td>{secretStatusLabel(secret)}</td>
+                    <td>{formatDate(secret.createdAt)}</td>
+                    <td>
+                      {secret.expiresAt ? formatDate(secret.expiresAt) : "—"}
+                    </td>
+                    <td>
+                      {secret.status !== "revoked" && (
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={disabled}
+                          onClick={() =>
+                            window.confirm(
+                              `立即撤销 Secret ${secret.secretId}？此操作不可恢复。`,
+                            ) &&
+                            void run(async () => {
+                              await api(
+                                `/clients/${encodeURIComponent(client.clientId)}/secrets/${encodeURIComponent(secret.secretId)}/revoke`,
+                                {
+                                  method: "POST",
+                                  body: JSON.stringify({
+                                    clientVersion: client.clientVersion,
+                                    secretVersion: secret.version,
+                                  }),
+                                },
+                                csrfToken,
+                              );
+                              await onChanged(
+                                "指定 Client Secret 已立即撤销。",
+                              );
+                            })
+                          }
+                        >
+                          撤销 Secret
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <label>
+            旧 Secret 宽限期（小时）
+            <input
+              type="number"
+              min="0"
+              max="168"
+              step="1"
+              value={graceHours}
+              disabled={disabled}
+              onChange={(event) => setGraceHours(Number(event.target.value))}
+            />
+          </label>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() =>
+              window.confirm(
+                `轮换 Client Secret，并保留旧 Secret ${graceHours} 小时？`,
+              ) &&
+              void run(async () => {
+                const result = await api<{ secret: { value: string } }>(
+                  `/clients/${encodeURIComponent(client.clientId)}/secrets/rotate`,
+                  {
+                    method: "POST",
+                    body: JSON.stringify({
+                      clientVersion: client.clientVersion,
+                      gracePeriodSeconds: graceHours * 3600,
+                    }),
+                  },
+                  csrfToken,
+                );
+                await onRotated(result.secret.value);
+              })
+            }
+          >
+            轮换 Secret
+          </button>
+        </>
+      )}
+      <button
+        type="button"
+        className="danger"
+        disabled={disabled}
+        onClick={() =>
+          window.confirm(
+            "撤销该客户端全部 Authorization Code、Access Token、Refresh Token 和 Grant？其他客户端会话不受影响。",
+          ) &&
+          void run(async () => {
+            await api(
+              `/clients/${encodeURIComponent(client.clientId)}/authorizations/revoke`,
+              {
+                method: "POST",
+                body: JSON.stringify({ clientVersion: client.clientVersion }),
+              },
+              csrfToken,
+            );
+            await onChanged("该客户端全部授权已撤销。");
+          })
+        }
+      >
+        撤销全部授权
+      </button>
+    </section>
+  );
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+  });
+}
+
+function secretStatusLabel(secret: ClientSecret) {
+  if (
+    secret.status === "retiring" &&
+    secret.expiresAt &&
+    new Date(secret.expiresAt).getTime() <= Date.now()
+  ) {
+    return "宽限期已到期";
+  }
+  return {
+    active: "当前生效",
+    retiring: "宽限期中",
+    revoked: "已撤销",
+  }[secret.status];
 }
 
 function ClientTable({

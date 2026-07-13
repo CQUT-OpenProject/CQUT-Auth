@@ -11,14 +11,23 @@ import Provider from "oidc-provider";
 import KeyStore from "oidc-provider/lib/helpers/keystore.js";
 import oidcProviderInstance from "oidc-provider/lib/helpers/weak_cache.js";
 import type { OidcOpConfig } from "../config.js";
-import type { OidcPersistence, OidcSigningKeyRecord } from "../persistence/contracts.js";
-import { RateLimitService, RateLimitUnavailableError } from "../persistence/rate-limit.service.js";
+import type {
+  OidcPersistence,
+  OidcSigningKeyRecord,
+} from "../persistence/contracts.js";
+import {
+  RateLimitService,
+  RateLimitUnavailableError,
+} from "../persistence/rate-limit.service.js";
 import { resolveTrustedKoaRequestIp } from "../request-ip.js";
 import { createAdapter } from "./adapter.js";
 import { verifyClientSecretDigest } from "../crypto.js";
 import { randomId, parseScope, escapeHtml } from "../utils.js";
 import { initializeOidcClientsFromConfig } from "./client-config.js";
-import type { EmailSender, SendVerificationCodeInput } from "../email/email-sender.js";
+import type {
+  EmailSender,
+  SendVerificationCodeInput,
+} from "../email/email-sender.js";
 import { ResendEmailSender } from "../email/resend-email-sender.js";
 
 export type OidcServices = {
@@ -40,7 +49,10 @@ type SessionTtlState = {
   iat?: unknown;
 };
 
-type TokenRateLimitIdentitySource = "client_secret_basic" | "none" | "anonymous";
+type TokenRateLimitIdentitySource =
+  | "client_secret_basic"
+  | "none"
+  | "anonymous";
 
 type TokenRateLimitIdentity = {
   source: TokenRateLimitIdentitySource;
@@ -61,7 +73,7 @@ class TokenRateLimitError extends Error {
     status: number,
     code: "service_unavailable" | "rate_limited",
     errorDescription: string,
-    retryAfterSeconds: number
+    retryAfterSeconds: number,
   ) {
     super(code);
     this.name = "TokenRateLimitError";
@@ -105,10 +117,14 @@ function normalizeClientId(value: unknown): string | undefined {
 }
 
 function resolveBasicClientId(ctx: any): string | undefined {
-  const authorization = typeof ctx.get === "function" ? ctx.get("authorization") : undefined;
+  const authorization =
+    typeof ctx.get === "function" ? ctx.get("authorization") : undefined;
   if (typeof authorization === "string" && authorization.startsWith("Basic ")) {
     try {
-      const decoded = Buffer.from(authorization.slice("Basic ".length), "base64").toString("utf8");
+      const decoded = Buffer.from(
+        authorization.slice("Basic ".length),
+        "base64",
+      ).toString("utf8");
       const separator = decoded.indexOf(":");
       if (separator > 0) {
         const clientId = normalizeClientId(decoded.slice(0, separator));
@@ -123,7 +139,10 @@ function resolveBasicClientId(ctx: any): string | undefined {
   return undefined;
 }
 
-function resolveRequestIp(config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">, ctx: any) {
+function resolveRequestIp(
+  config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
+  ctx: any,
+) {
   return resolveTrustedKoaRequestIp(config, ctx);
 }
 
@@ -132,7 +151,7 @@ function createTokenRateLimitKeys(identity: TokenRateLimitIdentity) {
   const keys = [
     `${scope}:client:${identity.clientId}`,
     `${scope}:ip:${identity.ip}`,
-    `${scope}:client-ip:${identity.clientId}:${identity.ip}`
+    `${scope}:client-ip:${identity.clientId}:${identity.ip}`,
   ];
   if (identity.subjectId) {
     keys.push(`${scope}:subject:${identity.subjectId}`);
@@ -144,11 +163,16 @@ function shouldRateLimitAnonymousTokenResponse(ctx: any) {
   if (ctx.status !== 400 && ctx.status !== 401) {
     return false;
   }
-  const responseError = typeof ctx.body?.error === "string" ? ctx.body.error : undefined;
-  return responseError === "invalid_request" || responseError === "invalid_client";
+  const responseError =
+    typeof ctx.body?.error === "string" ? ctx.body.error : undefined;
+  return (
+    responseError === "invalid_request" || responseError === "invalid_client"
+  );
 }
 
-function resolveClientRateLimitSource(clientAuthMethod: unknown): Extract<TokenRateLimitIdentitySource, "client_secret_basic" | "none"> {
+function resolveClientRateLimitSource(
+  clientAuthMethod: unknown,
+): Extract<TokenRateLimitIdentitySource, "client_secret_basic" | "none"> {
   return clientAuthMethod === "none" ? "none" : "client_secret_basic";
 }
 
@@ -156,9 +180,10 @@ async function evaluateTokenRateLimit(
   config: OidcOpConfig,
   rateLimitService: RateLimitService,
   ctx: any,
-  identity: TokenRateLimitIdentity
+  identity: TokenRateLimitIdentity,
 ) {
-  const appliedKeys: Set<string> = ctx.state.tokenRateLimitAppliedKeys ??= new Set<string>();
+  const appliedKeys: Set<string> = (ctx.state.tokenRateLimitAppliedKeys ??=
+    new Set<string>());
   try {
     for (const key of createTokenRateLimitKeys(identity)) {
       if (appliedKeys.has(key)) {
@@ -167,16 +192,26 @@ async function evaluateTokenRateLimit(
       const decision = await rateLimitService.consume(
         key,
         config.tokenRateLimitMax,
-        config.tokenRateLimitWindowSeconds
+        config.tokenRateLimitWindowSeconds,
       );
       appliedKeys.add(key);
       if (!decision.allowed) {
-        return new TokenRateLimitError(429, "rate_limited", "token endpoint rate limit exceeded", decision.retryAfterSeconds);
+        return new TokenRateLimitError(
+          429,
+          "rate_limited",
+          "token endpoint rate limit exceeded",
+          decision.retryAfterSeconds,
+        );
       }
     }
   } catch (error) {
     if (error instanceof RateLimitUnavailableError) {
-      return new TokenRateLimitError(503, "service_unavailable", "rate limiting backend is unavailable", 60);
+      return new TokenRateLimitError(
+        503,
+        "service_unavailable",
+        "rate limiting backend is unavailable",
+        60,
+      );
     }
     throw error;
   }
@@ -185,7 +220,9 @@ async function evaluateTokenRateLimit(
 
 function resolveSubjectRateLimitIdentity(ctx: any): string | undefined {
   const accountId = ctx.oidc?.session?.accountId;
-  return typeof accountId === "string" && accountId.trim().length > 0 ? accountId : undefined;
+  return typeof accountId === "string" && accountId.trim().length > 0
+    ? accountId
+    : undefined;
 }
 
 function isTokenRequestPath(pathname: string, tokenPath: string) {
@@ -194,21 +231,21 @@ function isTokenRequestPath(pathname: string, tokenPath: string) {
 
 function replyWithTokenError(
   ctx: any,
-  tokenRateLimitError: TokenRateLimitError
+  tokenRateLimitError: TokenRateLimitError,
 ) {
   ctx.status = tokenRateLimitError.status;
   ctx.set("Retry-After", String(tokenRateLimitError.retryAfterSeconds));
   ctx.set("Cache-Control", "no-store");
   ctx.body = {
     error: tokenRateLimitError.code,
-    error_description: tokenRateLimitError.errorDescription
+    error_description: tokenRateLimitError.errorDescription,
   };
 }
 
 function createTokenRateLimitMiddleware(
   config: OidcOpConfig,
   rateLimitService: RateLimitService,
-  tokenPath: string
+  tokenPath: string,
 ) {
   return async (ctx: any, next: () => Promise<unknown>) => {
     if (ctx.method !== "POST" || !isTokenRequestPath(ctx.path, tokenPath)) {
@@ -219,11 +256,16 @@ function createTokenRateLimitMiddleware(
     const ip = resolveRequestIp(config, ctx);
     const basicClientId = resolveBasicClientId(ctx);
     if (basicClientId) {
-      const basicRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, ctx, {
-        source: "client_secret_basic",
-        clientId: basicClientId,
-        ip
-      });
+      const basicRateLimitError = await evaluateTokenRateLimit(
+        config,
+        rateLimitService,
+        ctx,
+        {
+          source: "client_secret_basic",
+          clientId: basicClientId,
+          ip,
+        },
+      );
       if (basicRateLimitError) {
         replyWithTokenError(ctx, basicRateLimitError);
         return;
@@ -234,23 +276,37 @@ function createTokenRateLimitMiddleware(
     await next();
 
     const resolvedClientId = normalizeClientId(ctx.oidc?.client?.clientId);
-    if (ctx.state.tokenRateLimitClientIdentitySeen || resolvedClientId || !shouldRateLimitAnonymousTokenResponse(ctx)) {
+    if (
+      ctx.state.tokenRateLimitClientIdentitySeen ||
+      resolvedClientId ||
+      !shouldRateLimitAnonymousTokenResponse(ctx)
+    ) {
       return;
     }
-    const anonymousRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, ctx, {
-      source: "anonymous",
-      clientId: "unauthenticated",
-      ip
-    });
+    const anonymousRateLimitError = await evaluateTokenRateLimit(
+      config,
+      rateLimitService,
+      ctx,
+      {
+        source: "anonymous",
+        clientId: "unauthenticated",
+        ip,
+      },
+    );
     if (anonymousRateLimitError) {
       replyWithTokenError(ctx, anonymousRateLimitError);
     }
   };
 }
 
-function wrapTokenGrantHandlersWithRateLimit(provider: any, config: OidcOpConfig, rateLimitService: RateLimitService) {
+function wrapTokenGrantHandlersWithRateLimit(
+  provider: any,
+  config: OidcOpConfig,
+  rateLimitService: RateLimitService,
+) {
   const internals = oidcProviderInstance(provider);
-  const grantTypeHandlers: Map<string, (ctx: any) => Promise<unknown>> = internals.grantTypeHandlers;
+  const grantTypeHandlers: Map<string, (ctx: any) => Promise<unknown>> =
+    internals.grantTypeHandlers;
   for (const [grantType, handler] of grantTypeHandlers.entries()) {
     if (wrappedTokenHandlers.has(handler)) {
       continue;
@@ -259,12 +315,19 @@ function wrapTokenGrantHandlersWithRateLimit(provider: any, config: OidcOpConfig
       const clientId = normalizeClientId(ctx.oidc?.client?.clientId);
       if (clientId) {
         const subjectId = resolveSubjectRateLimitIdentity(ctx);
-        const clientRateLimitError = await evaluateTokenRateLimit(config, rateLimitService, ctx, {
-          source: resolveClientRateLimitSource(ctx.oidc.client.clientAuthMethod),
-          clientId,
-          ip: resolveRequestIp(config, ctx),
-          ...(subjectId ? { subjectId } : {})
-        });
+        const clientRateLimitError = await evaluateTokenRateLimit(
+          config,
+          rateLimitService,
+          ctx,
+          {
+            source: resolveClientRateLimitSource(
+              ctx.oidc.client.clientAuthMethod,
+            ),
+            clientId,
+            ip: resolveRequestIp(config, ctx),
+            ...(subjectId ? { subjectId } : {}),
+          },
+        );
         if (clientRateLimitError) {
           replyWithTokenError(ctx, clientRateLimitError);
           return;
@@ -277,16 +340,22 @@ function wrapTokenGrantHandlersWithRateLimit(provider: any, config: OidcOpConfig
   }
 }
 
-function installTokenRateLimitMiddleware(provider: any, config: OidcOpConfig, rateLimitService: RateLimitService) {
+function installTokenRateLimitMiddleware(
+  provider: any,
+  config: OidcOpConfig,
+  rateLimitService: RateLimitService,
+) {
   const tokenPath = provider.pathFor("token");
-  provider.use(createTokenRateLimitMiddleware(config, rateLimitService, tokenPath));
+  provider.use(
+    createTokenRateLimitMiddleware(config, rateLimitService, tokenPath),
+  );
   wrapTokenGrantHandlersWithRateLimit(provider, config, rateLimitService);
 }
 
 export function computeSessionTtlSeconds(
   session: SessionTtlState | undefined,
   config: Pick<OidcOpConfig, "sessionIdleTtlSeconds" | "sessionTtlSeconds">,
-  nowSeconds = Math.floor(Date.now() / 1000)
+  nowSeconds = Math.floor(Date.now() / 1000),
 ) {
   const loginTs = parseEpochSeconds(session?.loginTs);
   const issuedAt = parseEpochSeconds(session?.iat);
@@ -298,30 +367,19 @@ export function computeSessionTtlSeconds(
 }
 
 function asPublicSigningJwk(jwk: SigningJwk): SigningJwk {
-  const {
-    d,
-    p,
-    q,
-    dp,
-    dq,
-    qi,
-    oth,
-    priv,
-    k,
-    key_ops,
-    ...publicJwk
-  } = jwk as SigningJwk & {
-    d?: string;
-    p?: string;
-    q?: string;
-    dp?: string;
-    dq?: string;
-    qi?: string;
-    oth?: unknown;
-    priv?: string;
-    k?: string;
-    key_ops?: string[];
-  };
+  const { d, p, q, dp, dq, qi, oth, priv, k, key_ops, ...publicJwk } =
+    jwk as SigningJwk & {
+      d?: string;
+      p?: string;
+      q?: string;
+      dp?: string;
+      dq?: string;
+      qi?: string;
+      oth?: unknown;
+      priv?: string;
+      k?: string;
+      key_ops?: string[];
+    };
   void d;
   void p;
   void q;
@@ -342,7 +400,10 @@ function signingJwksFingerprint(jwks: SigningJwk[]) {
     .join("|");
 }
 
-function replaceProviderSigningKeyset(provider: any, signingJwks: SigningJwk[]) {
+function replaceProviderSigningKeyset(
+  provider: any,
+  signingJwks: SigningJwk[],
+) {
   const internals = oidcProviderInstance(provider);
   const keyStore = new KeyStore();
   for (const jwk of signingJwks) {
@@ -350,7 +411,7 @@ function replaceProviderSigningKeyset(provider: any, signingJwks: SigningJwk[]) 
   }
   internals.keystore = keyStore;
   internals.jwks = {
-    keys: signingJwks.map((jwk) => asPublicSigningJwk(structuredClone(jwk)))
+    keys: signingJwks.map((jwk) => asPublicSigningJwk(structuredClone(jwk))),
   };
 }
 
@@ -358,10 +419,17 @@ function installClientSecretDigestValidation(provider: any) {
   const originalFind = provider.Client.find.bind(provider.Client);
   provider.Client.find = async (id: string) => {
     const providerClient = await originalFind(id);
-    if (providerClient && typeof providerClient.clientSecretDigest === "string") {
-      const digest = providerClient.clientSecretDigest;
-      providerClient.compareClientSecret = async (actual: string) =>
-        verifyClientSecretDigest(actual, digest);
+    if (providerClient && Array.isArray(providerClient.clientSecretDigests)) {
+      const digests = providerClient.clientSecretDigests.filter(
+        (digest: unknown): digest is string =>
+          typeof digest === "string" && digest.startsWith("scrypt$"),
+      );
+      providerClient.compareClientSecret = async (actual: string) => {
+        for (const digest of digests) {
+          if (await verifyClientSecretDigest(actual, digest)) return true;
+        }
+        return false;
+      };
     }
     return providerClient;
   };
@@ -371,7 +439,7 @@ function startSigningKeyRefreshLoop(
   provider: any,
   store: OidcPersistence,
   refreshIntervalSeconds: number,
-  initialSigningJwks: SigningJwk[]
+  initialSigningJwks: SigningJwk[],
 ) {
   let currentFingerprint = signingJwksFingerprint(initialSigningJwks);
   const refresh = async () => {
@@ -379,7 +447,9 @@ function startSigningKeyRefreshLoop(
       const loaded = await store.loadPrivateSigningJwks(["active", "retiring"]);
       const nextSigningJwks = loaded as SigningJwk[];
       if (nextSigningJwks.length === 0) {
-        console.error("[oidc-op] signing key refresh skipped: no active or retiring keys available");
+        console.error(
+          "[oidc-op] signing key refresh skipped: no active or retiring keys available",
+        );
         return;
       }
       const nextFingerprint = signingJwksFingerprint(nextSigningJwks);
@@ -390,7 +460,10 @@ function startSigningKeyRefreshLoop(
       currentFingerprint = nextFingerprint;
       console.warn("[oidc-op] signing keyset reloaded without restart");
     } catch (error) {
-      console.error("[oidc-op] signing key refresh failed; keeping previous keyset", error);
+      console.error(
+        "[oidc-op] signing key refresh failed; keeping previous keyset",
+        error,
+      );
     }
   };
   const timer = setInterval(() => {
@@ -412,14 +485,16 @@ const LOGOUT_PAGE_CSP = [
   "object-src 'none'",
   "form-action 'self'",
   "frame-ancestors 'none'",
-  "style-src 'unsafe-inline'"
+  "style-src 'unsafe-inline'",
 ].join("; ");
 
 function renderLogoutConfirmationPage(form: string) {
-  const formWithExplicitLogout =
-    form.includes('name="logout"')
-      ? form
-      : form.replace("</form>", '<input type="hidden" name="logout" value="yes"/></form>');
+  const formWithExplicitLogout = form.includes('name="logout"')
+    ? form
+    : form.replace(
+        "</form>",
+        '<input type="hidden" name="logout" value="yes"/></form>',
+      );
   return `<!DOCTYPE html>
   <html lang="zh-CN">
     <head>
@@ -467,10 +542,17 @@ async function ensureSigningKey(store: OidcPersistence, config: OidcOpConfig) {
   return [created];
 }
 
-export async function generateSigningKey(store: OidcPersistence): Promise<OidcSigningKeyRecord> {
+export async function generateSigningKey(
+  store: OidcPersistence,
+): Promise<OidcSigningKeyRecord> {
   const kid = randomId("kid");
-  const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
-  const [publicJwk, privateJwk] = await Promise.all([exportJWK(publicKey), exportJWK(privateKey)]);
+  const { privateKey, publicKey } = await generateKeyPair("RS256", {
+    extractable: true,
+  });
+  const [publicJwk, privateJwk] = await Promise.all([
+    exportJWK(publicKey),
+    exportJWK(privateKey),
+  ]);
   const now = new Date().toISOString();
   const record: OidcSigningKeyRecord = {
     kid,
@@ -480,17 +562,17 @@ export async function generateSigningKey(store: OidcPersistence): Promise<OidcSi
       ...publicJwk,
       kid,
       alg: "RS256",
-      use: "sig"
+      use: "sig",
     } as SigningJwk,
     privateJwkCiphertext: await store.encryptPrivateJwk({
       ...privateJwk,
       kid,
       alg: "RS256",
-      use: "sig"
+      use: "sig",
     } as SigningJwk),
     status: "active",
     createdAt: now,
-    activatedAt: now
+    activatedAt: now,
   };
   await store.upsertSigningKey(record);
   return record;
@@ -500,7 +582,7 @@ export async function createOidcServices(
   config: OidcOpConfig,
   store: OidcPersistence,
   rateLimitService: RateLimitService,
-  providedEmailSender?: EmailSender
+  providedEmailSender?: EmailSender,
 ): Promise<OidcServices> {
   await initializeOidcClientsFromConfig(store, config);
   await ensureSigningKey(store, config);
@@ -510,8 +592,8 @@ export async function createOidcServices(
       [
         "mock",
         new MockCampusVerifierProvider({
-          schoolCode: config.schoolCode
-        })
+          schoolCode: config.schoolCode,
+        }),
       ],
       [
         "cqut",
@@ -521,11 +603,11 @@ export async function createOidcServices(
           providerTotalTimeoutMs: config.providerTotalTimeoutMs,
           uisBaseUrl: config.cqutUisBaseUrl,
           casApplicationCode: config.cqutCasApplicationCode,
-          casServiceUrl: config.cqutCasServiceUrl
-        })
-      ]
+          casServiceUrl: config.cqutCasServiceUrl,
+        }),
+      ],
     ]),
-    config.authProvider
+    config.authProvider,
   );
   const identityLinkService = new IdentityLinkService(store);
   const subjectProfileService = new SubjectProfileService(store);
@@ -534,17 +616,20 @@ export async function createOidcServices(
     (config.resendApiKey && config.emailFrom
       ? new ResendEmailSender({
           apiKey: config.resendApiKey,
-          from: config.emailFrom
+          from: config.emailFrom,
         })
       : new DisabledEmailSender());
   const interactiveAuthenticator = new InteractiveAuthenticatorService(
     providerRegistry,
     identityLinkService,
     subjectProfileService,
-    store
+    store,
   );
 
-  const initialSigningJwks = await store.loadPrivateSigningJwks(["active", "retiring"]);
+  const initialSigningJwks = await store.loadPrivateSigningJwks([
+    "active",
+    "retiring",
+  ]);
   if (initialSigningJwks.length === 0) {
     throw new Error("no signing keys available after initialization");
   }
@@ -558,39 +643,39 @@ export async function createOidcServices(
     pkce: {
       required() {
         return true;
-      }
+      },
     },
     claims: {
       openid: ["sub"],
       profile: ["preferred_username", "name"],
       email: ["email", "email_verified"],
-      student: ["status"]
+      student: ["status"],
     },
     clientDefaults: {
-      token_endpoint_auth_method: "client_secret_basic"
+      token_endpoint_auth_method: "client_secret_basic",
     },
     cookies: {
       keys: config.cookieKeys,
       names: {
         session: sessionCookieName,
         interaction: "_interaction",
-        resume: "_interaction_resume"
+        resume: "_interaction_resume",
       },
       long: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: config.cookieSecure
+        secure: config.cookieSecure,
       },
       short: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: config.cookieSecure
-      }
+        secure: config.cookieSecure,
+      },
     },
     discovery: {
-      claims_supported: [...OIDC_CLAIMS]
+      claims_supported: [...OIDC_CLAIMS],
     },
     features: {
       devInteractions: { enabled: false },
@@ -637,12 +722,12 @@ export async function createOidcServices(
 
           ctx.type = "html";
           ctx.body = renderLogoutSuccessPage();
-        }
-      }
+        },
+      },
     },
     extraClientMetadata: {
-      properties: ["clientSecretDigest", "allowRefreshTokenForPublicClient"],
-      validator() {}
+      properties: ["clientSecretDigests", "allowRefreshTokenForPublicClient"],
+      validator() {},
     },
     findAccount: async (_ctx: any, sub: string) => {
       const principal = await store.findPrincipalBySubjectId(sub);
@@ -654,13 +739,18 @@ export async function createOidcServices(
         async claims(_use: any, scope: string) {
           const grantedScopes = new Set(parseScope(scope));
           const claims: Record<string, unknown> = {
-            sub
+            sub,
           };
           if (grantedScopes.has("profile")) {
             claims["preferred_username"] = principal.preferredUsername;
-            claims["name"] = principal.displayName ?? `CQUT User ${principal.schoolUid}`;
+            claims["name"] =
+              principal.displayName ?? `CQUT User ${principal.schoolUid}`;
           }
-          if (grantedScopes.has("email") && principal.email && principal.emailVerified) {
+          if (
+            grantedScopes.has("email") &&
+            principal.email &&
+            principal.emailVerified
+          ) {
             claims["email"] = principal.email;
             claims["email_verified"] = true;
           }
@@ -668,13 +758,13 @@ export async function createOidcServices(
             claims["status"] = normalizeStatusClaim(principal.studentStatus);
           }
           return claims;
-        }
+        },
       };
     },
     interactions: {
       url(_ctx: any, interaction: { uid: string }) {
         return `/interaction/${interaction.uid}`;
-      }
+      },
     },
     issueRefreshToken(_ctx: any, client: any, code: any) {
       if (!client.grantTypeAllowed("refresh_token")) {
@@ -689,13 +779,15 @@ export async function createOidcServices(
       return code.scopes.has("offline_access");
     },
     loadExistingGrant: async (ctx: any) => {
-      const sessionGrantId = ctx.oidc.session?.grantIdFor(ctx.oidc.client.clientId);
+      const sessionGrantId = ctx.oidc.session?.grantIdFor(
+        ctx.oidc.client.clientId,
+      );
       if (sessionGrantId) {
         return ctx.oidc.provider.Grant.find(sessionGrantId);
       }
       const grant = new ctx.oidc.provider.Grant({
         accountId: ctx.oidc.session.accountId,
-        clientId: ctx.oidc.client.clientId
+        clientId: ctx.oidc.client.clientId,
       });
       await grant.save();
       return grant;
@@ -721,7 +813,7 @@ export async function createOidcServices(
       token: "/token",
       userinfo: "/userinfo",
       jwks: "/jwks",
-      end_session: "/session/end"
+      end_session: "/session/end",
     },
     scopes: [...OIDC_SCOPES],
     subjectTypes: ["public"],
@@ -735,9 +827,9 @@ export async function createOidcServices(
       Session: (_ctx: any, session: SessionTtlState) =>
         computeSessionTtlSeconds(session, {
           sessionIdleTtlSeconds: config.sessionIdleTtlSeconds,
-          sessionTtlSeconds: config.sessionTtlSeconds
-        })
-    }
+          sessionTtlSeconds: config.sessionTtlSeconds,
+        }),
+    },
   });
   provider.proxy = true;
   installClientSecretDigestValidation(provider);
@@ -745,7 +837,7 @@ export async function createOidcServices(
     provider,
     store,
     config.signingKeyRefreshIntervalSeconds,
-    initialSigningJwks as SigningJwk[]
+    initialSigningJwks as SigningJwk[],
   );
 
   installTokenRateLimitMiddleware(provider, config, rateLimitService);
@@ -757,6 +849,6 @@ export async function createOidcServices(
     emailSender,
     async close() {
       await stopSigningKeyRefresh();
-    }
+    },
   };
 }

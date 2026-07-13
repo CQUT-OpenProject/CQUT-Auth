@@ -19,14 +19,19 @@ type FakeQueryResult = {
 class FakePool {
   readonly calls: Array<{ sql: string; values: unknown[] | undefined }> = [];
 
-  constructor(private readonly responder: (sql: string, values: unknown[] | undefined) => FakeQueryResult) {}
+  constructor(
+    private readonly responder: (
+      sql: string,
+      values: unknown[] | undefined,
+    ) => FakeQueryResult,
+  ) {}
 
   async query(sql: string, values?: unknown[]) {
     this.calls.push({ sql, values });
     const result = this.responder(sql, values);
     return {
       rows: result.rows ?? [],
-      rowCount: result.rowCount ?? (result.rows ? result.rows.length : 0)
+      rowCount: result.rowCount ?? (result.rows ? result.rows.length : 0),
     };
   }
 }
@@ -40,9 +45,9 @@ function createRepository(pool: FakePool) {
       enabled: false,
       sampleRate: 0,
       batchSize: 100,
-      minIntervalSeconds: 30
+      minIntervalSeconds: 30,
     },
-    cipher
+    cipher,
   );
 }
 
@@ -55,9 +60,9 @@ function createInMemoryRepository() {
       enabled: false,
       sampleRate: 0,
       batchSize: 100,
-      minIntervalSeconds: 30
+      minIntervalSeconds: 30,
     },
-    cipher
+    cipher,
   );
 }
 
@@ -71,24 +76,69 @@ test("upsertArtifact stores encrypted envelope instead of plaintext payload", as
     {
       uid: "uid-1",
       grantId: "grant-1",
-      value: "top-secret"
+      clientId: "client-a",
+      value: "top-secret",
     },
-    120
+    120,
   );
 
-  const insertCall = pool.calls.find((call) => call.sql.includes("insert into oidc_artifacts"));
+  const insertCall = pool.calls.find((call) =>
+    call.sql.includes("insert into oidc_artifacts"),
+  );
   assert.ok(insertCall);
   assert.equal(insertCall.values?.[2], lookupHash("grant-1"));
-  assert.equal(insertCall.values?.[3], lookupHash("uid-1"));
-  assert.equal(insertCall.values?.[4], null);
-  const serializedPayload = insertCall.values?.[5];
+  assert.equal(insertCall.values?.[3], lookupHash("client-a"));
+  assert.equal(insertCall.values?.[4], lookupHash("uid-1"));
+  assert.equal(insertCall.values?.[5], null);
+  const serializedPayload = insertCall.values?.[6];
   assert.equal(typeof serializedPayload, "string");
-  const payload = JSON.parse(serializedPayload as string) as Record<string, unknown>;
+  const payload = JSON.parse(serializedPayload as string) as Record<
+    string,
+    unknown
+  >;
 
   assert.equal(payload["version"], 1);
   assert.equal(typeof payload["ciphertext"], "string");
   assert.equal((payload["ciphertext"] as string).includes("top-secret"), false);
   assert.equal((payload["ciphertext"] as string).includes("uid-1"), false);
+});
+
+test("revokeArtifactsByClientId deletes only revocable artifacts for one client", async () => {
+  const repository = createInMemoryRepository();
+  for (const kind of [
+    "AuthorizationCode",
+    "AccessToken",
+    "RefreshToken",
+    "Grant",
+    "Session",
+  ]) {
+    await repository.upsertArtifact(
+      `${kind}:a`,
+      kind,
+      { clientId: "client-a", value: kind },
+      120,
+    );
+    await repository.upsertArtifact(
+      `${kind}:b`,
+      kind,
+      { clientId: "client-b", value: kind },
+      120,
+    );
+  }
+
+  await repository.revokeArtifactsByClientId("client-a");
+
+  for (const kind of [
+    "AuthorizationCode",
+    "AccessToken",
+    "RefreshToken",
+    "Grant",
+  ]) {
+    assert.equal(await repository.findArtifact(`${kind}:a`), undefined);
+    assert.ok(await repository.findArtifact(`${kind}:b`));
+  }
+  assert.ok(await repository.findArtifact("Session:a"));
+  assert.ok(await repository.findArtifact("Session:b"));
 });
 
 test("findArtifact decrypts encrypted envelope from database", async () => {
@@ -97,8 +147,8 @@ test("findArtifact decrypts encrypted envelope from database", async () => {
     version: 1,
     ciphertext: await cipher.encryptPayload({
       uid: "uid-1",
-      value: "ok"
-    })
+      value: "ok",
+    }),
   };
 
   const pool = new FakePool((sql) => {
@@ -114,9 +164,9 @@ test("findArtifact decrypts encrypted envelope from database", async () => {
             payload: encryptedPayload,
             expires_at: new Date(Date.now() + 60_000),
             consumed_at: null,
-            created_at: new Date()
-          }
-        ]
+            created_at: new Date(),
+          },
+        ],
       };
     }
     return { rows: [] };
@@ -141,13 +191,13 @@ test("findArtifact returns undefined for invalid payload envelope", async () => 
             user_code_hash: null,
             payload: {
               uid: "uid-legacy",
-              value: "plaintext"
+              value: "plaintext",
             },
             expires_at: new Date(Date.now() + 60_000),
             consumed_at: null,
-            created_at: new Date()
-          }
-        ]
+            created_at: new Date(),
+          },
+        ],
       };
     }
     return { rows: [] };
@@ -165,8 +215,8 @@ test("findArtifactByUid includes kind filter when provided", async () => {
     ciphertext: await cipher.encryptPayload({
       kind: "Session",
       uid: "shared-uid",
-      value: "session-payload"
-    })
+      value: "session-payload",
+    }),
   };
 
   const pool = new FakePool((sql, values) => {
@@ -185,9 +235,9 @@ test("findArtifactByUid includes kind filter when provided", async () => {
             payload: encryptedPayload,
             expires_at: new Date(Date.now() + 60_000),
             consumed_at: null,
-            created_at: new Date()
-          }
-        ]
+            created_at: new Date(),
+          },
+        ],
       };
     }
     return { rows: [] };
@@ -206,20 +256,28 @@ test("findArtifactByUid applies kind filter in memory mode", async () => {
     "AuthorizationCode",
     {
       uid: "shared-uid",
-      value: "code-payload"
+      value: "code-payload",
     },
-    120
+    120,
   );
   await repository.upsertArtifact(
     "Session:session-1",
     "Session",
     {
       uid: "shared-uid",
-      value: "session-payload"
+      value: "session-payload",
     },
-    120
+    120,
   );
 
-  assert.equal((await repository.findArtifactByUid("shared-uid", "AuthorizationCode"))?.["value"], "code-payload");
-  assert.equal((await repository.findArtifactByUid("shared-uid", "Session"))?.["value"], "session-payload");
+  assert.equal(
+    (await repository.findArtifactByUid("shared-uid", "AuthorizationCode"))?.[
+      "value"
+    ],
+    "code-payload",
+  );
+  assert.equal(
+    (await repository.findArtifactByUid("shared-uid", "Session"))?.["value"],
+    "session-payload",
+  );
 });

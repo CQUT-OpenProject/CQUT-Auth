@@ -49,6 +49,8 @@ export function createManagementRouter(
     maxClientsPerOwner: config.managementClientMaxPerSubject,
     maxPendingClientsPerOwner: config.managementClientMaxPendingPerSubject,
     adminQuotaExempt: config.managementClientQuotaAdminExempt,
+    defaultSecretGraceSeconds: config.clientSecretDefaultGraceSeconds,
+    maxSecretGraceSeconds: config.clientSecretMaxGraceSeconds,
   });
   const adminIds = new Set(config.adminSubjectIds);
 
@@ -296,6 +298,52 @@ export function createManagementRouter(
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const client = await clients.update(
+          auth.actor,
+          param(request, "clientId"),
+          request.body,
+        );
+        response.json({ client });
+      });
+    },
+  );
+
+  router.post(
+    "/clients/:clientId/secrets/rotate",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        const result = await clients.rotateSecret(
+          auth.actor,
+          param(request, "clientId"),
+          request.body,
+        );
+        response.status(201).json(result);
+      });
+    },
+  );
+
+  router.post(
+    "/clients/:clientId/secrets/:secretId/revoke",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        const client = await clients.revokeSecret(
+          auth.actor,
+          param(request, "clientId"),
+          param(request, "secretId"),
+          request.body,
+        );
+        response.json({ client });
+      });
+    },
+  );
+
+  router.post(
+    "/clients/:clientId/authorizations/revoke",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        const client = await clients.revokeAuthorizations(
           auth.actor,
           param(request, "clientId"),
           request.body,

@@ -14,6 +14,7 @@
 - **🏫 无缝对接校园认证**：将学校 UIS / CAS 登录链路安全包装为标准 OIDC 登录入口。
 - **🔐 标准协议支持**：完整支持 Authorization Code + PKCE 流程，签发高可靠 ID / Access Token。
 - **🎛️ 受控客户端管理**：客户端由 PostgreSQL 持久化，通过登录保护的管理台创建、审核、编辑和停用。
+- **🔐 凭据生命周期**：Web Client Secret 支持双 Secret 宽限轮换、指定撤销与客户端级紧急撤权。
 - **🛡️ 生产级安全防护**：内置交互页 CSRF 校验、端点及登录限流、Refresh Token Rotation、Artifact 自动清理。
 - **📧 邮箱验证引擎**：原生内置 Resend 邮件服务支持，保障用户的实名绑定链路。
 - **📦 现代化技术栈**：搭配 PostgreSQL 持久化与 Redis 高缓存，基于 Node.js 24 无缝构建。
@@ -139,18 +140,22 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 
 API 或管理台创建的客户端先进入客户端草稿，并生成 Draft Revision；所有者确认后显式提交审核。Web 客户端的 `client_id` 与高熵 `client_secret` 由服务端生成，Secret 仅在创建响应中显示一次；SPA 是公开客户端，不生成 Secret。客户端类型创建后不可修改，Web/SPA 类型变更必须新建客户端。
 
+Web Client Secret 独立保存在 `oidc_client_secrets`，只有 `active` 和尚未到期的 `retiring` Secret 可用于客户端认证。轮换时新 Secret 仅显示一次；旧 Secret 默认保留 24 小时宽限期，可在 0–7 天内配置。一个客户端同时最多有两个可用 Secret，已撤销或过期 Secret 不可恢复。部署期 `oidc-clients.json` 仍可提供受信任的 scrypt bootstrap digest，但管理 API 不接受明文或摘要输入。
+
 客户端生命周期（`draft`、`active`、`disabled`）与 Revision 审核状态（`draft`、`pending`、`approved`、`rejected`、`cancelled`）相互独立。Active 客户端修改 Redirect URI、Logout URI 或 Scope 时会创建 Pending Revision，审核期间 OIDC 仍读取旧的 Active Revision；批准后原子切换，拒绝不会影响线上配置。Pending Revision 必须先撤回才能编辑，拒绝原因必填且会展示给所有者。停用立即生效且不能恢复，并会原子取消开放的 Draft/Pending Revision、释放待审配额。
 
 普通主体默认最多拥有 10 个非停用客户端，其中最多 5 个 Revision 处于待审核状态；管理员默认豁免配额。创建操作还按主体（默认每小时 5 次）和来源 IP（默认每小时 20 次）限流。
 
-| 环境变量                                                  | 默认值 | 说明                                    |
-| :-------------------------------------------------------- | -----: | :-------------------------------------- |
-| `OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT`                  |   `10` | 每个 Subject 可拥有的非停用客户端上限。 |
-| `OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT`          |    `5` | 每个 Subject 的 Pending Revision 上限。 |
-| `OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT`               | `true` | 管理员是否豁免以上配额。                |
-| `OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX`    |    `5` | 单个 Subject 在窗口内的创建次数。       |
-| `OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX`         |   `20` | 单个来源 IP 在窗口内的创建次数。        |
-| `OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS` | `3600` | Subject/IP 创建限流窗口秒数。           |
+| 环境变量                                                  |   默认值 | 说明                                    |
+| :-------------------------------------------------------- | -------: | :-------------------------------------- |
+| `OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT`                  |     `10` | 每个 Subject 可拥有的非停用客户端上限。 |
+| `OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT`          |      `5` | 每个 Subject 的 Pending Revision 上限。 |
+| `OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT`               |   `true` | 管理员是否豁免以上配额。                |
+| `OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX`    |      `5` | 单个 Subject 在窗口内的创建次数。       |
+| `OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX`         |     `20` | 单个来源 IP 在窗口内的创建次数。        |
+| `OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS` |   `3600` | Subject/IP 创建限流窗口秒数。           |
+| `OIDC_CLIENT_SECRET_DEFAULT_GRACE_SECONDS`                |  `86400` | Secret 轮换默认宽限期秒数。             |
+| `OIDC_CLIENT_SECRET_MAX_GRACE_SECONDS`                    | `604800` | Secret 轮换允许的最大宽限期秒数。       |
 
 <details>
 <summary><code>oidc-clients.json</code> 范例</summary>
@@ -203,12 +208,15 @@ API 或管理台创建的客户端先进入客户端草稿，并生成 Draft Rev
 | `PUT /clients/:clientId/revision`                     | 保存 Draft Revision，或为 Active Client 创建 Pending Revision。    |
 | `POST /clients/:clientId/revision/submit`             | 按 Revision 版本提交草稿审核。                                     |
 | `POST /clients/:clientId/revision/withdraw`           | 将 Pending Revision 撤回为草稿。                                   |
-| `POST /clients/:clientId/disable`                     | 按客户端版本永久停用客户端。                                       |
+| `POST /clients/:clientId/secrets/rotate`              | 按客户端版本轮换 Secret；新明文仅在该次 `201` 响应中返回。         |
+| `POST /clients/:clientId/secrets/:secretId/revoke`    | 按客户端与 Secret 版本立即撤销指定 Secret。                        |
+| `POST /clients/:clientId/authorizations/revoke`       | 撤销该客户端的 Code、Access/Refresh Token 与 Grant。               |
+| `POST /clients/:clientId/disable`                     | 紧急停用并原子撤销全部 Secret、授权和开放 Revision。               |
 | `GET /admin/reviews`                                  | 管理员获取 Pending Revision 及其当前生效配置。                     |
 | `POST /admin/reviews/:clientId/approve`               | 按 `revisionId + revisionVersion` 批准并原子激活 Revision。        |
 | `POST /admin/reviews/:clientId/reject`                | 拒绝 Revision；必须提供 1–500 字符的原因。                         |
 
-客户端响应不会返回 Secret 摘要。创建 Web 客户端时的 `clientSecret` 只存在于该次 `201` 响应，不可再次查询。
+客户端响应只返回 Secret 标识、状态和时间，不返回摘要。创建 Web 客户端时的 `clientSecret` 及轮换响应中的 `secret.value` 只存在于各自的单次 `201` 响应，不可再次查询。上述安全操作均要求所有权或管理员权限、管理 CSRF token 和乐观锁版本。
 
 ## 🧑‍💻 常用指令 (Scripts)
 

@@ -20,6 +20,7 @@ const input = {
   postLogoutRedirectUris: ["http://localhost:3002/logout"],
   scopeWhitelist: ["openid", "profile"],
 };
+const webInput = { ...input, clientType: "web" as const };
 
 test(
   "PostgreSQL enforces client revision transactions and concurrency",
@@ -153,6 +154,93 @@ test(
           assert.ok(
             revision.rows[0]?.["review_status"] === "approved" ||
               revision.rows[0]?.["review_status"] === "cancelled",
+          );
+        },
+      );
+
+      await context.test(
+        "serializes secret rotation and isolates client authorization revocation",
+        async () => {
+          const { repository, service } = await reset();
+          const created = await service.create(owner, webInput);
+          const attempts = await Promise.allSettled([
+            service.rotateSecret(owner, created.client.clientId, {
+              clientVersion: created.client.clientVersion,
+              gracePeriodSeconds: 60,
+            }),
+            service.rotateSecret(owner, created.client.clientId, {
+              clientVersion: created.client.clientVersion,
+              gracePeriodSeconds: 60,
+            }),
+          ]);
+          assert.equal(
+            attempts.filter((result) => result.status === "fulfilled").length,
+            1,
+          );
+          const current = await service.get(owner, created.client.clientId);
+          assert.equal(
+            current.secrets.filter((secret) => secret.status !== "revoked")
+              .length,
+            2,
+          );
+          const retiring = current.secrets.find(
+            (secret) => secret.status === "retiring",
+          )!;
+          const afterSecretRevoke = await service.revokeSecret(
+            owner,
+            created.client.clientId,
+            retiring.secretId,
+            {
+              clientVersion: current.clientVersion,
+              secretVersion: retiring.version,
+            },
+          );
+          await pool.query(
+            `insert into oidc_artifacts (id, kind, client_id_hash, payload, created_at)
+             values ('Grant:owned', 'Grant', $1, '{}'::jsonb, now()),
+                    ('Grant:other', 'Grant', 'other-client', '{}'::jsonb, now()),
+                    ('Session:owned', 'Session', $1, '{}'::jsonb, now())`,
+            [created.client.clientId],
+          );
+          const revoked = await service.revokeAuthorizations(
+            owner,
+            created.client.clientId,
+            { clientVersion: afterSecretRevoke.clientVersion },
+          );
+          assert.equal(
+            Number(
+              (
+                await pool.query(
+                  "select count(*)::int as count from oidc_artifacts where id = 'Grant:owned'",
+                )
+              ).rows[0]?.["count"],
+            ),
+            0,
+          );
+          assert.equal(
+            Number(
+              (
+                await pool.query(
+                  "select count(*)::int as count from oidc_artifacts where id in ('Grant:other', 'Session:owned')",
+                )
+              ).rows[0]?.["count"],
+            ),
+            2,
+          );
+          const disabled = await service.disable(
+            owner,
+            created.client.clientId,
+            {
+              clientVersion: revoked.clientVersion,
+            },
+          );
+          assert.equal(disabled.lifecycleStatus, "disabled");
+          assert.ok(
+            disabled.secrets.every((secret) => secret.status === "revoked"),
+          );
+          assert.equal(
+            await repository.findOidcClient(created.client.clientId),
+            null,
           );
         },
       );

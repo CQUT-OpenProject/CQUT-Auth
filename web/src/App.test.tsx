@@ -35,6 +35,16 @@ function client(overrides: Record<string, unknown> = {}) {
     proposedRevision: null,
     updatedAt: "2026-07-13T00:00:00.000Z",
     clientVersion: 2,
+    secrets: [
+      {
+        secretId: "secret_current",
+        status: "active",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        expiresAt: null,
+        revokedAt: null,
+        version: 1,
+      },
+    ],
     ...overrides,
   };
 }
@@ -131,6 +141,53 @@ test("labels client creation as creating a draft", async () => {
   render(<App />);
   fireEvent.click(await screen.findByRole("button", { name: "创建客户端" }));
   expect(screen.getByRole("button", { name: "创建草稿" })).toBeTruthy();
+});
+
+test("shows secret lifecycle and confirms rotation and authorization revocation", async () => {
+  const calls: string[] = [];
+  vi.stubGlobal(
+    "confirm",
+    vi.fn(() => true),
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      calls.push(path);
+      const body = path.endsWith("/auth/context")
+        ? {
+            authenticated: true,
+            csrfToken: "csrf",
+            user: {
+              subjectId: "subj_owner",
+              displayName: "Owner",
+              isAdmin: false,
+            },
+          }
+        : path.endsWith("/secrets/rotate") && init?.method === "POST"
+          ? { secret: { value: "one-time-rotated-secret" } }
+          : path.endsWith("/clients")
+            ? { clients: [client()] }
+            : { client: client() };
+      return new Response(JSON.stringify(body), {
+        status: path.endsWith("/secrets/rotate") ? 201 : 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }),
+  );
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
+  expect(screen.getByText("secret_current")).toBeTruthy();
+  expect(screen.getByText("当前生效")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "轮换 Secret" }));
+  expect(await screen.findByText("one-time-rotated-secret")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "撤销全部授权" }));
+  await waitFor(() =>
+    expect(calls.some((path) => path.endsWith("/authorizations/revoke"))).toBe(
+      true,
+    ),
+  );
+  expect(vi.mocked(confirm).mock.calls.length).toBeGreaterThanOrEqual(2);
 });
 
 test("freezes pending revision and shows field differences", async () => {

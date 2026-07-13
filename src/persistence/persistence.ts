@@ -17,6 +17,7 @@ import type {
   ClientRevisionStatus,
   OidcClientAuditRecord,
   OidcClientRecord,
+  OidcClientSecretRecord,
   OidcClientRevisionRecord,
   OidcPersistence,
   OidcSigningKeyRecord,
@@ -49,7 +50,6 @@ export class OidcPersistenceImpl implements OidcPersistence {
       config.artifactEncryptionSecret,
     );
     this.identityRepository = new IdentityRepositoryImpl(poolProvider);
-    this.oidcClientRepository = new OidcClientRepositoryImpl(poolProvider);
     this.managementSessionRepository = new ManagementSessionRepositoryImpl(
       poolProvider,
     );
@@ -63,6 +63,12 @@ export class OidcPersistenceImpl implements OidcPersistence {
         minIntervalSeconds: config.artifactOpportunisticCleanupIntervalSeconds,
       },
       this.artifactPayloadCipherService,
+    );
+    this.oidcClientRepository = new OidcClientRepositoryImpl(
+      poolProvider,
+      (clientId) => this.artifactPayloadCipherService.hashLookupValue(clientId),
+      (clientId) =>
+        this.oidcArtifactRepository.revokeArtifactsByClientId(clientId),
     );
     this.signingKeyRepository = new SigningKeyRepositoryImpl(
       poolProvider,
@@ -195,6 +201,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
   async createOidcClient(
     client: OidcClientRecord,
     revision: OidcClientRevisionRecord,
+    secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
     ownerLimits?: {
       maxNonDisabledClients: number;
@@ -204,6 +211,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
     return this.oidcClientRepository.createOidcClient(
       client,
       revision,
+      secret,
       audits,
       ownerLimits,
     );
@@ -286,6 +294,54 @@ export class OidcPersistenceImpl implements OidcPersistence {
       expectedVersion,
       updatedAt,
       audits,
+    );
+  }
+
+  async rotateOidcClientSecret(
+    clientId: string,
+    secret: OidcClientSecretRecord,
+    expectedClientVersion: number,
+    gracePeriodSeconds: number,
+    audit: OidcClientAuditRecord,
+  ) {
+    return this.oidcClientRepository.rotateOidcClientSecret(
+      clientId,
+      secret,
+      expectedClientVersion,
+      gracePeriodSeconds,
+      audit,
+    );
+  }
+
+  async revokeOidcClientSecret(
+    clientId: string,
+    secretId: string,
+    expectedClientVersion: number,
+    expectedSecretVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
+  ) {
+    return this.oidcClientRepository.revokeOidcClientSecret(
+      clientId,
+      secretId,
+      expectedClientVersion,
+      expectedSecretVersion,
+      updatedAt,
+      audit,
+    );
+  }
+
+  async revokeOidcClientAuthorizations(
+    clientId: string,
+    expectedClientVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
+  ) {
+    return this.oidcClientRepository.revokeOidcClientAuthorizations(
+      clientId,
+      expectedClientVersion,
+      updatedAt,
+      audit,
     );
   }
 
@@ -387,6 +443,10 @@ export class OidcPersistenceImpl implements OidcPersistence {
     return this.oidcArtifactRepository.revokeArtifactsByGrantId(grantId);
   }
 
+  async revokeArtifactsByClientId(clientId: string): Promise<void> {
+    return this.oidcArtifactRepository.revokeArtifactsByClientId(clientId);
+  }
+
   async saveInteractionLogin(
     uid: string,
     value: PendingInteractionLogin,
@@ -469,7 +529,6 @@ export class OidcPersistenceImpl implements OidcPersistence {
     await this.pool.query(`
       create table if not exists oidc_clients (
         client_id text primary key,
-        client_secret_hash text,
         display_name text not null,
         description text not null default '',
         owner_subject_id text references subjects(subject_id),
@@ -481,6 +540,31 @@ export class OidcPersistenceImpl implements OidcPersistence {
         updated_at timestamptz not null default now(),
         version integer not null default 1 check (version > 0)
       );
+    `);
+    await this.pool.query(`
+      create table if not exists oidc_client_secrets (
+        secret_id text primary key,
+        client_id text not null references oidc_clients(client_id),
+        secret_digest text not null check (secret_digest like 'scrypt$%'),
+        status text not null check (status in ('active', 'retiring', 'revoked')),
+        created_at timestamptz not null default now(),
+        expires_at timestamptz,
+        revoked_at timestamptz,
+        version integer not null default 1 check (version > 0),
+        check (
+          (status = 'active' and expires_at is null and revoked_at is null) or
+          (status = 'retiring' and expires_at is not null and revoked_at is null) or
+          (status = 'revoked' and revoked_at is not null)
+        )
+      );
+    `);
+    await this.pool.query(`
+      create unique index if not exists uq_oidc_client_secrets_active
+      on oidc_client_secrets (client_id) where status = 'active';
+      create index if not exists idx_oidc_client_secrets_client_created
+      on oidc_client_secrets (client_id, created_at desc);
+      create index if not exists idx_oidc_client_secrets_expires
+      on oidc_client_secrets (expires_at) where status = 'retiring';
     `);
     await this.pool.query(`
       create table if not exists oidc_client_revisions (
@@ -531,6 +615,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
         client_id text not null,
         revision_id bigint,
         revision_number integer,
+        secret_id text,
         actor_subject_id text,
         action text not null,
         changed_fields jsonb not null default '[]'::jsonb,
@@ -565,6 +650,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
         id text primary key,
         kind text not null,
         grant_id_hash text,
+        client_id_hash text,
         uid_hash text,
         user_code_hash text,
         payload jsonb not null,
@@ -576,6 +662,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
     await this.pool.query(`
       alter table oidc_artifacts
       add column if not exists grant_id_hash text,
+      add column if not exists client_id_hash text,
       add column if not exists uid_hash text,
       add column if not exists user_code_hash text;
     `);
@@ -602,6 +689,10 @@ export class OidcPersistenceImpl implements OidcPersistence {
     await this.pool.query(`
       create index if not exists idx_oidc_artifacts_grant_id_hash
       on oidc_artifacts (grant_id_hash);
+    `);
+    await this.pool.query(`
+      create index if not exists idx_oidc_artifacts_client_id_hash_kind
+      on oidc_artifacts (client_id_hash, kind);
     `);
     await this.pool.query(`
       create table if not exists oidc_signing_keys (

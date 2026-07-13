@@ -8,6 +8,7 @@ import type {
 import type { OidcScope } from "../shared/oidc-contracts.js";
 
 export type ClientLifecycleStatus = "draft" | "active" | "disabled";
+export type ClientSecretStatus = "active" | "retiring" | "revoked";
 export type ClientRevisionStatus =
   | "draft"
   | "pending"
@@ -17,7 +18,6 @@ export type ClientRevisionStatus =
 
 export type OidcClientRecord = {
   clientId: string;
-  clientSecretDigest: string | undefined;
   displayName: string;
   description: string;
   ownerSubjectId: string | null;
@@ -27,6 +27,17 @@ export type OidcClientRecord = {
   activeRevisionId: number | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
+};
+
+export type OidcClientSecretRecord = {
+  secretId: string;
+  clientId: string;
+  secretDigest: string;
+  status: ClientSecretStatus;
+  createdAt: string;
+  expiresAt: string | null;
+  revokedAt: string | null;
   version: number;
 };
 
@@ -46,6 +57,7 @@ export type OidcClientRevisionRecord = {
 
 export type ManagedOidcClientRecord = {
   client: OidcClientRecord;
+  secrets: OidcClientSecretRecord[];
   activeRevision: OidcClientRevisionRecord | null;
   proposedRevision: OidcClientRevisionRecord | null;
 };
@@ -67,7 +79,14 @@ export type ActiveOidcClientRecord = OidcClientRecord & {
   scopeWhitelist: OidcScope[];
   requirePkce: boolean;
   allowRefreshTokenForPublicClient: boolean;
+  clientSecretDigests: string[];
 };
+
+export type ClientSecurityMutationResult =
+  | { status: "updated"; client: ManagedOidcClientRecord }
+  | { status: "version_conflict" }
+  | { status: "secret_limit_exceeded" }
+  | { status: "secret_not_found" };
 
 export type OidcClientAuditAction =
   | "client.initialized"
@@ -75,6 +94,10 @@ export type OidcClientAuditAction =
   | "client.updated"
   | "client.disabled"
   | "client.secret_generated"
+  | "client.secret_rotated"
+  | "client.secret_revoked"
+  | "client.authorizations_revoked"
+  | "client.emergency_disabled"
   | "revision.created"
   | "revision.updated"
   | "revision.submitted"
@@ -89,6 +112,7 @@ export type OidcClientAuditRecord = {
   clientId: string;
   revisionId?: number | undefined;
   revisionNumber?: number | undefined;
+  secretId?: string | undefined;
   actorSubjectId: string | null;
   action: OidcClientAuditAction;
   changedFields: string[];
@@ -170,6 +194,7 @@ export interface OidcClientRepository {
   createOidcClient(
     client: OidcClientRecord,
     revision: OidcClientRevisionRecord,
+    secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
     ownerLimits?: {
       maxNonDisabledClients: number;
@@ -210,6 +235,27 @@ export interface OidcClientRepository {
     expectedVersion: number,
     updatedAt: string,
     audits: OidcClientAuditRecord[],
+  ): Promise<ManagedOidcClientRecord | null>;
+  rotateOidcClientSecret(
+    clientId: string,
+    secret: OidcClientSecretRecord,
+    expectedClientVersion: number,
+    gracePeriodSeconds: number,
+    audit: OidcClientAuditRecord,
+  ): Promise<ClientSecurityMutationResult>;
+  revokeOidcClientSecret(
+    clientId: string,
+    secretId: string,
+    expectedClientVersion: number,
+    expectedSecretVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
+  ): Promise<ClientSecurityMutationResult>;
+  revokeOidcClientAuthorizations(
+    clientId: string,
+    expectedClientVersion: number,
+    updatedAt: string,
+    audit: OidcClientAuditRecord,
   ): Promise<ManagedOidcClientRecord | null>;
   findManagedOidcClient(
     clientId: string,
@@ -252,6 +298,7 @@ export interface OidcArtifactRepository {
     userCode: string,
   ): Promise<Record<string, unknown> | undefined>;
   revokeArtifactsByGrantId(grantId: string): Promise<void>;
+  revokeArtifactsByClientId(clientId: string): Promise<void>;
   saveInteractionLogin(
     uid: string,
     value: PendingInteractionLogin,
