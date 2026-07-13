@@ -470,8 +470,7 @@ async function ensureSigningKey(store: OidcPersistence, config: OidcOpConfig) {
 export async function generateSigningKey(store: OidcPersistence): Promise<OidcSigningKeyRecord> {
   const kid = randomId("kid");
   const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
-  const publicJwk = await exportJWK(publicKey);
-  const privateJwk = await exportJWK(privateKey);
+  const [publicJwk, privateJwk] = await Promise.all([exportJWK(publicKey), exportJWK(privateKey)]);
   const now = new Date().toISOString();
   const record: OidcSigningKeyRecord = {
     kid,
