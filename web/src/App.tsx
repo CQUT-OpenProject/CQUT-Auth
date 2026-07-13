@@ -19,6 +19,8 @@ type AuthContext =
     };
 type Client = {
   clientId: string;
+  projectId: string;
+  createdBySubjectId: string | null;
   displayName: string;
   description: string;
   clientType: "web" | "spa";
@@ -28,6 +30,32 @@ type Client = {
   updatedAt: string;
   clientVersion: number;
   secrets: ClientSecret[];
+};
+type ProjectAction =
+  | "view"
+  | "manage_project"
+  | "manage_members"
+  | "write_client"
+  | "rotate_secret"
+  | "revoke_authorizations"
+  | "revoke_secret"
+  | "disable_client"
+  | "review";
+type Project = {
+  projectId: string;
+  name: string;
+  description: string;
+  status: "active" | "archived";
+  version: number;
+  role: "owner" | "maintainer" | "viewer" | null;
+  capabilities: ProjectAction[];
+};
+type ProjectMember = {
+  projectId: string;
+  subjectId: string;
+  role: "owner" | "maintainer" | "viewer";
+  createdAt: string;
+  updatedAt: string;
 };
 type ClientSecret = {
   secretId: string;
@@ -222,7 +250,10 @@ function Dashboard({
 }: {
   context: AuthContext & { authenticated: true };
 }) {
-  const [tab, setTab] = useState<"mine" | "all" | "reviews">("mine");
+  const [tab, setTab] = useState<"clients" | "reviews">("clients");
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+    null,
+  );
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<{
@@ -232,10 +263,22 @@ function Dashboard({
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState("");
 
+  const { data: projectsData, mutate: refreshProjects } = useSWR<{
+    projects: Project[];
+  }>("/projects", api);
+  const projects = projectsData?.projects ?? [];
+  const selectedProject =
+    projects.find((project) => project.projectId === selectedProjectId) ?? null;
+  useEffect(() => {
+    if (!selectedProjectId && projects.length)
+      setSelectedProjectId(projects[0]!.projectId);
+  }, [projects, selectedProjectId]);
   const endpoint =
     tab === "reviews"
       ? "/admin/reviews"
-      : `/clients${tab === "all" ? "?view=all" : ""}`;
+      : selectedProjectId
+        ? `/projects/${encodeURIComponent(selectedProjectId)}/clients`
+        : null;
   const {
     data,
     error: clientsError,
@@ -245,6 +288,10 @@ function Dashboard({
   const clients = data?.clients ?? emptyClients;
   const selected =
     clients.find((client) => client.clientId === selectedClientId) ?? null;
+  const clientProject = selected
+    ? (projects.find((project) => project.projectId === selected.projectId) ??
+      null)
+    : selectedProject;
   const error =
     actionError ||
     (clientsError instanceof Error
@@ -291,29 +338,14 @@ function Dashboard({
         </div>
       </header>
       <main className="workspace">
-        <nav className="tabs" aria-label="客户端视图">
+        <nav className="tabs" aria-label="项目视图">
           <button
             type="button"
-            className={tab === "mine" ? "active" : ""}
-            onClick={() => {
-              setTab("mine");
-              setSelectedClientId(null);
-            }}
+            className={tab === "clients" ? "active" : ""}
+            onClick={() => setTab("clients")}
           >
-            我的客户端
+            项目客户端
           </button>
-          {context.user.isAdmin && (
-            <button
-              type="button"
-              className={tab === "all" ? "active" : ""}
-              onClick={() => {
-                setTab("all");
-                setSelectedClientId(null);
-              }}
-            >
-              全部客户端
-            </button>
-          )}
           {context.user.isAdmin && (
             <button
               type="button"
@@ -327,6 +359,117 @@ function Dashboard({
             </button>
           )}
         </nav>
+        {tab === "clients" && (
+          <section
+            className="panel stack"
+            aria-labelledby="project-switcher-title"
+          >
+            <div className="panel-title">
+              <h2 id="project-switcher-title">项目</h2>
+              <button
+                type="button"
+                onClick={() => {
+                  const name = window.prompt("项目名称")?.trim();
+                  if (!name) return;
+                  void api<{ project: Project }>(
+                    "/projects",
+                    {
+                      method: "POST",
+                      body: JSON.stringify({ name, description: "" }),
+                    },
+                    context.csrfToken,
+                  ).then(async ({ project }) => {
+                    await refreshProjects();
+                    setSelectedProjectId(project.projectId);
+                  });
+                }}
+              >
+                创建项目
+              </button>
+            </div>
+            <div className="tabs" role="list" aria-label="项目切换">
+              {projects.map((project) => (
+                <button
+                  type="button"
+                  key={project.projectId}
+                  className={
+                    project.projectId === selectedProjectId ? "active" : ""
+                  }
+                  onClick={() => {
+                    setSelectedProjectId(project.projectId);
+                    setSelectedClientId(null);
+                    setCreating(false);
+                  }}
+                >
+                  {project.name} · {project.role ?? "管理员"}
+                </button>
+              ))}
+            </div>
+            {selectedProject && (
+              <p className="muted">
+                {selectedProject.description || "暂无描述"} ·{" "}
+                {selectedProject.status}
+              </p>
+            )}
+            {selectedProject?.capabilities.includes("manage_project") && (
+              <div className="actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    const name = window
+                      .prompt("项目名称", selectedProject.name)
+                      ?.trim();
+                    if (!name) return;
+                    void api(
+                      `/projects/${encodeURIComponent(selectedProject.projectId)}`,
+                      {
+                        method: "PATCH",
+                        body: JSON.stringify({
+                          name,
+                          expectedProjectVersion: selectedProject.version,
+                        }),
+                      },
+                      context.csrfToken,
+                    ).then(() => refreshProjects());
+                  }}
+                >
+                  编辑项目
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() =>
+                    window.confirm("归档后项目不可恢复，确定继续？") &&
+                    void api(
+                      `/projects/${encodeURIComponent(selectedProject.projectId)}`,
+                      {
+                        method: "PATCH",
+                        body: JSON.stringify({
+                          status: "archived",
+                          expectedProjectVersion: selectedProject.version,
+                        }),
+                      },
+                      context.csrfToken,
+                    ).then(() => refreshProjects())
+                  }
+                >
+                  归档项目
+                </button>
+              </div>
+            )}
+            {selectedProject?.capabilities.includes("manage_members") && (
+              <MemberManager
+                project={selectedProject}
+                currentSubjectId={context.user.subjectId}
+                csrfToken={context.csrfToken}
+                onChanged={async () => {
+                  await refreshProjects();
+                }}
+              />
+            )}
+          </section>
+        )}
         <section className="page-heading">
           <div>
             <h1>{tab === "reviews" ? "审核客户端" : "OIDC 客户端"}</h1>
@@ -334,24 +477,25 @@ function Dashboard({
               Subject ID：<code>{context.user.subjectId}</code>
             </p>
           </div>
-          {tab !== "reviews" && (
-            <button
-              type="button"
-              onClick={() => {
-                setCreating(true);
-                setSelectedClientId(null);
-              }}
-            >
-              创建客户端
-            </button>
-          )}
+          {tab !== "reviews" &&
+            selectedProject?.capabilities.includes("write_client") && (
+              <button
+                type="button"
+                onClick={() => {
+                  setCreating(true);
+                  setSelectedClientId(null);
+                }}
+              >
+                创建客户端
+              </button>
+            )}
         </section>
         {notice && <Notice tone="success">{notice}</Notice>}
         {error && <Notice tone="danger">{error}</Notice>}
         {secret && (
           <SecretPanel secret={secret} onClose={() => setSecret(null)} />
         )}
-        {creating && (
+        {creating && selectedProject && (
           <ClientEditor
             title="创建客户端"
             initial={emptyClient}
@@ -363,7 +507,7 @@ function Dashboard({
                 client: Client;
                 clientSecret?: string;
               }>(
-                "/clients",
+                `/projects/${encodeURIComponent(selectedProject.projectId)}/clients`,
                 { method: "POST", body: JSON.stringify(value) },
                 context.csrfToken,
               );
@@ -378,11 +522,12 @@ function Dashboard({
             }}
           />
         )}
-        {selected && !creating && (
+        {selected && !creating && clientProject && (
           <>
             <RevisionComparison client={selected} />
             <ClientSecurity
               client={selected}
+              project={clientProject!}
               csrfToken={context.csrfToken}
               defaultGraceSeconds={
                 context.clientSecretPolicy.defaultGraceSeconds
@@ -403,7 +548,10 @@ function Dashboard({
               initial={formValue(selected)}
               submitLabel="保存基本信息"
               section="metadata"
-              disabled={selected.lifecycleStatus === "disabled"}
+              disabled={
+                selected.lifecycleStatus === "disabled" ||
+                !clientProject?.capabilities.includes("write_client")
+              }
               onCancel={() => setSelectedClientId(null)}
               onSubmit={async (value) => {
                 try {
@@ -413,7 +561,7 @@ function Dashboard({
                   )
                     throw new Error("至少修改一项基本信息。");
                   await api(
-                    `/clients/${encodeURIComponent(selected.clientId)}`,
+                    `/projects/${encodeURIComponent(selected.projectId)}/clients/${encodeURIComponent(selected.clientId)}`,
                     {
                       method: "PATCH",
                       body: JSON.stringify({
@@ -444,7 +592,10 @@ function Dashboard({
                   : "保存配置"
               }
               section="configuration"
-              disabled={selected.lifecycleStatus === "disabled"}
+              disabled={
+                selected.lifecycleStatus === "disabled" ||
+                !clientProject?.capabilities.includes("write_client")
+              }
               configurationDisabled={
                 selected.proposedRevision?.status === "pending"
               }
@@ -461,7 +612,7 @@ function Dashboard({
                   )
                     throw new Error("至少修改一项 OIDC 配置。");
                   await api(
-                    `/clients/${encodeURIComponent(selected.clientId)}/revision`,
+                    `/projects/${encodeURIComponent(selected.projectId)}/clients/${encodeURIComponent(selected.clientId)}/revision`,
                     {
                       method: "PUT",
                       body: JSON.stringify({
@@ -496,7 +647,7 @@ function Dashboard({
                       type="button"
                       onClick={() =>
                         void mutateClient(
-                          `/clients/${encodeURIComponent(selected.clientId)}/revision/submit`,
+                          `/projects/${encodeURIComponent(selected.projectId)}/clients/${encodeURIComponent(selected.clientId)}/revision/submit`,
                           {
                             revisionId: selected.proposedRevision!.revisionId,
                             revisionVersion: selected.proposedRevision!.version,
@@ -514,7 +665,7 @@ function Dashboard({
                       className="secondary"
                       onClick={() =>
                         void mutateClient(
-                          `/clients/${encodeURIComponent(selected.clientId)}/revision/withdraw`,
+                          `/projects/${encodeURIComponent(selected.projectId)}/clients/${encodeURIComponent(selected.clientId)}/revision/withdraw`,
                           {
                             revisionId: selected.proposedRevision!.revisionId,
                             revisionVersion: selected.proposedRevision!.version,
@@ -526,24 +677,25 @@ function Dashboard({
                       撤回审核
                     </button>
                   )}
-                  {selected.lifecycleStatus !== "disabled" && (
-                    <button
-                      className="danger"
-                      type="button"
-                      onClick={() =>
-                        window.confirm(
-                          "紧急停用不可恢复，并会立即撤销全部 Secret、Authorization Code、Access Token、Refresh Token 和 Grant。确定继续吗？",
-                        ) &&
-                        void mutateClient(
-                          `/clients/${encodeURIComponent(selected.clientId)}/disable`,
-                          { clientVersion: selected.clientVersion },
-                          "客户端已紧急停用，全部 Secret 与授权已撤销。",
-                        )
-                      }
-                    >
-                      紧急停用客户端
-                    </button>
-                  )}
+                  {selected.lifecycleStatus !== "disabled" &&
+                    clientProject?.capabilities.includes("disable_client") && (
+                      <button
+                        className="danger"
+                        type="button"
+                        onClick={() =>
+                          window.confirm(
+                            "紧急停用不可恢复，并会立即撤销全部 Secret、Authorization Code、Access Token、Refresh Token 和 Grant。确定继续吗？",
+                          ) &&
+                          void mutateClient(
+                            `/projects/${encodeURIComponent(selected.projectId)}/clients/${encodeURIComponent(selected.clientId)}/disable`,
+                            { clientVersion: selected.clientVersion },
+                            "客户端已紧急停用，全部 Secret 与授权已撤销。",
+                          )
+                        }
+                      >
+                        紧急停用客户端
+                      </button>
+                    )}
                   {context.user.isAdmin &&
                     selected.proposedRevision?.status === "pending" &&
                     selected.lifecycleStatus !== "disabled" && (
@@ -552,7 +704,7 @@ function Dashboard({
                           type="button"
                           onClick={() =>
                             void mutateClient(
-                              `/admin/reviews/${encodeURIComponent(selected.clientId)}/approve`,
+                              `/admin/projects/${encodeURIComponent(selected.projectId)}/clients/${encodeURIComponent(selected.clientId)}/revisions/${selected.proposedRevision!.revisionId}/approve`,
                               {
                                 revisionId:
                                   selected.proposedRevision!.revisionId,
@@ -574,7 +726,7 @@ function Dashboard({
                               ?.trim();
                             if (!reason) return;
                             void mutateClient(
-                              `/admin/reviews/${encodeURIComponent(selected.clientId)}/reject`,
+                              `/admin/projects/${encodeURIComponent(selected.projectId)}/clients/${encodeURIComponent(selected.clientId)}/revisions/${selected.proposedRevision!.revisionId}/reject`,
                               {
                                 revisionId:
                                   selected.proposedRevision!.revisionId,
@@ -603,6 +755,170 @@ function Dashboard({
           />
         )}
       </main>
+    </div>
+  );
+}
+
+function MemberManager({
+  project,
+  currentSubjectId,
+  csrfToken,
+  onChanged,
+}: {
+  project: Project;
+  currentSubjectId: string;
+  csrfToken: string;
+  onChanged: () => Promise<void>;
+}) {
+  const endpoint = `/projects/${encodeURIComponent(project.projectId)}/members`;
+  const { data, mutate } = useSWR<{ members: ProjectMember[] }>(endpoint, api);
+  const [subjectId, setSubjectId] = useState("");
+  const [role, setRole] = useState<ProjectMember["role"]>("viewer");
+  const members = data?.members ?? [];
+
+  async function changed(action: Promise<unknown>) {
+    await action;
+    await onChanged();
+    await mutate();
+  }
+
+  return (
+    <div className="stack">
+      <h3>团队成员</h3>
+      <form
+        className="actions"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void changed(
+            api(
+              endpoint,
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  subjectId,
+                  role,
+                  expectedProjectVersion: project.version,
+                }),
+              },
+              csrfToken,
+            ),
+          ).then(() => setSubjectId(""));
+        }}
+      >
+        <label>
+          Subject ID
+          <input
+            value={subjectId}
+            onChange={(event) => setSubjectId(event.target.value)}
+            required
+          />
+        </label>
+        <label>
+          角色
+          <select
+            value={role}
+            onChange={(event) =>
+              setRole(event.target.value as ProjectMember["role"])
+            }
+          >
+            <option value="owner">owner</option>
+            <option value="maintainer">maintainer</option>
+            <option value="viewer">viewer</option>
+          </select>
+        </label>
+        <button type="submit">添加成员</button>
+      </form>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Subject ID</th>
+              <th>角色</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((member) => (
+              <tr key={member.subjectId}>
+                <td>
+                  <code>{member.subjectId}</code>
+                </td>
+                <td>
+                  <select
+                    aria-label={`${member.subjectId} 角色`}
+                    value={member.role}
+                    onChange={(event) =>
+                      void changed(
+                        api(
+                          `${endpoint}/${encodeURIComponent(member.subjectId)}`,
+                          {
+                            method: "PATCH",
+                            body: JSON.stringify({
+                              role: event.target.value,
+                              expectedProjectVersion: project.version,
+                            }),
+                          },
+                          csrfToken,
+                        ),
+                      )
+                    }
+                  >
+                    <option value="owner">owner</option>
+                    <option value="maintainer">maintainer</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                </td>
+                <td className="actions">
+                  {member.subjectId !== currentSubjectId &&
+                    member.role !== "owner" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void changed(
+                            api(
+                              `/projects/${encodeURIComponent(project.projectId)}/ownership/transfer`,
+                              {
+                                method: "POST",
+                                body: JSON.stringify({
+                                  fromSubjectId: currentSubjectId,
+                                  toSubjectId: member.subjectId,
+                                  expectedProjectVersion: project.version,
+                                }),
+                              },
+                              csrfToken,
+                            ),
+                          )
+                        }
+                      >
+                        转移所有权
+                      </button>
+                    )}
+                  <button
+                    type="button"
+                    className="danger"
+                    onClick={() =>
+                      void changed(
+                        api(
+                          `${endpoint}/${encodeURIComponent(member.subjectId)}`,
+                          {
+                            method: "DELETE",
+                            body: JSON.stringify({
+                              expectedProjectVersion: project.version,
+                            }),
+                          },
+                          csrfToken,
+                        ),
+                      )
+                    }
+                  >
+                    删除
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -798,6 +1114,7 @@ function ClientEditor({
 
 function ClientSecurity({
   client,
+  project,
   csrfToken,
   defaultGraceSeconds,
   maxGraceSeconds,
@@ -805,6 +1122,7 @@ function ClientSecurity({
   onRotated,
 }: {
   client: Client;
+  project: Project;
   csrfToken: string;
   defaultGraceSeconds: number;
   maxGraceSeconds: number;
@@ -875,36 +1193,37 @@ function ClientSecurity({
                       {secret.expiresAt ? formatDate(secret.expiresAt) : "—"}
                     </td>
                     <td>
-                      {secret.status !== "revoked" && (
-                        <button
-                          type="button"
-                          className="danger"
-                          disabled={disabled}
-                          onClick={() =>
-                            window.confirm(
-                              `立即撤销 Secret ${secret.secretId}？此操作不可恢复。`,
-                            ) &&
-                            void run(async () => {
-                              await api(
-                                `/clients/${encodeURIComponent(client.clientId)}/secrets/${encodeURIComponent(secret.secretId)}/revoke`,
-                                {
-                                  method: "POST",
-                                  body: JSON.stringify({
-                                    clientVersion: client.clientVersion,
-                                    secretVersion: secret.version,
-                                  }),
-                                },
-                                csrfToken,
-                              );
-                              await onChanged(
-                                "指定 Client Secret 已立即撤销。",
-                              );
-                            })
-                          }
-                        >
-                          撤销 Secret
-                        </button>
-                      )}
+                      {secret.status !== "revoked" &&
+                        project.capabilities.includes("revoke_secret") && (
+                          <button
+                            type="button"
+                            className="danger"
+                            disabled={disabled}
+                            onClick={() =>
+                              window.confirm(
+                                `立即撤销 Secret ${secret.secretId}？此操作不可恢复。`,
+                              ) &&
+                              void run(async () => {
+                                await api(
+                                  `/projects/${encodeURIComponent(client.projectId)}/clients/${encodeURIComponent(client.clientId)}/secrets/${encodeURIComponent(secret.secretId)}/revoke`,
+                                  {
+                                    method: "POST",
+                                    body: JSON.stringify({
+                                      clientVersion: client.clientVersion,
+                                      secretVersion: secret.version,
+                                    }),
+                                  },
+                                  csrfToken,
+                                );
+                                await onChanged(
+                                  "指定 Client Secret 已立即撤销。",
+                                );
+                              })
+                            }
+                          >
+                            撤销 Secret
+                          </button>
+                        )}
                     </td>
                   </tr>
                 ))}
@@ -946,56 +1265,60 @@ function ClientSecurity({
               onChange={(event) => setGraceHours(Number(event.target.value))}
             />
           </label>
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() =>
-              window.confirm(
-                `轮换 Client Secret，并保留旧 Secret ${graceHours} 小时？`,
-              ) &&
-              void run(async () => {
-                const result = await api<{ secret: { value: string } }>(
-                  `/clients/${encodeURIComponent(client.clientId)}/secrets/rotate`,
-                  {
-                    method: "POST",
-                    body: JSON.stringify({
-                      clientVersion: client.clientVersion,
-                      gracePeriodSeconds: graceHours * 3600,
-                    }),
-                  },
-                  csrfToken,
-                );
-                await onRotated(result.secret.value);
-              })
-            }
-          >
-            轮换 Secret
-          </button>
+          {project.capabilities.includes("rotate_secret") && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() =>
+                window.confirm(
+                  `轮换 Client Secret，并保留旧 Secret ${graceHours} 小时？`,
+                ) &&
+                void run(async () => {
+                  const result = await api<{ secret: { value: string } }>(
+                    `/projects/${encodeURIComponent(client.projectId)}/clients/${encodeURIComponent(client.clientId)}/secrets/rotate`,
+                    {
+                      method: "POST",
+                      body: JSON.stringify({
+                        clientVersion: client.clientVersion,
+                        gracePeriodSeconds: graceHours * 3600,
+                      }),
+                    },
+                    csrfToken,
+                  );
+                  await onRotated(result.secret.value);
+                })
+              }
+            >
+              轮换 Secret
+            </button>
+          )}
         </>
       )}
-      <button
-        type="button"
-        className="danger"
-        disabled={disabled}
-        onClick={() =>
-          window.confirm(
-            "撤销该客户端全部 Authorization Code、Access Token、Refresh Token 和 Grant？其他客户端会话不受影响。",
-          ) &&
-          void run(async () => {
-            await api(
-              `/clients/${encodeURIComponent(client.clientId)}/authorizations/revoke`,
-              {
-                method: "POST",
-                body: JSON.stringify({ clientVersion: client.clientVersion }),
-              },
-              csrfToken,
-            );
-            await onChanged("该客户端全部授权已撤销。");
-          })
-        }
-      >
-        撤销全部授权
-      </button>
+      {project.capabilities.includes("revoke_authorizations") && (
+        <button
+          type="button"
+          className="danger"
+          disabled={disabled}
+          onClick={() =>
+            window.confirm(
+              "撤销该客户端全部 Authorization Code、Access Token、Refresh Token 和 Grant？其他客户端会话不受影响。",
+            ) &&
+            void run(async () => {
+              await api(
+                `/projects/${encodeURIComponent(client.projectId)}/clients/${encodeURIComponent(client.clientId)}/authorizations/revoke`,
+                {
+                  method: "POST",
+                  body: JSON.stringify({ clientVersion: client.clientVersion }),
+                },
+                csrfToken,
+              );
+              await onChanged("该客户端全部授权已撤销。");
+            })
+          }
+        >
+          撤销全部授权
+        </button>
+      )}
     </section>
   );
 }

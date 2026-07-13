@@ -138,14 +138,17 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     revision: OidcClientRevisionRecord,
     secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
-    ownerLimits?: { maxNonDisabledClients: number; maxPendingClients: number },
+    projectLimits?: {
+      maxNonDisabledClients: number;
+      maxPendingClients: number;
+    },
   ): Promise<ManagedOidcClientRecord | null> {
     const pool = this.poolProvider();
     if (!pool) {
       if (this.clients.has(client.clientId)) {
         throw new Error(`oidc client already exists: ${client.clientId}`);
       }
-      if (ownerLimits && this.ownerQuotaExceeded(client, ownerLimits))
+      if (projectLimits && this.projectQuotaExceeded(client, projectLimits))
         return null;
       const assigned = this.assignRevisionId(revision);
       this.clients.set(client.clientId, client);
@@ -167,16 +170,16 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     const connection = await pool.connect();
     try {
       await connection.query("begin");
-      if (ownerLimits && client.ownerSubjectId) {
-        await this.lockOwner(connection, client.ownerSubjectId);
+      if (projectLimits) {
+        await this.lockProject(connection, client.projectId);
         const count = await connection.query(
           `select count(*) filter (where lifecycle_status <> 'disabled')::int as non_disabled
-             from oidc_clients where owner_subject_id = $1`,
-          [client.ownerSubjectId],
+             from oidc_clients where project_id = $1`,
+          [client.projectId],
         );
         if (
           Number(count.rows[0]?.non_disabled ?? 0) >=
-          ownerLimits.maxNonDisabledClients
+          projectLimits.maxNonDisabledClients
         ) {
           await connection.query("rollback");
           return null;
@@ -267,11 +270,11 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       const managed = this.memoryManaged(clientId);
       if (!managed) return { status: "version_conflict" };
       if (revision.status === "pending" && maxPendingClients !== undefined) {
-        const owner = managed.client.ownerSubjectId;
+        const projectId = managed.client.projectId;
         const pending = [...this.revisions.values()].filter(
           (candidate) =>
             candidate.status === "pending" &&
-            this.clients.get(candidate.clientId)?.ownerSubjectId === owner &&
+            this.clients.get(candidate.clientId)?.projectId === projectId &&
             this.clients.get(candidate.clientId)?.lifecycleStatus !==
               "disabled",
         ).length;
@@ -311,18 +314,16 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     try {
       await connection.query("begin");
       const clientResult = await connection.query(
-        "select owner_subject_id from oidc_clients where client_id = $1 for update",
+        "select project_id from oidc_clients where client_id = $1 for update",
         [clientId],
       );
       if (revision.status === "pending" && maxPendingClients !== undefined) {
-        const owner = clientResult.rows[0]?.["owner_subject_id"] as
-          | string
-          | null;
-        if (owner) {
-          await this.lockOwner(connection, owner);
+        const projectId = clientResult.rows[0]?.["project_id"] as string;
+        if (projectId) {
+          await this.lockProject(connection, projectId);
           const count = await connection.query(
-            `select count(*)::int as count from oidc_client_revisions r join oidc_clients c on c.client_id = r.client_id where c.owner_subject_id = $1 and c.lifecycle_status <> 'disabled' and r.review_status = 'pending'`,
-            [owner],
+            `select count(*)::int as count from oidc_client_revisions r join oidc_clients c on c.client_id = r.client_id where c.project_id = $1 and c.lifecycle_status <> 'disabled' and r.review_status = 'pending'`,
+            [projectId],
           );
           if (Number(count.rows[0]?.count ?? 0) >= maxPendingClients) {
             await connection.query("rollback");
@@ -401,11 +402,11 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       )
         return { status: "version_conflict" };
       if (nextStatus === "pending" && maxPendingClients !== undefined) {
-        const owner = this.clients.get(clientId)?.ownerSubjectId;
+        const projectId = this.clients.get(clientId)?.projectId;
         const pending = [...this.revisions.values()].filter(
           (revision) =>
             revision.status === "pending" &&
-            this.clients.get(revision.clientId)?.ownerSubjectId === owner &&
+            this.clients.get(revision.clientId)?.projectId === projectId &&
             this.clients.get(revision.clientId)?.lifecycleStatus !== "disabled",
         ).length;
         if (pending >= maxPendingClients)
@@ -431,18 +432,18 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       await connection.query("begin");
       if (nextStatus === "pending" && maxPendingClients !== undefined) {
         const client = await connection.query(
-          "select owner_subject_id from oidc_clients where client_id = $1",
+          "select project_id from oidc_clients where client_id = $1",
           [clientId],
         );
-        const owner = client.rows[0]?.["owner_subject_id"] as string | null;
-        if (owner) {
-          await this.lockOwner(connection, owner);
+        const projectId = client.rows[0]?.["project_id"] as string;
+        if (projectId) {
+          await this.lockProject(connection, projectId);
           const count = await connection.query(
             `select count(*)::int as count from oidc_client_revisions r
              join oidc_clients c on c.client_id = r.client_id
-             where c.owner_subject_id = $1 and c.lifecycle_status <> 'disabled'
+             where c.project_id = $1 and c.lifecycle_status <> 'disabled'
                and r.review_status = 'pending'`,
-            [owner],
+            [projectId],
           );
           if (Number(count.rows[0]?.count ?? 0) >= maxPendingClients) {
             await connection.query("rollback");
@@ -1105,8 +1106,8 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     );
   }
 
-  async listOidcClientsByOwner(ownerSubjectId: string) {
-    return this.listManaged("c.owner_subject_id = $1", [ownerSubjectId]);
+  async listOidcClientsByProject(projectId: string) {
+    return this.listManaged("c.project_id = $1", [projectId]);
   }
 
   async listOidcClients() {
@@ -1130,14 +1131,15 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     const result = clientId
       ? await pool.query(
-          "select * from oidc_client_audit_logs where client_id = $1 order by created_at, id",
+          "select * from project_audit_logs where client_id = $1 order by created_at, id",
           [clientId],
         )
       : await pool.query(
-          "select * from oidc_client_audit_logs order by created_at, id",
+          "select * from project_audit_logs where client_id is not null order by created_at, id",
         );
     return result.rows.map((row: Record<string, unknown>) => ({
       id: Number(row["id"]),
+      projectId: String(row["project_id"]),
       clientId: String(row["client_id"]),
       revisionId:
         row["revision_id"] == null ? undefined : Number(row["revision_id"]),
@@ -1178,8 +1180,8 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         .filter(
           (client) =>
             where === "true" ||
-            (where.includes("owner_subject_id")
-              ? client.ownerSubjectId === values[0]
+            (where.includes("project_id")
+              ? client.projectId === values[0]
               : where.includes("lifecycle_status = 'active'")
                 ? client.lifecycleStatus === "active"
                 : client.lifecycleStatus !== "disabled" &&
@@ -1278,9 +1280,10 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
   private clientPart(client: ActiveOidcClientRecord): OidcClientRecord {
     return {
       clientId: client.clientId,
+      projectId: client.projectId,
       displayName: client.displayName,
       description: client.description,
-      ownerSubjectId: client.ownerSubjectId,
+      createdBySubjectId: client.createdBySubjectId,
       clientType: client.clientType,
       autoConsent: client.autoConsent,
       lifecycleStatus: client.lifecycleStatus,
@@ -1316,38 +1319,39 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     );
   }
 
-  private ownerQuotaExceeded(
+  private projectQuotaExceeded(
     client: OidcClientRecord,
     limits: { maxNonDisabledClients: number; maxPendingClients: number },
   ) {
     return (
       [...this.clients.values()].filter(
         (candidate) =>
-          candidate.ownerSubjectId === client.ownerSubjectId &&
+          candidate.projectId === client.projectId &&
           candidate.lifecycleStatus !== "disabled",
       ).length >= limits.maxNonDisabledClients
     );
   }
 
-  private async lockOwner(queryable: Queryable, ownerSubjectId: string) {
+  private async lockProject(queryable: Queryable, projectId: string) {
     await queryable.query("select pg_advisory_xact_lock(hashtext($1))", [
-      `cqut-auth:oidc-client-owner:${ownerSubjectId}`,
+      `cqut-auth:oidc-client-project:${projectId}`,
     ]);
   }
 
   private insertClientSql() {
-    return `insert into oidc_clients (client_id, display_name, description,
-      owner_subject_id, client_type, auto_consent, lifecycle_status, active_revision_id,
+    return `insert into oidc_clients (client_id, project_id, display_name, description,
+      created_by_subject_id, client_type, auto_consent, lifecycle_status, active_revision_id,
       authorization_generation, created_at, updated_at, version)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, $12)`;
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::timestamptz, $13)`;
   }
 
   private clientValues(client: OidcClientRecord) {
     return [
       client.clientId,
+      client.projectId,
       client.displayName,
       client.description,
-      client.ownerSubjectId,
+      client.createdBySubjectId,
       client.clientType,
       client.autoConsent,
       client.lifecycleStatus,
@@ -1511,7 +1515,8 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     await queryable.query(
       `${this.insertClientSql()} on conflict (client_id) do update set
        display_name = excluded.display_name,
-       description = excluded.description, owner_subject_id = excluded.owner_subject_id,
+       description = excluded.description, project_id = excluded.project_id,
+       created_by_subject_id = excluded.created_by_subject_id,
        client_type = excluded.client_type, auto_consent = excluded.auto_consent, lifecycle_status = excluded.lifecycle_status,
        updated_at = excluded.updated_at, version = excluded.version`,
       this.clientValues(base),
@@ -1576,11 +1581,12 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     audit: OidcClientAuditRecord,
   ) {
     await queryable.query(
-      `insert into oidc_client_audit_logs (client_id, revision_id, revision_number, secret_id, actor_subject_id,
+      `insert into project_audit_logs (project_id, client_id, revision_id, revision_number, secret_id, actor_subject_id,
         action, changed_fields, previous_client_status, new_client_status,
         previous_revision_status, new_revision_status, reason, source_ip, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14::timestamptz)`,
+       values (coalesce($1, (select project_id from oidc_clients where client_id = $2)), $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15::timestamptz)`,
       [
+        audit.projectId ?? null,
         audit.clientId,
         audit.revisionId ?? null,
         audit.revisionNumber ?? null,
@@ -1623,9 +1629,11 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     if (!row) return null;
     return {
       clientId: String(row["client_id"]),
+      projectId: String(row["project_id"]),
       displayName: String(row["display_name"]),
       description: String(row["description"] ?? ""),
-      ownerSubjectId: (row["owner_subject_id"] as string | null) ?? null,
+      createdBySubjectId:
+        (row["created_by_subject_id"] as string | null) ?? null,
       clientType: row["client_type"] as OidcClientRecord["clientType"],
       autoConsent: Boolean(row["auto_consent"]),
       lifecycleStatus: row[

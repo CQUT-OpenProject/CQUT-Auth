@@ -7,6 +7,8 @@ import test from "node:test";
 import request from "supertest";
 import { Pool } from "pg";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
+import { ProjectAccessService } from "../src/projects/project-access.js";
+import { SYSTEM_PROJECT_ID } from "../src/persistence/contracts.js";
 import { createOidcApp } from "../src/app.js";
 import { readOidcOpConfig } from "../src/config.js";
 import {
@@ -368,7 +370,8 @@ async function upsertDemoClient(
     clientSecretDigests: [clientSecretDigest],
     displayName: "Demo Site",
     description: "",
-    ownerSubjectId: null,
+    projectId: "system",
+    createdBySubjectId: null,
     clientType: "web",
     lifecycleStatus: patch.status ?? "active",
     activeRevisionId: 0,
@@ -424,7 +427,8 @@ async function upsertPublicNoneClient(
     clientSecretDigests: [],
     displayName: clientId,
     description: "",
-    ownerSubjectId: null,
+    projectId: "system",
+    createdBySubjectId: null,
     clientType: "spa",
     lifecycleStatus: "active",
     activeRevisionId: 0,
@@ -1226,12 +1230,18 @@ test("client secret rotation honors dual-secret grace and expiry without restart
   assert.notEqual(beforeRotation.body.error, "invalid_client");
 
   const rotatedSecret = `rotated-${Date.now()}-secret`;
-  const management = new ClientManagementService(state.store, "test", {
-    createSecret: () => rotatedSecret,
-  });
+  const management = new ClientManagementService(
+    state.store,
+    new ProjectAccessService(state.store),
+    "test",
+    {
+      createSecret: () => rotatedSecret,
+    },
+  );
   const managed = await state.store.findManagedOidcClient("demo-site");
   await management.rotateSecret(
     { subjectId: "subj_admin", isAdmin: true },
+    SYSTEM_PROJECT_ID,
     "demo-site",
     { clientVersion: managed!.client.version, gracePeriodSeconds: 1 },
   );
@@ -1387,10 +1397,15 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
   assert.equal(reuse.status, 400);
   assert.equal(reuse.body.error, "invalid_grant");
 
-  const management = new ClientManagementService(state.store, "test");
+  const management = new ClientManagementService(
+    state.store,
+    new ProjectAccessService(state.store),
+    "test",
+  );
   const managed = await state.store.findManagedOidcClient("demo-site");
   await management.revokeAuthorizations(
     { subjectId: "subj_admin", isAdmin: true },
+    SYSTEM_PROJECT_ID,
     "demo-site",
     { clientVersion: managed!.client.version },
   );
@@ -1466,7 +1481,11 @@ test(
       );
 
       const managed = await state.store.findManagedOidcClient("demo-site");
-      const management = new ClientManagementService(state.store, "test");
+      const management = new ClientManagementService(
+        state.store,
+        new ProjectAccessService(state.store),
+        "test",
+      );
       let releaseLateIssue!: () => void;
       const revocationBarrier = new Promise<void>((resolve) => {
         releaseLateIssue = resolve;
@@ -1483,6 +1502,7 @@ test(
       })();
       await management.revokeAuthorizations(
         { subjectId: "subj_admin", isAdmin: true },
+        SYSTEM_PROJECT_ID,
         "demo-site",
         { clientVersion: managed!.client.version },
       );
@@ -2854,8 +2874,8 @@ test("config defaults client creation quotas and rate limits", () => {
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
   });
-  assert.equal(config.managementClientMaxPerSubject, 10);
-  assert.equal(config.managementClientMaxPendingPerSubject, 5);
+  assert.equal(config.managementClientMaxPerProject, 10);
+  assert.equal(config.managementClientMaxPendingPerProject, 5);
   assert.equal(config.managementClientCreateRateLimitSubjectMax, 5);
   assert.equal(config.managementClientCreateRateLimitIpMax, 20);
   assert.equal(config.managementClientCreateRateLimitWindowSeconds, 3600);
@@ -2890,8 +2910,8 @@ test("config rejects client pending quota above total quota", () => {
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT: "1",
-        OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT: "2",
+        OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT: "1",
+        OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT: "2",
       }),
     /must not exceed/,
   );

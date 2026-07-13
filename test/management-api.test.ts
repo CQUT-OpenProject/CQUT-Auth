@@ -101,7 +101,7 @@ test("management API exposes separate lifecycle and revision workflows", async (
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
     const created = await admin
-      .post("/api/management/clients")
+      .post("/api/management/projects/system/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send(input);
     assert.equal(created.status, 201);
@@ -113,7 +113,9 @@ test("management API exposes separate lifecycle and revision workflows", async (
     const clientId = created.body.client.clientId;
     const draft = created.body.client.proposedRevision;
     const submitted = await admin
-      .post(`/api/management/clients/${clientId}/revision/submit`)
+      .post(
+        `/api/management/projects/system/clients/${clientId}/revision/submit`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ revisionId: draft.revisionId, revisionVersion: draft.version });
     assert.equal(submitted.status, 200);
@@ -121,7 +123,9 @@ test("management API exposes separate lifecycle and revision workflows", async (
 
     const pending = submitted.body.client.proposedRevision;
     const approved = await admin
-      .post(`/api/management/admin/reviews/${clientId}/approve`)
+      .post(
+        `/api/management/admin/projects/system/clients/${clientId}/revisions/${pending.revisionId}/approve`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         revisionId: pending.revisionId,
@@ -132,7 +136,7 @@ test("management API exposes separate lifecycle and revision workflows", async (
     assert.equal(approved.body.client.proposedRevision, null);
 
     const typeChange = await admin
-      .patch(`/api/management/clients/${clientId}`)
+      .patch(`/api/management/projects/system/clients/${clientId}`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         clientVersion: approved.body.client.clientVersion,
@@ -141,7 +145,7 @@ test("management API exposes separate lifecycle and revision workflows", async (
     assert.equal(typeChange.status, 400);
 
     const sensitive = await admin
-      .put(`/api/management/clients/${clientId}/revision`)
+      .put(`/api/management/projects/system/clients/${clientId}/revision`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         redirectUris: ["http://localhost:3004/new-callback"],
@@ -175,14 +179,16 @@ test("management API exposes separate lifecycle and revision workflows", async (
     assert.equal(pendingNotLive.status, 400);
 
     const frozen = await admin
-      .put(`/api/management/clients/${clientId}/revision`)
+      .put(`/api/management/projects/system/clients/${clientId}/revision`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ redirectUris: ["http://localhost:3004/other"] });
     assert.equal(frozen.status, 409);
 
     const proposed = sensitive.body.client.proposedRevision;
     const rejected = await admin
-      .post(`/api/management/admin/reviews/${clientId}/reject`)
+      .post(
+        `/api/management/admin/projects/system/clients/${clientId}/revisions/${proposed.revisionId}/reject`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         revisionId: proposed.revisionId,
@@ -202,7 +208,7 @@ test("management API exposes separate lifecycle and revision workflows", async (
       .query({ ...authorize, redirect_uri: input.redirectUris[0] });
     assert.ok(oldAfterReject.status === 302 || oldAfterReject.status === 303);
     const redraft = await admin
-      .put(`/api/management/clients/${clientId}/revision`)
+      .put(`/api/management/projects/system/clients/${clientId}/revision`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         redirectUris: ["http://localhost:3004/new-callback"],
@@ -210,7 +216,9 @@ test("management API exposes separate lifecycle and revision workflows", async (
       });
     const newDraft = redraft.body.client.proposedRevision;
     const resubmitted = await admin
-      .post(`/api/management/clients/${clientId}/revision/submit`)
+      .post(
+        `/api/management/projects/system/clients/${clientId}/revision/submit`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         revisionId: newDraft.revisionId,
@@ -218,7 +226,9 @@ test("management API exposes separate lifecycle and revision workflows", async (
       });
     const newPending = resubmitted.body.client.proposedRevision;
     const secondApproved = await admin
-      .post(`/api/management/admin/reviews/${clientId}/approve`)
+      .post(
+        `/api/management/admin/projects/system/clients/${clientId}/revisions/${newPending.revisionId}/approve`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         revisionId: newPending.revisionId,
@@ -227,7 +237,7 @@ test("management API exposes separate lifecycle and revision workflows", async (
     assert.equal(secondApproved.status, 200);
     assert.equal(secondApproved.body.client.proposedRevision, null);
     const revisionFour = await admin
-      .put(`/api/management/clients/${clientId}/revision`)
+      .put(`/api/management/projects/system/clients/${clientId}/revision`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ redirectUris: ["http://localhost:3004/revision-4"] });
     assert.equal(revisionFour.status, 200);
@@ -256,7 +266,11 @@ test("management API exposes separate lifecycle and revision workflows", async (
     const outsider = request.agent(app);
     const outsiderLogin = await login(outsider, "other-account");
     assert.equal(
-      (await outsider.get(`/api/management/clients/${clientId}`)).status,
+      (
+        await outsider.get(
+          `/api/management/projects/system/clients/${clientId}`,
+        )
+      ).status,
       404,
     );
     assert.equal(
@@ -266,7 +280,9 @@ test("management API exposes separate lifecycle and revision workflows", async (
     assert.equal(
       (
         await outsider
-          .post(`/api/management/clients/${clientId}/revision/withdraw`)
+          .post(
+            `/api/management/projects/system/clients/${clientId}/revision/withdraw`,
+          )
           .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
           .send({
             revisionId: proposed.revisionId,
@@ -282,6 +298,109 @@ test("management API exposes separate lifecycle and revision workflows", async (
   }
 });
 
+test("project API enforces roles, last-owner protection, and immediate removal", async () => {
+  const { app, state } = await createApp();
+  try {
+    const ownerAgent = request.agent(app);
+    const maintainerAgent = request.agent(app);
+    const viewerAgent = request.agent(app);
+    const outsiderAgent = request.agent(app);
+    const ownerLogin = await login(ownerAgent, "project-owner");
+    const maintainerLogin = await login(maintainerAgent, "project-maintainer");
+    const viewerLogin = await login(viewerAgent, "project-viewer");
+    await login(outsiderAgent, "project-outsider");
+
+    const createdProject = await ownerAgent
+      .post("/api/management/projects")
+      .set("X-CSRF-Token", ownerLogin.body.csrfToken)
+      .send({ name: "API Project", description: "" });
+    assert.equal(createdProject.status, 201);
+    const projectId = createdProject.body.project.projectId as string;
+    let projectVersion = createdProject.body.project.version as number;
+
+    const maintainerAdded = await ownerAgent
+      .post(`/api/management/projects/${projectId}/members`)
+      .set("X-CSRF-Token", ownerLogin.body.csrfToken)
+      .send({
+        subjectId: maintainerLogin.body.user.subjectId,
+        role: "maintainer",
+        expectedProjectVersion: projectVersion,
+      });
+    assert.equal(maintainerAdded.status, 201);
+    projectVersion = maintainerAdded.body.project.version;
+    const viewerAdded = await ownerAgent
+      .post(`/api/management/projects/${projectId}/members`)
+      .set("X-CSRF-Token", ownerLogin.body.csrfToken)
+      .send({
+        subjectId: viewerLogin.body.user.subjectId,
+        role: "viewer",
+        expectedProjectVersion: projectVersion,
+      });
+    projectVersion = viewerAdded.body.project.version;
+
+    const client = await maintainerAgent
+      .post(`/api/management/projects/${projectId}/clients`)
+      .set("X-CSRF-Token", maintainerLogin.body.csrfToken)
+      .send({ ...input, clientType: "spa" });
+    assert.equal(client.status, 201);
+    const clientId = client.body.client.clientId as string;
+    assert.equal(
+      (
+        await viewerAgent.get(
+          `/api/management/projects/${projectId}/clients/${clientId}`,
+        )
+      ).status,
+      200,
+    );
+    assert.equal(
+      (
+        await viewerAgent
+          .post(`/api/management/projects/${projectId}/clients`)
+          .set("X-CSRF-Token", viewerLogin.body.csrfToken)
+          .send({ ...input, clientType: "spa" })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await outsiderAgent.get(
+          `/api/management/projects/${projectId}/clients/${clientId}`,
+        )
+      ).status,
+      404,
+    );
+
+    const removed = await ownerAgent
+      .delete(
+        `/api/management/projects/${projectId}/members/${maintainerLogin.body.user.subjectId}`,
+      )
+      .set("X-CSRF-Token", ownerLogin.body.csrfToken)
+      .send({ expectedProjectVersion: projectVersion });
+    assert.equal(removed.status, 200);
+    projectVersion = removed.body.project.version;
+    assert.equal(
+      (
+        await maintainerAgent.get(
+          `/api/management/projects/${projectId}/clients/${clientId}`,
+        )
+      ).status,
+      404,
+    );
+    const lastOwner = await ownerAgent
+      .delete(
+        `/api/management/projects/${projectId}/members/${ownerLogin.body.user.subjectId}`,
+      )
+      .set("X-CSRF-Token", ownerLogin.body.csrfToken)
+      .send({ expectedProjectVersion: projectVersion });
+    assert.equal(lastOwner.status, 409);
+    assert.equal(lastOwner.body.error, "last_owner_required");
+  } finally {
+    await state.closeOidcServices();
+    await state.store.close();
+    await state.rateLimitService.close();
+  }
+});
+
 test("management API rejects concurrent approval and approval after disable", async () => {
   const { app, state } = await createApp();
   await seedAdmin(state);
@@ -289,18 +408,18 @@ test("management API rejects concurrent approval and approval after disable", as
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
     const created = await admin
-      .post("/api/management/clients")
+      .post("/api/management/projects/system/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ ...input, clientType: "spa" });
     const draft = created.body.client.proposedRevision;
     const submitted = await admin
       .post(
-        `/api/management/clients/${created.body.client.clientId}/revision/submit`,
+        `/api/management/projects/system/clients/${created.body.client.clientId}/revision/submit`,
       )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ revisionId: draft.revisionId, revisionVersion: draft.version });
     const pending = submitted.body.client.proposedRevision;
-    const endpoint = `/api/management/admin/reviews/${created.body.client.clientId}/approve`;
+    const endpoint = `/api/management/admin/projects/system/clients/${created.body.client.clientId}/revisions/${pending.revisionId}/approve`;
     const [first, second] = await Promise.all([
       admin.post(endpoint).set("X-CSRF-Token", signedIn.body.csrfToken).send({
         revisionId: pending.revisionId,
@@ -314,13 +433,13 @@ test("management API rejects concurrent approval and approval after disable", as
     assert.deepEqual([first.status, second.status].sort(), [200, 409]);
 
     const another = await admin
-      .post("/api/management/clients")
+      .post("/api/management/projects/system/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ ...input, displayName: "Disabled review", clientType: "spa" });
     const anotherDraft = another.body.client.proposedRevision;
     const anotherPending = await admin
       .post(
-        `/api/management/clients/${another.body.client.clientId}/revision/submit`,
+        `/api/management/projects/system/clients/${another.body.client.clientId}/revision/submit`,
       )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
@@ -328,12 +447,14 @@ test("management API rejects concurrent approval and approval after disable", as
         revisionVersion: anotherDraft.version,
       });
     await admin
-      .post(`/api/management/clients/${another.body.client.clientId}/disable`)
+      .post(
+        `/api/management/projects/system/clients/${another.body.client.clientId}/disable`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ clientVersion: anotherPending.body.client.clientVersion });
     const blocked = await admin
       .post(
-        `/api/management/admin/reviews/${another.body.client.clientId}/approve`,
+        `/api/management/admin/projects/system/clients/${another.body.client.clientId}/revisions/${anotherPending.body.client.proposedRevision.revisionId}/approve`,
       )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
@@ -355,7 +476,7 @@ test("management API rotates secrets and isolates authorization revocation", asy
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
     const created = await admin
-      .post("/api/management/clients")
+      .post("/api/management/projects/system/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send(input);
     const clientId = created.body.client.clientId as string;
@@ -363,12 +484,16 @@ test("management API rotates secrets and isolates authorization revocation", asy
     assert.equal("secretDigest" in created.body.client.secrets[0], false);
 
     const missingCsrf = await admin
-      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .post(
+        `/api/management/projects/system/clients/${clientId}/secrets/rotate`,
+      )
       .send({ clientVersion: created.body.client.clientVersion });
     assert.equal(missingCsrf.status, 400);
 
     const digestSubmission = await admin
-      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .post(
+        `/api/management/projects/system/clients/${clientId}/secrets/rotate`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         clientVersion: created.body.client.clientVersion,
@@ -379,13 +504,17 @@ test("management API rotates secrets and isolates authorization revocation", asy
     const outsider = request.agent(app);
     const outsiderLogin = await login(outsider, "secret-outsider");
     const denied = await outsider
-      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .post(
+        `/api/management/projects/system/clients/${clientId}/secrets/rotate`,
+      )
       .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
       .send({ clientVersion: created.body.client.clientVersion });
     assert.equal(denied.status, 404);
 
     const rotated = await admin
-      .post(`/api/management/clients/${clientId}/secrets/rotate`)
+      .post(
+        `/api/management/projects/system/clients/${clientId}/secrets/rotate`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         clientVersion: created.body.client.clientVersion,
@@ -400,7 +529,7 @@ test("management API rotates secrets and isolates authorization revocation", asy
     );
     const stale = await admin
       .post(
-        `/api/management/clients/${clientId}/secrets/${retiring.secretId}/revoke`,
+        `/api/management/projects/system/clients/${clientId}/secrets/${retiring.secretId}/revoke`,
       )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
@@ -410,7 +539,7 @@ test("management API rotates secrets and isolates authorization revocation", asy
     assert.equal(stale.status, 409);
     const revoked = await admin
       .post(
-        `/api/management/clients/${clientId}/secrets/${retiring.secretId}/revoke`,
+        `/api/management/projects/system/clients/${clientId}/secrets/${retiring.secretId}/revoke`,
       )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
@@ -444,7 +573,9 @@ test("management API rotates secrets and isolates authorization revocation", asy
       120,
     );
     const authorizations = await admin
-      .post(`/api/management/clients/${clientId}/authorizations/revoke`)
+      .post(
+        `/api/management/projects/system/clients/${clientId}/authorizations/revoke`,
+      )
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ clientVersion: revoked.body.client.clientVersion });
     assert.equal(authorizations.status, 200);
@@ -453,7 +584,7 @@ test("management API rotates secrets and isolates authorization revocation", asy
     assert.ok(await state.store.findArtifact("Session:shared"));
 
     const disabled = await admin
-      .post(`/api/management/clients/${clientId}/disable`)
+      .post(`/api/management/projects/system/clients/${clientId}/disable`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ clientVersion: authorizations.body.client.clientVersion });
     assert.equal(disabled.status, 200);
@@ -489,10 +620,10 @@ test("management API rate limits repeated zero-grace secret rotation", async () 
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
     const created = await admin
-      .post("/api/management/clients")
+      .post("/api/management/projects/system/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send(input);
-    const path = `/api/management/clients/${created.body.client.clientId}/secrets/rotate`;
+    const path = `/api/management/projects/system/clients/${created.body.client.clientId}/secrets/rotate`;
     const first = await admin
       .post(path)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
@@ -528,14 +659,14 @@ test("management API rate limits client creation by subject", async () => {
     assert.equal(
       (
         await admin
-          .post("/api/management/clients")
+          .post("/api/management/projects/system/clients")
           .set("X-CSRF-Token", signedIn.body.csrfToken)
           .send(input)
       ).status,
       201,
     );
     const limited = await admin
-      .post("/api/management/clients")
+      .post("/api/management/projects/system/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send(input);
     assert.equal(limited.status, 429);
@@ -559,14 +690,14 @@ test("management API rate limits client creation by source IP", async () => {
     assert.equal(
       (
         await admin
-          .post("/api/management/clients")
+          .post("/api/management/projects/system/clients")
           .set("X-CSRF-Token", signedIn.body.csrfToken)
           .send(input)
       ).status,
       201,
     );
     const limited = await admin
-      .post("/api/management/clients")
+      .post("/api/management/projects/system/clients")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send(input);
     assert.equal(limited.status, 429);

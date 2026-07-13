@@ -51,8 +51,8 @@ export type OidcOpConfig = {
   loginFailureWindowSeconds: number;
   tokenRateLimitMax: number;
   tokenRateLimitWindowSeconds: number;
-  managementClientMaxPerSubject: number;
-  managementClientMaxPendingPerSubject: number;
+  managementClientMaxPerProject: number;
+  managementClientMaxPendingPerProject: number;
   managementClientCreateRateLimitSubjectMax: number;
   managementClientCreateRateLimitIpMax: number;
   managementClientCreateRateLimitWindowSeconds: number;
@@ -407,11 +407,11 @@ export function readOidcOpConfig(
       "OIDC_RATE_LIMIT_MEMORY_CLEANUP_INTERVAL_SECONDS must be a positive integer",
     );
   }
-  const managementClientMaxPerSubject = Number(
-    env["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT"] ?? 10,
+  const managementClientMaxPerProject = Number(
+    env["OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT"] ?? 10,
   );
-  const managementClientMaxPendingPerSubject = Number(
-    env["OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT"] ?? 5,
+  const managementClientMaxPendingPerProject = Number(
+    env["OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT"] ?? 5,
   );
   const managementClientCreateRateLimitSubjectMax = Number(
     env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX"] ?? 5,
@@ -455,10 +455,10 @@ export function readOidcOpConfig(
     );
   }
   for (const [key, value] of [
-    ["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT", managementClientMaxPerSubject],
+    ["OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT", managementClientMaxPerProject],
     [
-      "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT",
-      managementClientMaxPendingPerSubject,
+      "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT",
+      managementClientMaxPendingPerProject,
     ],
     [
       "OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX",
@@ -501,9 +501,9 @@ export function readOidcOpConfig(
       "OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS must be a non-negative integer",
     );
   }
-  if (managementClientMaxPendingPerSubject > managementClientMaxPerSubject) {
+  if (managementClientMaxPendingPerProject > managementClientMaxPerProject) {
     throw new Error(
-      "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT must not exceed OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT",
+      "OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT must not exceed OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT",
     );
   }
   if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
@@ -714,8 +714,8 @@ export function readOidcOpConfig(
     tokenRateLimitWindowSeconds: Number(
       env["OIDC_TOKEN_RATE_LIMIT_WINDOW_SECONDS"] ?? 60,
     ),
-    managementClientMaxPerSubject,
-    managementClientMaxPendingPerSubject,
+    managementClientMaxPerProject,
+    managementClientMaxPendingPerProject,
     managementClientCreateRateLimitSubjectMax,
     managementClientCreateRateLimitIpMax,
     managementClientCreateRateLimitWindowSeconds,

@@ -7,8 +7,13 @@ import {
   ClientManagementError,
   ClientManagementService,
 } from "../src/clients/client-management.service.js";
-import type { OidcClientAuditRecord } from "../src/persistence/contracts.js";
+import type {
+  OidcClientAuditRecord,
+  ProjectAuditRecord,
+} from "../src/persistence/contracts.js";
 import { OidcClientRepositoryImpl } from "../src/persistence/oidc-client.repository.js";
+import { ProjectRepositoryImpl } from "../src/persistence/project.repository.js";
+import { ProjectAccessService } from "../src/projects/project-access.js";
 
 const databaseUrl = process.env["TEST_DATABASE_URL"];
 const owner = { subjectId: "subj_pg_owner", isAdmin: false };
@@ -25,6 +30,7 @@ const webInput = { ...input, clientType: "web" as const };
 const artifactSecret = "postgres-client-artifact-secret";
 const clientHash = (clientId: string) =>
   createHmac("sha256", artifactSecret).update(clientId).digest("hex");
+const projectId = "pg_project";
 
 test(
   "PostgreSQL enforces client revision transactions and concurrency",
@@ -50,25 +56,49 @@ test(
         owner.subjectId,
         admin.subjectId,
       ]);
+      await pool.query(
+        `insert into projects (project_id, name, created_by_subject_id)
+         values ($1, 'PostgreSQL project', $2)`,
+        [projectId, owner.subjectId],
+      );
+      await pool.query(
+        `insert into project_members (project_id, subject_id, role)
+         values ($1, $2, 'owner')`,
+        [projectId, owner.subjectId],
+      );
       const repository = new OidcClientRepositoryImpl(() => pool, clientHash);
-      const service = new ClientManagementService(repository, "test", {
-        createClientId: () => `pg_client_${++sequence}`,
-        maxClientsPerOwner: 20,
-        maxPendingClientsPerOwner,
-        adminQuotaExempt: false,
-        now,
-      });
-      return { repository, service };
+      const projects = new ProjectRepositoryImpl(
+        () => pool,
+        async () => true,
+      );
+      const service = new ClientManagementService(
+        repository,
+        new ProjectAccessService(projects),
+        "test",
+        {
+          createClientId: () => `pg_client_${++sequence}`,
+          maxClientsPerProject: 20,
+          maxPendingClientsPerProject: maxPendingClientsPerOwner,
+          adminQuotaExempt: false,
+          now,
+        },
+      );
+      return { repository, projects, service };
     }
 
     async function createActive(service: ClientManagementService) {
-      const created = await service.create(owner, input);
+      const created = await service.create(owner, projectId, input);
       const draft = created.client.proposedRevision!;
-      const pending = await service.submit(owner, created.client.clientId, {
-        revisionId: draft.revisionId,
-        revisionVersion: draft.version,
-      });
-      return service.approve(admin, created.client.clientId, {
+      const pending = await service.submit(
+        owner,
+        projectId,
+        created.client.clientId,
+        {
+          revisionId: draft.revisionId,
+          revisionVersion: draft.version,
+        },
+      );
+      return service.approve(admin, projectId, created.client.clientId, {
         revisionId: pending.proposedRevision!.revisionId,
         revisionVersion: pending.proposedRevision!.version,
       });
@@ -94,10 +124,10 @@ test(
           const { repository, service } = await reset();
           const active = await createActive(service);
           const attempts = await Promise.allSettled([
-            service.saveRevision(owner, active.clientId, {
+            service.saveRevision(owner, projectId, active.clientId, {
               redirectUris: ["http://localhost:3002/first"],
             }),
-            service.saveRevision(owner, active.clientId, {
+            service.saveRevision(owner, projectId, active.clientId, {
               redirectUris: ["http://localhost:3002/second"],
             }),
           ]);
@@ -109,11 +139,11 @@ test(
             active.clientId,
           ))!.proposedRevision!;
           const approvals = await Promise.allSettled([
-            service.approve(admin, active.clientId, {
+            service.approve(admin, projectId, active.clientId, {
               revisionId: pending.revisionId,
               revisionVersion: pending.version,
             }),
-            service.approve(admin, active.clientId, {
+            service.approve(admin, projectId, active.clientId, {
               revisionId: pending.revisionId,
               revisionVersion: pending.version,
             }),
@@ -135,15 +165,20 @@ test(
         async () => {
           const { repository, service } = await reset();
           const active = await createActive(service);
-          const pending = await service.saveRevision(owner, active.clientId, {
-            redirectUris: ["http://localhost:3002/race"],
-          });
+          const pending = await service.saveRevision(
+            owner,
+            projectId,
+            active.clientId,
+            {
+              redirectUris: ["http://localhost:3002/race"],
+            },
+          );
           const results = await Promise.allSettled([
-            service.approve(admin, active.clientId, {
+            service.approve(admin, projectId, active.clientId, {
               revisionId: pending.proposedRevision!.revisionId,
               revisionVersion: pending.proposedRevision!.version,
             }),
-            service.disable(owner, active.clientId, {
+            service.disable(owner, projectId, active.clientId, {
               clientVersion: pending.clientVersion,
             }),
           ]);
@@ -170,13 +205,13 @@ test(
         "serializes secret rotation and isolates client authorization revocation",
         async () => {
           const { repository, service } = await reset();
-          const created = await service.create(owner, webInput);
+          const created = await service.create(owner, projectId, webInput);
           const attempts = await Promise.allSettled([
-            service.rotateSecret(owner, created.client.clientId, {
+            service.rotateSecret(owner, projectId, created.client.clientId, {
               clientVersion: created.client.clientVersion,
               gracePeriodSeconds: 60,
             }),
-            service.rotateSecret(owner, created.client.clientId, {
+            service.rotateSecret(owner, projectId, created.client.clientId, {
               clientVersion: created.client.clientVersion,
               gracePeriodSeconds: 60,
             }),
@@ -185,7 +220,11 @@ test(
             attempts.filter((result) => result.status === "fulfilled").length,
             1,
           );
-          const current = await service.get(owner, created.client.clientId);
+          const current = await service.get(
+            owner,
+            projectId,
+            created.client.clientId,
+          );
           assert.equal(
             current.secrets.filter((secret) => secret.status !== "revoked")
               .length,
@@ -196,6 +235,7 @@ test(
           )!;
           const afterSecretRevoke = await service.revokeSecret(
             owner,
+            projectId,
             created.client.clientId,
             retiring.secretId,
             {
@@ -212,6 +252,7 @@ test(
           );
           const revoked = await service.revokeAuthorizations(
             owner,
+            projectId,
             created.client.clientId,
             { clientVersion: afterSecretRevoke.clientVersion },
           );
@@ -237,6 +278,7 @@ test(
           );
           const disabled = await service.disable(
             owner,
+            projectId,
             created.client.clientId,
             {
               clientVersion: revoked.clientVersion,
@@ -260,10 +302,11 @@ test(
             5,
             () => new Date("2020-01-01T00:00:00.000Z"),
           );
-          const created = await service.create(owner, webInput);
+          const created = await service.create(owner, projectId, webInput);
           const before = Date.now();
           const rotated = await service.rotateSecret(
             owner,
+            projectId,
             created.client.clientId,
             {
               clientVersion: created.client.clientVersion,
@@ -288,14 +331,14 @@ test(
 
       await context.test("serializes pending quota submissions", async () => {
         const { service } = await reset(1);
-        const first = await service.create(owner, input);
-        const second = await service.create(owner, input);
+        const first = await service.create(owner, projectId, input);
+        const second = await service.create(owner, projectId, input);
         const results = await Promise.allSettled([
-          service.submit(owner, first.client.clientId, {
+          service.submit(owner, projectId, first.client.clientId, {
             revisionId: first.client.proposedRevision!.revisionId,
             revisionVersion: first.client.proposedRevision!.version,
           }),
-          service.submit(owner, second.client.clientId, {
+          service.submit(owner, projectId, second.client.clientId, {
             revisionId: second.client.proposedRevision!.revisionId,
             revisionVersion: second.client.proposedRevision!.version,
           }),
@@ -326,33 +369,54 @@ test(
         async () => {
           const { service } = await reset();
           const active = await createActive(service);
-          const second = await service.saveRevision(owner, active.clientId, {
-            scopeWhitelist: ["openid", "email"],
-          });
-          await service.reject(admin, active.clientId, {
+          const second = await service.saveRevision(
+            owner,
+            projectId,
+            active.clientId,
+            {
+              scopeWhitelist: ["openid", "email"],
+            },
+          );
+          await service.reject(admin, projectId, active.clientId, {
             revisionId: second.proposedRevision!.revisionId,
             revisionVersion: second.proposedRevision!.version,
             reason: "not justified",
           });
           const thirdDraft = await service.saveRevision(
             owner,
+            projectId,
             active.clientId,
             {
               scopeWhitelist: ["openid", "profile", "email"],
             },
           );
-          const thirdPending = await service.submit(owner, active.clientId, {
-            revisionId: thirdDraft.proposedRevision!.revisionId,
-            revisionVersion: thirdDraft.proposedRevision!.version,
-          });
-          const thirdApproved = await service.approve(admin, active.clientId, {
-            revisionId: thirdPending.proposedRevision!.revisionId,
-            revisionVersion: thirdPending.proposedRevision!.version,
-          });
+          const thirdPending = await service.submit(
+            owner,
+            projectId,
+            active.clientId,
+            {
+              revisionId: thirdDraft.proposedRevision!.revisionId,
+              revisionVersion: thirdDraft.proposedRevision!.version,
+            },
+          );
+          const thirdApproved = await service.approve(
+            admin,
+            projectId,
+            active.clientId,
+            {
+              revisionId: thirdPending.proposedRevision!.revisionId,
+              revisionVersion: thirdPending.proposedRevision!.version,
+            },
+          );
           assert.equal(thirdApproved.proposedRevision, null);
-          const fourth = await service.saveRevision(owner, active.clientId, {
-            redirectUris: ["http://localhost:3002/fourth"],
-          });
+          const fourth = await service.saveRevision(
+            owner,
+            projectId,
+            active.clientId,
+            {
+              redirectUris: ["http://localhost:3002/fourth"],
+            },
+          );
           assert.equal(fourth.proposedRevision?.revisionNumber, 4);
           assert.deepEqual(fourth.proposedRevision?.scopeWhitelist, [
             "openid",
@@ -367,9 +431,14 @@ test(
         async () => {
           const { repository, service } = await reset();
           const active = await createActive(service);
-          const pending = await service.saveRevision(owner, active.clientId, {
-            redirectUris: ["http://localhost:3002/rollback"],
-          });
+          const pending = await service.saveRevision(
+            owner,
+            projectId,
+            active.clientId,
+            {
+              redirectUris: ["http://localhost:3002/rollback"],
+            },
+          );
           const timestamp = new Date().toISOString();
           const invalidAudit = {
             clientId: active.clientId,
@@ -391,6 +460,80 @@ test(
           );
           assert.equal(current?.activeRevision?.revisionNumber, 1);
           assert.equal(current?.proposedRevision?.status, "pending");
+        },
+      );
+
+      await context.test(
+        "serializes project member roles and preserves an owner",
+        async () => {
+          const { projects } = await reset();
+          const now = new Date().toISOString();
+          const audit = (
+            action: ProjectAuditRecord["action"],
+          ): ProjectAuditRecord => ({
+            projectId,
+            actorSubjectId: owner.subjectId,
+            action,
+            changedFields: ["role"],
+            createdAt: now,
+          });
+          const added = await projects.addProjectMember(
+            {
+              projectId,
+              subjectId: admin.subjectId,
+              role: "maintainer",
+              createdAt: now,
+              updatedAt: now,
+            },
+            1,
+            audit("project.member_added"),
+          );
+          assert.equal(added.status, "updated");
+          const version =
+            added.status === "updated" ? added.project.version : 0;
+          const concurrent = await Promise.all([
+            projects.updateProjectMemberRole(
+              projectId,
+              admin.subjectId,
+              "viewer",
+              version,
+              now,
+              audit("project.member_role_changed"),
+            ),
+            projects.updateProjectMemberRole(
+              projectId,
+              admin.subjectId,
+              "owner",
+              version,
+              now,
+              audit("project.member_role_changed"),
+            ),
+          ]);
+          assert.equal(
+            concurrent.filter((result) => result.status === "updated").length,
+            1,
+          );
+          const current = (await projects.findProject(projectId))!;
+          const memberRole = await projects.findProjectRole(
+            projectId,
+            admin.subjectId,
+          );
+          const removal = await projects.removeProjectMember(
+            projectId,
+            owner.subjectId,
+            current.version,
+            now,
+            audit("project.member_removed"),
+          );
+          assert.equal(
+            removal.status,
+            memberRole === "owner" ? "updated" : "last_owner_required",
+          );
+          assert.ok(
+            (await projects.listProjectMembers(projectId)).some(
+              (member) => member.role === "owner",
+            ),
+          );
         },
       );
     } finally {

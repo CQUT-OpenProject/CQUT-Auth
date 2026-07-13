@@ -36,11 +36,35 @@ create table if not exists subject_profiles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists projects (
+  project_id text primary key,
+  name text not null,
+  description text not null default '',
+  status text not null default 'active' check (status in ('active', 'archived')),
+  created_by_subject_id text references subjects(subject_id),
+  version integer not null default 1 check (version > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists project_members (
+  project_id text not null references projects(project_id),
+  subject_id text not null references subjects(subject_id),
+  role text not null check (role in ('owner', 'maintainer', 'viewer')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (project_id, subject_id)
+);
+
+create index if not exists idx_project_members_subject
+on project_members (subject_id, project_id);
+
 create table if not exists oidc_clients (
   client_id text primary key,
+  project_id text not null references projects(project_id),
   display_name text not null,
   description text not null default '',
-  owner_subject_id text references subjects(subject_id),
+  created_by_subject_id text references subjects(subject_id),
   client_type text not null check (client_type in ('web', 'spa')),
   auto_consent boolean not null default false,
   lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
@@ -108,8 +132,8 @@ create unique index if not exists uq_oidc_client_revisions_open
 on oidc_client_revisions (client_id)
 where review_status in ('draft', 'pending');
 
-create index if not exists idx_oidc_clients_owner_updated
-on oidc_clients (owner_subject_id, updated_at desc);
+create index if not exists idx_oidc_clients_project_updated
+on oidc_clients (project_id, updated_at desc);
 
 create index if not exists idx_oidc_clients_status_updated
 on oidc_clients (lifecycle_status, updated_at desc);
@@ -117,26 +141,33 @@ on oidc_clients (lifecycle_status, updated_at desc);
 create index if not exists idx_oidc_client_revisions_review_updated
 on oidc_client_revisions (review_status, updated_at desc);
 
-create table if not exists oidc_client_audit_logs (
+create table if not exists project_audit_logs (
   id bigserial primary key,
-  client_id text not null,
+  project_id text not null references projects(project_id),
+  client_id text,
   revision_id bigint,
   revision_number integer,
   secret_id text,
   actor_subject_id text,
+  target_subject_id text,
   action text not null,
   changed_fields jsonb not null default '[]'::jsonb,
   previous_client_status text,
   new_client_status text,
   previous_revision_status text,
   new_revision_status text,
+  previous_role text,
+  new_role text,
   reason text,
   source_ip text,
   created_at timestamptz not null default now()
 );
 
-create index if not exists idx_oidc_client_audit_logs_client_created
-on oidc_client_audit_logs (client_id, created_at desc);
+create index if not exists idx_project_audit_logs_project_created
+on project_audit_logs (project_id, id desc);
+
+create index if not exists idx_project_audit_logs_client_created
+on project_audit_logs (client_id, id desc) where client_id is not null;
 
 create table if not exists management_sessions (
   token_hash text primary key,
