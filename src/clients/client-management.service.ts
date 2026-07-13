@@ -467,9 +467,8 @@ export class ClientManagementService {
 
   private assertAllowedKeys(raw: unknown, allowed: readonly string[]) {
     const body = this.requireObject(raw);
-    const unexpected = Object.keys(body).filter(
-      (key) => !allowed.includes(key),
-    );
+    const allowedKeys = new Set(allowed);
+    const unexpected = Object.keys(body).filter((key) => !allowedKeys.has(key));
     if (unexpected.length > 0) {
       throw new ClientManagementError(
         400,
