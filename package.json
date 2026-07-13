@@ -5,9 +5,13 @@
   "type": "module",
   "packageManager": "pnpm@10.32.1",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "check:env-source": "bash ../scripts/check-single-env-source.sh",
-    "dev": "tsx watch src/main.ts",
+    "build": "pnpm build:ui && pnpm build:server",
+    "build:server": "tsc -p tsconfig.build.json",
+    "build:ui": "vite build --config web/vite.config.ts",
+    "check:env-source": "node scripts/check-single-env-source.mjs",
+    "dev": "concurrently -k \"pnpm dev:server\" \"pnpm dev:ui\"",
+    "dev:server": "tsx watch src/main.ts",
+    "dev:ui": "vite build --watch --config web/vite.config.ts",
     "dev:oidc": "tsx watch src/main.ts",
     "docker:build": "docker build -t cqut-auth-oidc .",
     "docker:up": "docker compose -f deploy/docker-compose.yml up -d --build",
@@ -15,7 +19,9 @@
     "init-env": "node scripts/init-env.mjs",
     "init-env:stdout": "node scripts/init-env.mjs --stdout",
     "lint": "pnpm run check:env-source && tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/**/*.test.ts src/**/*.test.ts",
+    "test": "pnpm test:server && pnpm test:ui",
+    "test:server": "tsx --test test/**/*.test.ts src/**/*.test.ts",
+    "test:ui": "vitest run --config web/vitest.config.ts",
     "seed:client": "tsx src/scripts/seed-oidc-client.ts",
     "seed:key": "tsx src/scripts/seed-oidc-signing-key.ts",
     "format": "prettier --write ."
@@ -34,6 +40,8 @@
     "jose": "^6.2.2",
     "oidc-provider": "^9.7.1",
     "pg": "^8.16.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
     "resend": "^6.10.0",
     "tough-cookie": "^5.1.2"
   },
@@ -41,10 +49,17 @@
     "@types/express": "^5.0.3",
     "@types/node": "^24.6.0",
     "@types/pg": "^8.15.5",
+    "@types/react": "^19.1.16",
+    "@types/react-dom": "^19.1.9",
     "@types/supertest": "^6.0.3",
+    "@testing-library/react": "^16.3.0",
+    "concurrently": "^9.2.1",
+    "jsdom": "^27.0.0",
     "prettier": "^3.6.2",
     "supertest": "^7.1.4",
     "tsx": "4.20.6",
-    "typescript": "^6.0.2"
+    "typescript": "^6.0.2",
+    "vite": "^7.1.9",
+    "vitest": "^3.2.4"
   }
 }
