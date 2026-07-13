@@ -63,6 +63,16 @@ export class OidcPersistenceImpl implements OidcPersistence {
         minIntervalSeconds: config.artifactOpportunisticCleanupIntervalSeconds,
       },
       this.artifactPayloadCipherService,
+      async (clientId) => {
+        const managed =
+          await this.oidcClientRepository.findManagedOidcClient(clientId);
+        return managed
+          ? {
+              lifecycleStatus: managed.client.lifecycleStatus,
+              authorizationGeneration: managed.client.authorizationGeneration,
+            }
+          : null;
+      },
     );
     this.oidcClientRepository = new OidcClientRepositoryImpl(
       poolProvider,
@@ -302,6 +312,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
     secret: OidcClientSecretRecord,
     expectedClientVersion: number,
     gracePeriodSeconds: number,
+    minimumRotationIntervalSeconds: number,
     audit: OidcClientAuditRecord,
   ) {
     return this.oidcClientRepository.rotateOidcClientSecret(
@@ -309,6 +320,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       secret,
       expectedClientVersion,
       gracePeriodSeconds,
+      minimumRotationIntervalSeconds,
       audit,
     );
   }
@@ -405,12 +417,14 @@ export class OidcPersistenceImpl implements OidcPersistence {
     kind: string,
     payload: Record<string, unknown>,
     expiresIn: number,
+    authorizationGeneration?: number,
   ): Promise<void> {
     return this.oidcArtifactRepository.upsertArtifact(
       id,
       kind,
       payload,
       expiresIn,
+      authorizationGeneration,
     );
   }
 
@@ -536,6 +550,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
         auto_consent boolean not null default false,
         lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
         active_revision_id bigint,
+        authorization_generation integer not null default 1 check (authorization_generation > 0),
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now(),
         version integer not null default 1 check (version > 0)
@@ -565,6 +580,9 @@ export class OidcPersistenceImpl implements OidcPersistence {
       on oidc_client_secrets (client_id, created_at desc);
       create index if not exists idx_oidc_client_secrets_expires
       on oidc_client_secrets (expires_at) where status = 'retiring';
+      create index if not exists idx_oidc_client_secrets_usable
+      on oidc_client_secrets (client_id, status, expires_at)
+      where status in ('active', 'retiring');
     `);
     await this.pool.query(`
       create table if not exists oidc_client_revisions (
@@ -651,6 +669,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
         kind text not null,
         grant_id_hash text,
         client_id_hash text,
+        authorization_generation integer,
         uid_hash text,
         user_code_hash text,
         payload jsonb not null,
@@ -663,6 +682,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       alter table oidc_artifacts
       add column if not exists grant_id_hash text,
       add column if not exists client_id_hash text,
+      add column if not exists authorization_generation integer,
       add column if not exists uid_hash text,
       add column if not exists user_code_hash text;
     `);
@@ -727,6 +747,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       "client_type",
       "lifecycle_status",
       "active_revision_id",
+      "authorization_generation",
       "version",
     ];
     const missing = required.filter((column) => !columns.has(column));

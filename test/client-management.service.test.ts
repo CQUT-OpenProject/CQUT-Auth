@@ -76,6 +76,11 @@ test("client creation produces a draft revision and never exposes secrets in aud
         ?.revisionNumber,
       1,
     );
+    assert.equal(
+      audit.find((entry) => entry.action === "client.secret_generated")
+        ?.secretId,
+      result.client.secrets[0]?.secretId,
+    );
     assert.equal(JSON.stringify(audit).includes(result.clientSecret!), false);
     assert.equal(JSON.stringify(audit).includes("scrypt$"), false);
   } finally {
@@ -190,8 +195,68 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
       0,
     );
     const audits = await store.listOidcClientAuditLogs(created.client.clientId);
+    assert.ok(
+      audits.some(
+        (entry) =>
+          entry.action === "client.secret_retired" &&
+          entry.secretId === created.client.secrets[0]?.secretId,
+      ),
+    );
     assert.equal(JSON.stringify(audits).includes("plaintext_secret"), false);
     assert.equal(JSON.stringify(audits).includes("scrypt$"), false);
+  } finally {
+    await store.close();
+  }
+});
+
+test("secret rotation preflight and cooldown run before scrypt digest work", async () => {
+  const store = new OidcPersistenceImpl(config());
+  await store.init();
+  let now = new Date("2026-07-13T00:00:00.000Z");
+  let digestCalls = 0;
+  const service = new ClientManagementService(store, "test", {
+    now: () => now,
+    createClientId: () => "client_rotation_amplification",
+    createSecret: () => `secret-value-${digestCalls + 1}`,
+    createSecretId: () => `secret-id-${digestCalls + 1}`,
+    digestSecret: async () => {
+      digestCalls += 1;
+      return `scrypt$test-${digestCalls}`;
+    },
+    minimumSecretRotationIntervalSeconds: 60,
+  });
+  try {
+    const created = await service.create(owner, webInput);
+    assert.equal(digestCalls, 1);
+    await assert.rejects(
+      () =>
+        service.rotateSecret(owner, created.client.clientId, {
+          clientVersion: created.client.clientVersion,
+          gracePeriodSeconds: 0,
+        }),
+      (error: unknown) =>
+        error instanceof ClientManagementError && error.code === "rate_limited",
+    );
+    assert.equal(digestCalls, 1);
+
+    now = new Date("2026-07-13T00:01:01.000Z");
+    const rotated = await service.rotateSecret(owner, created.client.clientId, {
+      clientVersion: created.client.clientVersion,
+      gracePeriodSeconds: 0,
+    });
+    assert.equal(digestCalls, 2);
+    await assert.rejects(
+      () =>
+        service.rotateSecret(owner, created.client.clientId, {
+          clientVersion: created.client.clientVersion,
+          gracePeriodSeconds: 0,
+        }),
+      (error: unknown) =>
+        error instanceof ClientManagementError &&
+        error.code === "version_conflict",
+    );
+    assert.equal(digestCalls, 2);
+    assert.equal(rotated.client.secrets[0]?.status, "active");
   } finally {
     await store.close();
   }

@@ -39,6 +39,7 @@ async function createApp(overrides: NodeJS.ProcessEnv = {}) {
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-management-artifact",
     OIDC_CLIENTS_CONFIG_PATH: await clientsConfig(),
     OIDC_ADMIN_SUBJECT_IDS: "subj_admin",
+    OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS: "0",
     ...overrides,
   });
 }
@@ -468,6 +469,47 @@ test("management API rotates secrets and isolates authorization revocation", asy
       false,
     );
     assert.equal(JSON.stringify(audits).includes("scrypt$"), false);
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
+test("management API rate limits repeated zero-grace secret rotation", async () => {
+  const { app, state } = await createApp({
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX: "10",
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX: "1",
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_IP_MAX: "10",
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_WINDOW_SECONDS: "3600",
+    OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS: "0",
+  });
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    const created = await admin
+      .post("/api/management/clients")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send(input);
+    const path = `/api/management/clients/${created.body.client.clientId}/secrets/rotate`;
+    const first = await admin
+      .post(path)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        clientVersion: created.body.client.clientVersion,
+        gracePeriodSeconds: 0,
+      });
+    assert.equal(first.status, 201);
+    const blocked = await admin
+      .post(path)
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        clientVersion: first.body.client.clientVersion,
+        gracePeriodSeconds: 0,
+      });
+    assert.equal(blocked.status, 429);
+    assert.equal(blocked.headers["retry-after"], "3600");
   } finally {
     await state.closeOidcServices();
     await state.rateLimitService.close();

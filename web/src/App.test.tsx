@@ -58,6 +58,10 @@ function mockApi(value: ReturnType<typeof client>, isAdmin = false) {
         ? {
             authenticated: true,
             csrfToken: "csrf",
+            clientSecretPolicy: {
+              defaultGraceSeconds: 3_600,
+              maxGraceSeconds: 7_200,
+            },
             user: { subjectId: "subj_owner", displayName: "Owner", isAdmin },
           }
         : { clients: [value] };
@@ -100,6 +104,10 @@ test("saves metadata and OIDC configuration through separate operations", async 
         ? {
             authenticated: true,
             csrfToken: "csrf",
+            clientSecretPolicy: {
+              defaultGraceSeconds: 3_600,
+              maxGraceSeconds: 7_200,
+            },
             user: {
               subjectId: "subj_owner",
               displayName: "Owner",
@@ -158,6 +166,10 @@ test("shows secret lifecycle and confirms rotation and authorization revocation"
         ? {
             authenticated: true,
             csrfToken: "csrf",
+            clientSecretPolicy: {
+              defaultGraceSeconds: 3_600,
+              maxGraceSeconds: 7_200,
+            },
             user: {
               subjectId: "subj_owner",
               displayName: "Owner",
@@ -179,6 +191,11 @@ test("shows secret lifecycle and confirms rotation and authorization revocation"
   fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
   expect(screen.getByText("secret_current")).toBeTruthy();
   expect(screen.getByText("当前生效")).toBeTruthy();
+  const graceInput = screen.getByLabelText(
+    "旧 Secret 宽限期（小时）",
+  ) as HTMLInputElement;
+  expect(graceInput.value).toBe("1");
+  expect(graceInput.max).toBe("2");
   fireEvent.click(screen.getByRole("button", { name: "轮换 Secret" }));
   expect(await screen.findByText("one-time-rotated-secret")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "撤销全部授权" }));
@@ -188,6 +205,28 @@ test("shows secret lifecycle and confirms rotation and authorization revocation"
     ),
   );
   expect(vi.mocked(confirm).mock.calls.length).toBeGreaterThanOrEqual(2);
+});
+
+test("paginates secret history in the management view", async () => {
+  mockApi(
+    client({
+      secrets: Array.from({ length: 11 }, (_, index) => ({
+        secretId: `secret_${index + 1}`,
+        status: "revoked",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        expiresAt: null,
+        revokedAt: "2026-07-13T01:00:00.000Z",
+        version: 2,
+      })),
+    }),
+  );
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
+  expect(screen.getByText("secret_1")).toBeTruthy();
+  expect(screen.queryByText("secret_11")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect(screen.getByText("secret_11")).toBeTruthy();
+  expect(screen.queryByText("secret_1")).toBeNull();
 });
 
 test("freezes pending revision and shows field differences", async () => {
@@ -255,6 +294,10 @@ test("keeps the current client view when an older request finishes last", async 
           JSON.stringify({
             authenticated: true,
             csrfToken: "csrf",
+            clientSecretPolicy: {
+              defaultGraceSeconds: 3_600,
+              maxGraceSeconds: 7_200,
+            },
             user: {
               subjectId: "subj_admin",
               displayName: "Admin",

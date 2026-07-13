@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import useSWR, { SWRConfig } from "swr";
 
 type User = {
@@ -8,7 +8,15 @@ type User = {
 };
 type AuthContext =
   | { authenticated: false; csrfToken: string }
-  | { authenticated: true; csrfToken: string; user: User };
+  | {
+      authenticated: true;
+      csrfToken: string;
+      user: User;
+      clientSecretPolicy: {
+        defaultGraceSeconds: number;
+        maxGraceSeconds: number;
+      };
+    };
 type Client = {
   clientId: string;
   displayName: string;
@@ -376,6 +384,10 @@ function Dashboard({
             <ClientSecurity
               client={selected}
               csrfToken={context.csrfToken}
+              defaultGraceSeconds={
+                context.clientSecretPolicy.defaultGraceSeconds
+              }
+              maxGraceSeconds={context.clientSecretPolicy.maxGraceSeconds}
               onChanged={async (message) => {
                 setNotice(message);
                 await refreshClients();
@@ -787,18 +799,35 @@ function ClientEditor({
 function ClientSecurity({
   client,
   csrfToken,
+  defaultGraceSeconds,
+  maxGraceSeconds,
   onChanged,
   onRotated,
 }: {
   client: Client;
   csrfToken: string;
+  defaultGraceSeconds: number;
+  maxGraceSeconds: number;
   onChanged: (message: string) => Promise<void>;
   onRotated: (value: string) => Promise<void>;
 }) {
-  const [graceHours, setGraceHours] = useState(24);
+  const [graceHours, setGraceHours] = useState(defaultGraceSeconds / 3600);
+  const maxGraceHours = maxGraceSeconds / 3600;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [secretPage, setSecretPage] = useState(0);
+  const secretPageSize = 10;
+  const secretPageCount = Math.max(
+    1,
+    Math.ceil(client.secrets.length / secretPageSize),
+  );
+  const visibleSecrets = client.secrets.slice(
+    secretPage * secretPageSize,
+    (secretPage + 1) * secretPageSize,
+  );
   const disabled = client.lifecycleStatus === "disabled" || busy;
+
+  useEffect(() => setSecretPage(0), [client.clientId, client.secrets.length]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -835,7 +864,7 @@ function ClientSecurity({
                 </tr>
               </thead>
               <tbody>
-                {(client.secrets ?? []).map((secret) => (
+                {visibleSecrets.map((secret) => (
                   <tr key={secret.secretId}>
                     <td>
                       <code>{secret.secretId}</code>
@@ -882,12 +911,35 @@ function ClientSecurity({
               </tbody>
             </table>
           </div>
+          {secretPageCount > 1 && (
+            <div className="actions">
+              <button
+                type="button"
+                className="secondary"
+                disabled={secretPage === 0}
+                onClick={() => setSecretPage((page) => page - 1)}
+              >
+                上一页
+              </button>
+              <span>
+                {secretPage + 1} / {secretPageCount}
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={secretPage + 1 >= secretPageCount}
+                onClick={() => setSecretPage((page) => page + 1)}
+              >
+                下一页
+              </button>
+            </div>
+          )}
           <label>
             旧 Secret 宽限期（小时）
             <input
               type="number"
               min="0"
-              max="168"
+              max={maxGraceHours}
               step="1"
               value={graceHours}
               disabled={disabled}

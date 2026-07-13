@@ -2,6 +2,13 @@ import type {
   ActiveOidcClientRecord,
   OidcPersistence,
 } from "../persistence/contracts.js";
+import {
+  captureAuthorizationGeneration,
+  currentAuthorizationGeneration,
+} from "./authorization-context.js";
+
+const internalGenerationKey = "__cqutAuthorizationGeneration";
+const internalClientIdKey = "__cqutAuthorizationClientId";
 
 type AdapterStore = Pick<
   OidcPersistence,
@@ -57,6 +64,9 @@ export function createAdapter(store: AdapterStore) {
         this.modelName,
         payload,
         expiresIn,
+        typeof payload["clientId"] === "string"
+          ? currentAuthorizationGeneration(payload["clientId"])
+          : undefined,
       );
     }
 
@@ -66,13 +76,21 @@ export function createAdapter(store: AdapterStore) {
         if (!client || client.lifecycleStatus !== "active") {
           return undefined;
         }
+        captureAuthorizationGeneration(
+          client.clientId,
+          client.authorizationGeneration,
+        );
         return providerClientMetadata(client);
       }
-      return store.findArtifact(`${this.modelName}:${id}`);
+      return this.captureArtifactContext(
+        await store.findArtifact(`${this.modelName}:${id}`),
+      );
     }
 
     async findByUid(uid: string) {
-      const payload = await store.findArtifactByUid(uid, this.modelName);
+      const payload = this.captureArtifactContext(
+        await store.findArtifactByUid(uid, this.modelName),
+      );
       if (!payload || payload["kind"] !== this.modelName) {
         return undefined;
       }
@@ -80,7 +98,9 @@ export function createAdapter(store: AdapterStore) {
     }
 
     async findByUserCode(userCode: string) {
-      return store.findArtifactByUserCode(userCode);
+      return this.captureArtifactContext(
+        await store.findArtifactByUserCode(userCode),
+      );
     }
 
     async destroy(id: string) {
@@ -93,6 +113,18 @@ export function createAdapter(store: AdapterStore) {
 
     async revokeByGrantId(grantId: string) {
       await store.revokeArtifactsByGrantId(grantId);
+    }
+
+    captureArtifactContext(payload: Record<string, unknown> | undefined) {
+      if (!payload) return undefined;
+      const clientId = payload[internalClientIdKey];
+      const generation = payload[internalGenerationKey];
+      if (typeof clientId === "string" && typeof generation === "number") {
+        captureAuthorizationGeneration(clientId, generation);
+      }
+      delete payload[internalClientIdKey];
+      delete payload[internalGenerationKey];
+      return payload;
     }
   };
 }

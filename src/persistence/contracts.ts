@@ -25,6 +25,7 @@ export type OidcClientRecord = {
   autoConsent: boolean;
   lifecycleStatus: ClientLifecycleStatus;
   activeRevisionId: number | null;
+  authorizationGeneration: number;
   createdAt: string;
   updatedAt: string;
   version: number;
@@ -83,9 +84,14 @@ export type ActiveOidcClientRecord = OidcClientRecord & {
 };
 
 export type ClientSecurityMutationResult =
-  | { status: "updated"; client: ManagedOidcClientRecord }
+  | {
+      status: "updated";
+      client: ManagedOidcClientRecord;
+      secret?: OidcClientSecretRecord;
+    }
   | { status: "version_conflict" }
   | { status: "secret_limit_exceeded" }
+  | { status: "secret_rotation_cooldown"; retryAfterSeconds: number }
   | { status: "secret_not_found" };
 
 export type OidcClientAuditAction =
@@ -95,6 +101,7 @@ export type OidcClientAuditAction =
   | "client.disabled"
   | "client.secret_generated"
   | "client.secret_rotated"
+  | "client.secret_retired"
   | "client.secret_revoked"
   | "client.authorizations_revoked"
   | "client.emergency_disabled"
@@ -241,6 +248,7 @@ export interface OidcClientRepository {
     secret: OidcClientSecretRecord,
     expectedClientVersion: number,
     gracePeriodSeconds: number,
+    minimumRotationIntervalSeconds: number,
     audit: OidcClientAuditRecord,
   ): Promise<ClientSecurityMutationResult>;
   revokeOidcClientSecret(
@@ -286,6 +294,7 @@ export interface OidcArtifactRepository {
     kind: string,
     payload: Record<string, unknown>,
     expiresIn: number,
+    authorizationGeneration?: number,
   ): Promise<void>;
   findArtifact(id: string): Promise<Record<string, unknown> | undefined>;
   destroyArtifact(id: string): Promise<void>;

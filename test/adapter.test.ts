@@ -130,6 +130,7 @@ test("adapter Client.find returns provider metadata for active client only", asy
         clientType: "web",
         lifecycleStatus: "active",
         activeRevisionId: 1,
+        authorizationGeneration: 1,
         activeRevision,
         applicationType: "web",
         tokenEndpointAuthMethod: "client_secret_basic",
