@@ -46,7 +46,10 @@ export function createManagementRouter(
     config.sessionTtlSeconds,
     config.sessionIdleTtlSeconds,
   );
-  const projects = new ProjectManagementService(store);
+  const projects = new ProjectManagementService(store, undefined, undefined, {
+    maxActiveProjects: config.managementProjectMaxActivePerSubject,
+    adminQuotaExempt: config.managementProjectQuotaAdminExempt,
+  });
   const clients = new ClientManagementService(
     store,
     projects.access,
@@ -54,6 +57,8 @@ export function createManagementRouter(
     {
       maxClientsPerProject: config.managementClientMaxPerProject,
       maxPendingClientsPerProject: config.managementClientMaxPendingPerProject,
+      maxClientsPerSubject: config.managementClientMaxPerSubject,
+      maxPendingClientsPerSubject: config.managementClientMaxPendingPerSubject,
       adminQuotaExempt: config.managementClientQuotaAdminExempt,
       defaultSecretGraceSeconds: config.clientSecretDefaultGraceSeconds,
       maxSecretGraceSeconds: config.clientSecretMaxGraceSeconds,
@@ -217,6 +222,35 @@ export function createManagementRouter(
 
   router.post("/projects", jsonParser, async (request, response, next) => {
     await withMutation(request, response, next, async (auth) => {
+      if (!(auth.actor.isAdmin && config.managementProjectQuotaAdminExempt)) {
+        for (const limit of [
+          {
+            key: `oidc:management:project-create:subject:${sha256(auth.actor.subjectId)}`,
+            max: config.managementProjectCreateRateLimitSubjectMax,
+          },
+          {
+            key: `oidc:management:project-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
+            max: config.managementProjectCreateRateLimitIpMax,
+          },
+        ]) {
+          const decision = await rateLimitService.consume(
+            limit.key,
+            limit.max,
+            config.managementProjectCreateRateLimitWindowSeconds,
+          );
+          if (!decision.allowed) {
+            response.setHeader(
+              "Retry-After",
+              String(decision.retryAfterSeconds),
+            );
+            response.status(429).json({
+              error: "rate_limited",
+              error_description: "project creation rate limit exceeded",
+            });
+            return;
+          }
+        }
+      }
       response
         .status(201)
         .json({ project: await projects.create(auth.actor, request.body) });
@@ -266,15 +300,13 @@ export function createManagementRouter(
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
-        response
-          .status(201)
-          .json({
-            project: await projects.addMember(
-              auth.actor,
-              param(request, "projectId"),
-              request.body,
-            ),
-          });
+        response.status(201).json({
+          project: await projects.addMember(
+            auth.actor,
+            param(request, "projectId"),
+            request.body,
+          ),
+        });
       });
     },
   );

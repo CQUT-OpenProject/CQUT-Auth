@@ -129,6 +129,11 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
       changedFields: ["authorizations"],
       createdAt: now,
     },
+    {
+      actor: { subjectId: "subj_demo", isAdmin: true },
+      projectId: "system",
+      action: "revoke_authorizations",
+    },
   );
   assert.ok(afterRevocation);
   releaseLateIssue();
@@ -157,6 +162,11 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
         createdAt: now,
       },
     ],
+    {
+      actor: { subjectId: "subj_demo", isAdmin: true },
+      projectId: "system",
+      action: "disable_client",
+    },
   );
   assert.ok(disabled);
   assert.equal(

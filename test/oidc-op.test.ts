@@ -2876,6 +2876,13 @@ test("config defaults client creation quotas and rate limits", () => {
   });
   assert.equal(config.managementClientMaxPerProject, 10);
   assert.equal(config.managementClientMaxPendingPerProject, 5);
+  assert.equal(config.managementClientMaxPerSubject, 30);
+  assert.equal(config.managementClientMaxPendingPerSubject, 15);
+  assert.equal(config.managementProjectMaxActivePerSubject, 5);
+  assert.equal(config.managementProjectCreateRateLimitSubjectMax, 3);
+  assert.equal(config.managementProjectCreateRateLimitIpMax, 10);
+  assert.equal(config.managementProjectCreateRateLimitWindowSeconds, 3600);
+  assert.equal(config.managementProjectQuotaAdminExempt, true);
   assert.equal(config.managementClientCreateRateLimitSubjectMax, 5);
   assert.equal(config.managementClientCreateRateLimitIpMax, 20);
   assert.equal(config.managementClientCreateRateLimitWindowSeconds, 3600);
@@ -2914,6 +2921,20 @@ test("config rejects client pending quota above total quota", () => {
         OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT: "2",
       }),
     /must not exceed/,
+  );
+});
+
+test("config rejects subject pending quota above subject client quota", () => {
+  assert.throws(
+    () =>
+      readOidcOpConfig({
+        APP_ENV: "test",
+        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+        OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT: "1",
+        OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT: "2",
+      }),
+    /MAX_PENDING_PER_SUBJECT must not exceed/,
   );
 });
 

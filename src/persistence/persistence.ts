@@ -15,11 +15,13 @@ import type {
   ManagementSessionRecord,
   ActiveOidcClientRecord,
   ClientRevisionStatus,
+  ClientProjectLimits,
   OidcClientAuditRecord,
   OidcClientRecord,
   OidcClientSecretRecord,
   OidcClientRevisionRecord,
   ProjectAuditRecord,
+  ProjectCreateLimits,
   ProjectMemberRecord,
   ProjectRecord,
   ProjectRole,
@@ -27,6 +29,7 @@ import type {
   OidcSigningKeyRecord,
   PendingInteractionLogin,
 } from "./contracts.js";
+import type { ProjectWriteAuthorization } from "../projects/project-access.js";
 import { IdentityRepositoryImpl } from "./identity.repository.js";
 import { JwkCipherServiceImpl } from "./jwk-cipher.service.js";
 import { OidcArtifactRepositoryImpl } from "./oidc-artifact.repository.js";
@@ -91,6 +94,12 @@ export class OidcPersistenceImpl implements OidcPersistence {
       (clientId) => this.artifactPayloadCipherService.hashLookupValue(clientId),
       (clientId) =>
         this.oidcArtifactRepository.revokeArtifactsByClientId(clientId),
+      (authorization, clientProjectId, mutation) =>
+        this.projectRepository.withMemoryProjectWrite(
+          authorization,
+          clientProjectId,
+          mutation,
+        ),
     );
     this.signingKeyRepository = new SigningKeyRepositoryImpl(
       poolProvider,
@@ -211,8 +220,9 @@ export class OidcPersistenceImpl implements OidcPersistence {
     project: ProjectRecord,
     owner: ProjectMemberRecord,
     audit: ProjectAuditRecord,
+    limits?: ProjectCreateLimits,
   ) {
-    return this.projectRepository.createProject(project, owner, audit);
+    return this.projectRepository.createProject(project, owner, audit, limits);
   }
 
   async findProject(projectId: string) {
@@ -297,7 +307,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
     toSubjectId: string,
     expectedVersion: number,
     updatedAt: string,
-    audit: ProjectAuditRecord,
+    audits: ProjectAuditRecord[],
   ) {
     return this.projectRepository.transferProjectOwnership(
       projectId,
@@ -305,7 +315,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       toSubjectId,
       expectedVersion,
       updatedAt,
-      audit,
+      audits,
     );
   }
 
@@ -365,10 +375,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
     revision: OidcClientRevisionRecord,
     secret: OidcClientSecretRecord | undefined,
     audits: OidcClientAuditRecord[],
-    projectLimits?: {
-      maxNonDisabledClients: number;
-      maxPendingClients: number;
-    },
+    projectLimits: ClientProjectLimits | undefined,
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.createOidcClient(
       client,
@@ -376,6 +384,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       secret,
       audits,
       projectLimits,
+      authorization,
     );
   }
 
@@ -384,12 +393,14 @@ export class OidcPersistenceImpl implements OidcPersistence {
     patch: Pick<OidcClientRecord, "displayName" | "description" | "updatedAt">,
     expectedVersion: number,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.updateOidcClientMetadata(
       clientId,
       patch,
       expectedVersion,
       audit,
+      authorization,
     );
   }
 
@@ -399,7 +410,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
     expectedRevisionId: number | null,
     expectedRevisionVersion: number | null,
     audits: OidcClientAuditRecord[],
-    maxPendingClients?: number,
+    projectLimits: ClientProjectLimits | undefined,
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.saveOidcClientRevision(
       clientId,
@@ -407,7 +419,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
       expectedRevisionId,
       expectedRevisionVersion,
       audits,
-      maxPendingClients,
+      projectLimits,
+      authorization,
     );
   }
 
@@ -418,7 +431,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
     nextStatus: ClientRevisionStatus,
     reason: string | undefined,
     audit: OidcClientAuditRecord,
-    maxPendingClients?: number,
+    projectLimits: ClientProjectLimits | undefined,
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.transitionOidcClientRevision(
       clientId,
@@ -427,7 +441,8 @@ export class OidcPersistenceImpl implements OidcPersistence {
       nextStatus,
       reason,
       audit,
-      maxPendingClients,
+      projectLimits,
+      authorization,
     );
   }
 
@@ -436,12 +451,14 @@ export class OidcPersistenceImpl implements OidcPersistence {
     revisionId: number,
     expectedVersion: number,
     audits: OidcClientAuditRecord[],
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.approveOidcClientRevision(
       clientId,
       revisionId,
       expectedVersion,
       audits,
+      authorization,
     );
   }
 
@@ -450,12 +467,14 @@ export class OidcPersistenceImpl implements OidcPersistence {
     expectedVersion: number,
     updatedAt: string,
     audits: OidcClientAuditRecord[],
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.disableOidcClient(
       clientId,
       expectedVersion,
       updatedAt,
       audits,
+      authorization,
     );
   }
 
@@ -466,6 +485,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
     gracePeriodSeconds: number,
     minimumRotationIntervalSeconds: number,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.rotateOidcClientSecret(
       clientId,
@@ -474,6 +494,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       gracePeriodSeconds,
       minimumRotationIntervalSeconds,
       audit,
+      authorization,
     );
   }
 
@@ -484,6 +505,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
     expectedSecretVersion: number,
     updatedAt: string,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.revokeOidcClientSecret(
       clientId,
@@ -492,6 +514,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       expectedSecretVersion,
       updatedAt,
       audit,
+      authorization,
     );
   }
 
@@ -500,12 +523,14 @@ export class OidcPersistenceImpl implements OidcPersistence {
     expectedClientVersion: number,
     updatedAt: string,
     audit: OidcClientAuditRecord,
+    authorization: ProjectWriteAuthorization,
   ) {
     return this.oidcClientRepository.revokeOidcClientAuthorizations(
       clientId,
       expectedClientVersion,
       updatedAt,
       audit,
+      authorization,
     );
   }
 

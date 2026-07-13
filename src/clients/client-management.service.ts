@@ -17,9 +17,11 @@ import type {
   RevisionMutationResult,
 } from "../persistence/contracts.js";
 import { base64Url, randomId } from "../utils.js";
+import { ClientManagementError } from "../management/management-error.js";
 import {
   ProjectAccessService,
   type ProjectAction,
+  type ProjectWriteAuthorization,
 } from "../projects/project-access.js";
 
 export type ClientActor = {
@@ -66,18 +68,7 @@ export type PublicClientSecret = {
   version: number;
 };
 
-export class ClientManagementError extends Error {
-  constructor(
-    readonly status: number,
-    readonly code: string,
-    message: string,
-    readonly field?: string,
-    readonly retryAfterSeconds?: number,
-  ) {
-    super(message);
-    this.name = "ClientManagementError";
-  }
-}
+export { ClientManagementError } from "../management/management-error.js";
 
 type ServiceDependencies = {
   now?: () => Date;
@@ -87,6 +78,8 @@ type ServiceDependencies = {
   digestSecret?: (secret: string) => Promise<string>;
   maxClientsPerProject?: number;
   maxPendingClientsPerProject?: number;
+  maxClientsPerSubject?: number;
+  maxPendingClientsPerSubject?: number;
   adminQuotaExempt?: boolean;
   defaultSecretGraceSeconds?: number;
   maxSecretGraceSeconds?: number;
@@ -114,6 +107,8 @@ export class ClientManagementService {
   private readonly digestSecret: (secret: string) => Promise<string>;
   private readonly maxClientsPerProject: number;
   private readonly maxPendingClientsPerProject: number;
+  private readonly maxClientsPerSubject: number;
+  private readonly maxPendingClientsPerSubject: number;
   private readonly adminQuotaExempt: boolean;
   private readonly defaultSecretGraceSeconds: number;
   private readonly maxSecretGraceSeconds: number;
@@ -137,6 +132,9 @@ export class ClientManagementService {
     this.maxClientsPerProject = dependencies.maxClientsPerProject ?? 10;
     this.maxPendingClientsPerProject =
       dependencies.maxPendingClientsPerProject ?? 5;
+    this.maxClientsPerSubject = dependencies.maxClientsPerSubject ?? 30;
+    this.maxPendingClientsPerSubject =
+      dependencies.maxPendingClientsPerSubject ?? 15;
     this.adminQuotaExempt = dependencies.adminQuotaExempt ?? true;
     this.defaultSecretGraceSeconds =
       dependencies.defaultSecretGraceSeconds ?? 86_400;
@@ -248,12 +246,8 @@ export class ClientManagementService {
       revision,
       secretRecord,
       audits,
-      actor.isAdmin && this.adminQuotaExempt
-        ? undefined
-        : {
-            maxNonDisabledClients: this.maxClientsPerProject,
-            maxPendingClients: this.maxPendingClientsPerProject,
-          },
+      actor.isAdmin && this.adminQuotaExempt ? undefined : this.projectLimits(),
+      this.authorization(actor, projectId, "write_client"),
     );
     if (!created)
       throw new ClientManagementError(
@@ -314,6 +308,7 @@ export class ClientManagementService {
       { displayName, description, updatedAt: timestamp },
       clientVersion,
       this.audit(actor, clientId, "client.updated", changedFields, timestamp),
+      this.authorization(actor, projectId, "write_client"),
     );
     return toPublicClient(this.requireUpdated(updated));
   }
@@ -402,6 +397,8 @@ export class ClientManagementService {
             timestamp,
           ),
         ],
+        this.quotaLimits(actor),
+        this.authorization(actor, projectId, "write_client"),
       );
       return toPublicClient(this.requireRevisionUpdated(updated));
     }
@@ -446,9 +443,8 @@ export class ClientManagementService {
       null,
       null,
       audits,
-      nextStatus === "pending" && !(actor.isAdmin && this.adminQuotaExempt)
-        ? this.maxPendingClientsPerProject
-        : undefined,
+      this.quotaLimits(actor),
+      this.authorization(actor, projectId, "write_client"),
     );
     return toPublicClient(this.requireRevisionUpdated(updated));
   }
@@ -585,6 +581,7 @@ export class ClientManagementService {
         secretId: secret.secretId,
         reason: `grace_period_seconds=${gracePeriodSeconds}`,
       },
+      this.authorization(actor, projectId, "rotate_secret"),
     );
     const updated = this.requireSecurityUpdated(result);
     const persistedSecret =
@@ -631,6 +628,7 @@ export class ClientManagementService {
         ),
         secretId,
       },
+      this.authorization(actor, projectId, "revoke_secret"),
     );
     return toPublicClient(this.requireSecurityUpdated(result));
   }
@@ -662,6 +660,7 @@ export class ClientManagementService {
         ["authorizations", "authorizationGeneration"],
         timestamp,
       ),
+      this.authorization(actor, projectId, "revoke_authorizations"),
     );
     return toPublicClient(this.requireUpdated(updated));
   }
@@ -713,6 +712,7 @@ export class ClientManagementService {
             ]
           : []),
       ],
+      this.authorization(actor, projectId, "disable_client"),
     );
     return toPublicClient(this.requireUpdated(updated));
   }
@@ -753,6 +753,7 @@ export class ClientManagementService {
           },
         ),
       ],
+      this.authorization(actor, projectId, "review"),
     );
     return toPublicClient(this.requireUpdated(updated));
   }
@@ -786,6 +787,8 @@ export class ClientManagementService {
         }),
         reason,
       },
+      undefined,
+      this.authorization(actor, projectId, "review"),
     );
     return toPublicClient(this.requireRevisionUpdated(updated));
   }
@@ -828,9 +831,8 @@ export class ClientManagementService {
         previousRevisionStatus: from,
         newRevisionStatus: to,
       }),
-      to === "pending" && !(actor.isAdmin && this.adminQuotaExempt)
-        ? this.maxPendingClientsPerProject
-        : undefined,
+      this.quotaLimits(actor),
+      this.authorization(actor, projectId, "write_client"),
     );
     return toPublicClient(this.requireRevisionUpdated(updated));
   }
@@ -867,6 +869,29 @@ export class ClientManagementService {
       );
     }
     return { current, revisionId, revisionVersion, body };
+  }
+
+  private projectLimits() {
+    return {
+      maxNonDisabledClients: this.maxClientsPerProject,
+      maxPendingClients: this.maxPendingClientsPerProject,
+      maxNonDisabledClientsPerSubject: this.maxClientsPerSubject,
+      maxPendingClientsPerSubject: this.maxPendingClientsPerSubject,
+    };
+  }
+
+  private quotaLimits(actor: ClientActor) {
+    return actor.isAdmin && this.adminQuotaExempt
+      ? undefined
+      : this.projectLimits();
+  }
+
+  private authorization(
+    actor: ClientActor,
+    projectId: string,
+    action: ProjectWriteAuthorization["action"],
+  ): ProjectWriteAuthorization {
+    return { actor, projectId, action };
   }
 
   private revisionFrom(
@@ -961,7 +986,7 @@ export class ClientManagementService {
       throw new ClientManagementError(
         409,
         "pending_revision_quota_exceeded",
-        "pending revision quota exceeded for this account",
+        "pending revision quota exceeded for this project",
       );
     if (result.status === "version_conflict") this.conflict();
     return result.client;

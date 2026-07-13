@@ -3,6 +3,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -65,7 +66,12 @@ function client(overrides: Record<string, unknown> = {}) {
 }
 
 function mockApi(
-  options: { projects?: ReturnType<typeof project>[]; isAdmin?: boolean } = {},
+  options: {
+    projects?: ReturnType<typeof project>[];
+    isAdmin?: boolean;
+    members?: Array<Record<string, unknown>>;
+    clients?: ReturnType<typeof client>[];
+  } = {},
 ) {
   const calls: Array<{ path: string; method: string }> = [];
   const projects = options.projects ?? [project()];
@@ -93,7 +99,7 @@ function mockApi(
           ? { projects }
           : path.endsWith("/members")
             ? {
-                members: [
+                members: options.members ?? [
                   {
                     projectId: "project_one",
                     subjectId: "subj_owner",
@@ -103,19 +109,21 @@ function mockApi(
                   },
                 ],
               }
-            : path.endsWith("/admin/reviews")
-              ? { clients: [client()] }
-              : path.includes("/clients") && method === "GET"
-                ? {
-                    clients: [
-                      client({
-                        projectId: path.includes("project_two")
-                          ? "project_two"
-                          : "project_one",
-                      }),
-                    ],
-                  }
-                : { project: projects[0], client: client() };
+            : path.endsWith("/secrets/rotate")
+              ? { secret: { value: "rotated-secret" }, client: client() }
+              : path.endsWith("/admin/reviews")
+                ? { clients: [client()] }
+                : path.includes("/clients") && method === "GET"
+                  ? {
+                      clients: options.clients ?? [
+                        client({
+                          projectId: path.includes("project_two")
+                            ? "project_two"
+                            : "project_one",
+                        }),
+                      ],
+                    }
+                  : { project: projects[0], client: client() };
       return new Response(JSON.stringify(body), {
         status: 200,
         headers: { "Content-Type": "application/json" },
@@ -190,5 +198,115 @@ test("administrators can open the global review view", async () => {
     expect(calls.some((call) => call.path.endsWith("/admin/reviews"))).toBe(
       true,
     ),
+  );
+});
+
+test("owner can change roles, delete members, and transfer ownership", async () => {
+  const calls = mockApi({
+    members: [
+      {
+        projectId: "project_one",
+        subjectId: "subj_owner",
+        role: "owner",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T00:00:00.000Z",
+      },
+      {
+        projectId: "project_one",
+        subjectId: "subj_member",
+        role: "viewer",
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T00:00:00.000Z",
+      },
+    ],
+  });
+  render(<App />);
+  const role = await screen.findByLabelText("subj_member 角色");
+  fireEvent.change(role, { target: { value: "maintainer" } });
+  const row = screen.getByText("subj_member").closest("tr")!;
+  fireEvent.click(within(row).getByRole("button", { name: "转移所有权" }));
+  fireEvent.click(within(row).getByRole("button", { name: "删除" }));
+  await waitFor(() => {
+    expect(
+      calls.some(
+        (call) =>
+          call.path.endsWith("/projects/project_one/members/subj_member") &&
+          call.method === "PATCH",
+      ),
+    ).toBe(true);
+    expect(
+      calls.some(
+        (call) =>
+          call.path.endsWith("/projects/project_one/ownership/transfer") &&
+          call.method === "POST",
+      ),
+    ).toBe(true);
+    expect(
+      calls.some(
+        (call) =>
+          call.path.endsWith("/projects/project_one/members/subj_member") &&
+          call.method === "DELETE",
+      ),
+    ).toBe(true);
+  });
+});
+
+test("owner can archive a project", async () => {
+  const calls = mockApi();
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "归档项目" }));
+  await waitFor(() =>
+    expect(
+      calls.some(
+        (call) =>
+          call.path.endsWith("/projects/project_one") &&
+          call.method === "PATCH",
+      ),
+    ).toBe(true),
+  );
+});
+
+test("client security actions remain available after project UI refactor", async () => {
+  const calls = mockApi({
+    clients: [
+      client({
+        secrets: [
+          {
+            secretId: "secret_one",
+            status: "active",
+            createdAt: "2026-07-13T00:00:00.000Z",
+            expiresAt: null,
+            revokedAt: null,
+            version: 1,
+          },
+        ],
+      }),
+    ],
+  });
+  vi.spyOn(window, "confirm").mockReturnValue(true);
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
+  fireEvent.click(await screen.findByRole("button", { name: "撤销 Secret" }));
+  await waitFor(() =>
+    expect(
+      calls.some((call) => call.path.endsWith("/secrets/secret_one/revoke")),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "轮换 Secret" }));
+  await waitFor(() =>
+    expect(calls.some((call) => call.path.endsWith("/secrets/rotate"))).toBe(
+      true,
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "撤销全部授权" }));
+  await waitFor(() =>
+    expect(
+      calls.some((call) => call.path.endsWith("/authorizations/revoke")),
+    ).toBe(true),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "紧急停用客户端" }));
+  await waitFor(() =>
+    expect(calls.some((call) => call.path.endsWith("/disable"))).toBe(true),
   );
 });

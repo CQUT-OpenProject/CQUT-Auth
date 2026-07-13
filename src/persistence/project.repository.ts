@@ -2,12 +2,18 @@ import type { Pool, PoolClient } from "pg";
 import {
   SYSTEM_PROJECT_ID,
   type ProjectAuditRecord,
+  type ProjectCreateLimits,
   type ProjectMemberRecord,
   type ProjectMutationResult,
   type ProjectRecord,
   type ProjectRepository,
   type ProjectRole,
 } from "./contracts.js";
+import {
+  assertProjectAccess,
+  type ProjectWriteAuthorization,
+} from "../projects/project-access.js";
+import { ClientManagementError } from "../management/management-error.js";
 
 type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
@@ -88,20 +94,46 @@ export class ProjectRepositoryImpl implements ProjectRepository {
     project: ProjectRecord,
     owner: ProjectMemberRecord,
     audit: ProjectAuditRecord,
+    limits?: ProjectCreateLimits,
   ) {
     const pool = this.poolProvider();
     if (!pool) {
-      this.projects.set(project.projectId, project);
-      this.members.set(
-        this.memberKey(project.projectId, owner.subjectId),
-        owner,
-      );
-      this.pushAudit(audit);
-      return project;
+      return this.withMemoryLock(`subject:${owner.subjectId}`, async () => {
+        if (
+          limits &&
+          [...this.projects.values()].filter(
+            (candidate) =>
+              candidate.createdBySubjectId === owner.subjectId &&
+              candidate.status === "active",
+          ).length >= limits.maxActiveProjects
+        )
+          return null;
+        this.projects.set(project.projectId, project);
+        this.members.set(
+          this.memberKey(project.projectId, owner.subjectId),
+          owner,
+        );
+        this.pushAudit(audit);
+        return project;
+      });
     }
     const connection = await pool.connect();
     try {
       await connection.query("begin");
+      await connection.query("select pg_advisory_xact_lock(hashtext($1))", [
+        `cqut-auth:project-creator:${owner.subjectId}`,
+      ]);
+      if (limits) {
+        const count = await connection.query(
+          `select count(*)::int as count from projects
+           where created_by_subject_id = $1 and status = 'active'`,
+          [owner.subjectId],
+        );
+        if (Number(count.rows[0]?.["count"] ?? 0) >= limits.maxActiveProjects) {
+          await connection.query("rollback");
+          return null;
+        }
+      }
       await connection.query(
         `insert into projects
            (project_id, name, description, status, created_by_subject_id, version, created_at, updated_at)
@@ -234,13 +266,24 @@ export class ProjectRepositoryImpl implements ProjectRepository {
     expectedVersion: number,
     audit: ProjectAuditRecord,
   ): Promise<ProjectMutationResult> {
-    if (!(await this.subjectExists(member.subjectId)))
-      return { status: "subject_not_found" };
     return this.mutateProject(
       member.projectId,
       expectedVersion,
       audit,
       async (queryable) => {
+        const subjectActive = queryable
+          ? await queryable.query(
+              `select 1 from subjects
+               where subject_id = $1 and status = 'active' for share`,
+              [member.subjectId],
+            )
+          : undefined;
+        if (
+          queryable
+            ? !subjectActive?.rowCount
+            : !(await this.subjectExists(member.subjectId))
+        )
+          return "subject_not_found";
         if (!queryable) {
           const key = this.memberKey(member.projectId, member.subjectId);
           if (this.members.has(key)) return "member_exists";
@@ -348,12 +391,12 @@ export class ProjectRepositoryImpl implements ProjectRepository {
     toSubjectId: string,
     expectedVersion: number,
     updatedAt: string,
-    audit: ProjectAuditRecord,
+    audits: ProjectAuditRecord[],
   ): Promise<ProjectMutationResult> {
     return this.mutateProject(
       projectId,
       expectedVersion,
-      audit,
+      audits,
       async (queryable) => {
         const from = await this.member(queryable, projectId, fromSubjectId);
         const to = await this.member(queryable, projectId, toSubjectId);
@@ -411,35 +454,25 @@ export class ProjectRepositoryImpl implements ProjectRepository {
   private async mutateProject(
     projectId: string,
     expectedVersion: number,
-    audit: ProjectAuditRecord,
+    audit: ProjectAuditRecord | ProjectAuditRecord[],
     mutation: (
       queryable: PoolClient | undefined,
     ) => Promise<Exclude<ProjectMutationResult["status"], "version_conflict">>,
   ): Promise<ProjectMutationResult> {
     const pool = this.poolProvider();
     if (!pool) {
-      const previous = this.memoryLocks.get(projectId) ?? Promise.resolve();
-      let release!: () => void;
-      const currentLock = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const queued = previous.then(() => currentLock);
-      this.memoryLocks.set(projectId, queued);
-      await previous;
-      try {
+      return this.withMemoryLock(projectId, async () => {
         const current = this.projects.get(projectId);
         if (!current || current.version !== expectedVersion)
           return { status: "version_conflict" };
         const status = await mutation(undefined);
-        if (status === "updated") this.pushAudit(audit);
+        if (status === "updated")
+          for (const record of Array.isArray(audit) ? audit : [audit])
+            this.pushAudit(record);
         return status === "updated"
           ? { status, project: this.projects.get(projectId)! }
           : { status };
-      } finally {
-        release();
-        if (this.memoryLocks.get(projectId) === queued)
-          this.memoryLocks.delete(projectId);
-      }
+      });
     }
     const connection = await pool.connect();
     try {
@@ -457,7 +490,8 @@ export class ProjectRepositoryImpl implements ProjectRepository {
         await connection.query("rollback");
         return { status };
       }
-      await this.insertAudit(connection, audit);
+      for (const record of Array.isArray(audit) ? audit : [audit])
+        await this.insertAudit(connection, record);
       const project = await connection.query(
         "select * from projects where project_id = $1",
         [projectId],
@@ -469,6 +503,54 @@ export class ProjectRepositoryImpl implements ProjectRepository {
       throw error;
     } finally {
       connection.release();
+    }
+  }
+
+  async withMemoryProjectWrite<T>(
+    authorization: ProjectWriteAuthorization,
+    clientProjectId: string,
+    mutation: (project: ProjectRecord) => Promise<T>,
+  ) {
+    return this.withMemoryLock(authorization.projectId, async () => {
+      const project = this.projects.get(authorization.projectId) ?? null;
+      const role =
+        this.members.get(
+          this.memberKey(
+            authorization.projectId,
+            authorization.actor.subjectId,
+          ),
+        )?.role ?? null;
+      assertProjectAccess(
+        authorization.actor,
+        project,
+        role,
+        authorization.action,
+      );
+      if (clientProjectId !== authorization.projectId)
+        throw new ClientManagementError(404, "not_found", "client not found");
+      return project!.createdBySubjectId
+        ? this.withMemoryLock(
+            `client-subject:${project!.createdBySubjectId}`,
+            () => mutation(project!),
+          )
+        : mutation(project!);
+    });
+  }
+
+  private async withMemoryLock<T>(key: string, mutation: () => Promise<T>) {
+    const previous = this.memoryLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const currentLock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => currentLock);
+    this.memoryLocks.set(key, queued);
+    await previous;
+    try {
+      return await mutation();
+    } finally {
+      release();
+      if (this.memoryLocks.get(key) === queued) this.memoryLocks.delete(key);
     }
   }
 
