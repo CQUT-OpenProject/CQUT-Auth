@@ -1,5 +1,5 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
-import { IdentityCoreError } from "../identity/index.js";
+import { IdentityCoreError } from "../identity/errors.js";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
 import {

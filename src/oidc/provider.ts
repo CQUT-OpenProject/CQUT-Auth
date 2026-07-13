@@ -1,12 +1,10 @@
-import {
-  type CampusVerifierProvider,
-  CqutCampusVerifierProvider,
-  IdentityLinkService,
-  InteractiveAuthenticatorService,
-  MockCampusVerifierProvider,
-  ProviderRegistry,
-  SubjectProfileService
-} from "../identity/index.js";
+import { ProviderRegistry } from "../identity/provider-registry.js";
+import { CqutCampusVerifierProvider } from "../identity/providers/cqut.provider.js";
+import { MockCampusVerifierProvider } from "../identity/providers/mock.provider.js";
+import { IdentityLinkService } from "../identity/services/identity-link.service.js";
+import { InteractiveAuthenticatorService } from "../identity/services/interactive-authenticator.service.js";
+import { SubjectProfileService } from "../identity/services/subject-profile.service.js";
+import type { CampusVerifierProvider } from "../identity/types.js";
 import { OIDC_CLAIMS, OIDC_SCOPES } from "../shared/oidc-contracts.js";
 import { exportJWK, generateKeyPair } from "jose";
 import Provider from "oidc-provider";
