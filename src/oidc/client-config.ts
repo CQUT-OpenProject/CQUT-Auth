@@ -6,8 +6,8 @@ import {
 } from "../shared/oidc-contracts.js";
 import type { OidcOpConfig } from "../config.js";
 import type {
+  ActiveOidcClientRecord,
   OidcClientAuditRecord,
-  OidcClientRecord,
   OidcPersistence,
 } from "../persistence/contracts.js";
 
@@ -252,33 +252,11 @@ export function configurationToProtocolFields(
   };
 }
 
-function parseStatus(
-  value: unknown,
-  clientId: string,
-): OidcClientRecord["status"] {
-  if (value === undefined) {
-    return "active";
-  }
-  if (
-    value === "draft" ||
-    value === "pending" ||
-    value === "active" ||
-    value === "disabled" ||
-    value === "rejected"
-  ) {
-    return value;
-  }
-  throw new ClientValidationError(
-    `oidc client ${clientId}: invalid status`,
-    "status",
-  );
-}
-
 function parseBootstrapClient(
   raw: unknown,
   appEnv: string,
   seen: Set<string>,
-): OidcClientRecord {
+): ActiveOidcClientRecord {
   if (!isObject(raw)) {
     throw new ClientValidationError("each oidc client item must be an object");
   }
@@ -368,18 +346,33 @@ function parseBootstrapClient(
     );
   }
   const now = new Date().toISOString();
+  const revision = {
+    revisionId: 0,
+    clientId,
+    revisionNumber: 1,
+    status: "approved" as const,
+    redirectUris: configuration.redirectUris,
+    postLogoutRedirectUris: configuration.postLogoutRedirectUris,
+    scopeWhitelist: configuration.scopeWhitelist,
+    createdAt: now,
+    updatedAt: now,
+    version: 1,
+  };
   return {
     clientId,
     clientSecretDigest: typeof digest === "string" ? digest : undefined,
     displayName: configuration.displayName,
     description: configuration.description,
     ownerSubjectId: null,
+    clientType,
+    lifecycleStatus: "active",
+    activeRevisionId: 0,
+    activeRevision: revision,
     ...protocol,
     redirectUris: configuration.redirectUris,
     postLogoutRedirectUris: configuration.postLogoutRedirectUris,
     scopeWhitelist: configuration.scopeWhitelist,
     autoConsent: raw["autoConsent"] === true,
-    status: parseStatus(raw["status"], clientId),
     createdAt: now,
     updatedAt: now,
     version: 1,
@@ -431,13 +424,39 @@ export async function initializeOidcClientsFromConfig(
     return { imported: false, count: 0 };
   }
   const now = new Date().toISOString();
-  const audits: OidcClientAuditRecord[] = clients.map((client) => ({
-    clientId: client.clientId,
-    actorSubjectId: null,
-    action: "client.initialized",
-    changedFields: [],
-    newStatus: client.status,
-    createdAt: now,
-  }));
+  const audits: OidcClientAuditRecord[] = clients.flatMap((client) => [
+    {
+      clientId: client.clientId,
+      actorSubjectId: null,
+      action: "client.initialized",
+      changedFields: [],
+      newClientStatus: "active",
+      createdAt: now,
+    },
+    {
+      clientId: client.clientId,
+      actorSubjectId: null,
+      action: "revision.created",
+      changedFields: [
+        "redirectUris",
+        "postLogoutRedirectUris",
+        "scopeWhitelist",
+      ],
+      newRevisionStatus: "approved",
+      createdAt: now,
+    },
+    {
+      clientId: client.clientId,
+      actorSubjectId: null,
+      action: "revision.activated",
+      changedFields: [
+        "redirectUris",
+        "postLogoutRedirectUris",
+        "scopeWhitelist",
+      ],
+      newClientStatus: "active",
+      createdAt: now,
+    },
+  ]);
   return store.initializeOidcClientsIfEmpty(clients, audits);
 }

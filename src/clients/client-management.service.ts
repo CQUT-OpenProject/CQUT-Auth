@@ -2,15 +2,17 @@ import { randomBytes } from "node:crypto";
 import { createClientSecretDigest } from "../crypto.js";
 import {
   ClientValidationError,
-  configurationToProtocolFields,
   validateManagedClientConfiguration,
-  type ManagedClientConfiguration,
   type ManagedClientType,
 } from "../oidc/client-config.js";
 import type {
+  ClientLifecycleStatus,
+  ClientRevisionStatus,
+  ManagedOidcClientRecord,
   OidcClientAuditRecord,
   OidcClientRecord,
   OidcClientRepository,
+  OidcClientRevisionRecord,
 } from "../persistence/contracts.js";
 import { base64Url, randomId } from "../utils.js";
 
@@ -20,20 +22,31 @@ export type ClientActor = {
   sourceIp?: string;
 };
 
+export type PublicClientRevision = {
+  revisionId: number;
+  revisionNumber: number;
+  status: ClientRevisionStatus;
+  redirectUris: string[];
+  postLogoutRedirectUris: string[];
+  scopeWhitelist: string[];
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+};
+
 export type PublicOidcClient = {
   clientId: string;
   displayName: string;
   description: string;
   ownerSubjectId: string | null;
   clientType: ManagedClientType;
-  redirectUris: string[];
-  postLogoutRedirectUris: string[];
-  scopeWhitelist: string[];
-  status: OidcClientRecord["status"];
-  rejectionReason: string | null;
+  lifecycleStatus: ClientLifecycleStatus;
+  activeRevision: PublicClientRevision | null;
+  proposedRevision: PublicClientRevision | null;
   createdAt: string;
   updatedAt: string;
-  version: number;
+  clientVersion: number;
 };
 
 export class ClientManagementError extends Error {
@@ -58,19 +71,17 @@ type ServiceDependencies = {
   adminQuotaExempt?: boolean;
 };
 
-const editableFields = [
-  "displayName",
-  "description",
+const configurationFields = [
   "redirectUris",
   "postLogoutRedirectUris",
   "scopeWhitelist",
 ] as const;
-const createFields = ["clientType", ...editableFields] as const;
-const sensitiveFields = new Set<string>([
-  "redirectUris",
-  "postLogoutRedirectUris",
-  "scopeWhitelist",
-]);
+const createFields = [
+  "clientType",
+  "displayName",
+  "description",
+  ...configurationFields,
+] as const;
 
 export class ClientManagementService {
   private readonly now: () => Date;
@@ -99,13 +110,7 @@ export class ClientManagementService {
   }
 
   async list(actor: ClientActor, viewAll = false) {
-    if (viewAll && !actor.isAdmin) {
-      throw new ClientManagementError(
-        403,
-        "access_denied",
-        "administrator access is required",
-      );
-    }
+    if (viewAll && !actor.isAdmin) this.denyAdmin();
     const clients = viewAll
       ? await this.repository.listOidcClients()
       : await this.repository.listOidcClientsByOwner(actor.subjectId);
@@ -129,48 +134,61 @@ export class ClientManagementService {
       configuration.clientType === "web" ? this.createSecret() : undefined;
     const digest = secret ? await this.digestSecret(secret) : undefined;
     const timestamp = this.now().toISOString();
-    const protocol = configurationToProtocolFields(configuration);
     const client: OidcClientRecord = {
       clientId,
       clientSecretDigest: digest,
       displayName: configuration.displayName,
       description: configuration.description,
       ownerSubjectId: actor.subjectId,
-      ...protocol,
-      redirectUris: configuration.redirectUris,
-      postLogoutRedirectUris: configuration.postLogoutRedirectUris,
-      scopeWhitelist: configuration.scopeWhitelist,
-      status: "pending",
+      clientType: configuration.clientType,
+      autoConsent: false,
+      lifecycleStatus: "draft",
+      activeRevisionId: null,
       createdAt: timestamp,
       updatedAt: timestamp,
       version: 1,
     };
-    const audits: OidcClientAuditRecord[] = [
+    const revision: OidcClientRevisionRecord = {
+      revisionId: 0,
+      clientId,
+      revisionNumber: 1,
+      status: "draft",
+      redirectUris: configuration.redirectUris,
+      postLogoutRedirectUris: configuration.postLogoutRedirectUris,
+      scopeWhitelist: configuration.scopeWhitelist,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
+    const audits = [
       this.audit(
         actor,
         clientId,
         "client.created",
-        [...createFields],
-        undefined,
-        "pending",
+        ["clientType", "displayName", "description"],
         timestamp,
+        {
+          newClientStatus: "draft",
+        },
+      ),
+      this.audit(
+        actor,
+        clientId,
+        "revision.created",
+        configurationFields,
+        timestamp,
+        {
+          newRevisionStatus: "draft",
+        },
       ),
     ];
-    if (secret) {
+    if (secret)
       audits.push(
-        this.audit(
-          actor,
-          clientId,
-          "client.secret_generated",
-          [],
-          undefined,
-          undefined,
-          timestamp,
-        ),
+        this.audit(actor, clientId, "client.secret_generated", [], timestamp),
       );
-    }
     const created = await this.repository.createOidcClient(
       client,
+      revision,
       audits,
       actor.isAdmin && this.adminQuotaExempt
         ? undefined
@@ -179,316 +197,498 @@ export class ClientManagementService {
             maxPendingClients: this.maxPendingClientsPerOwner,
           },
     );
-    if (!created) {
+    if (!created)
       throw new ClientManagementError(
         409,
         "client_quota_exceeded",
         "client quota exceeded for this account",
       );
-    }
     return {
-      client: toPublicClient(client),
+      client: toPublicClient(created),
       ...(secret ? { clientSecret: secret } : {}),
     };
   }
 
   async update(actor: ClientActor, clientId: string, raw: unknown) {
-    const patch = this.requireObject(raw);
-    this.assertAllowedKeys(patch, ["version", ...editableFields]);
-    const version = this.parseVersion(patch["version"]);
+    const body = this.requireObject(raw);
+    this.assertAllowedKeys(body, [
+      "clientVersion",
+      "displayName",
+      "description",
+    ]);
     const current = await this.requireAccessible(actor, clientId);
-    if (current.status === "disabled") {
-      throw new ClientManagementError(
-        409,
-        "invalid_client_state",
-        "disabled clients cannot be edited",
-      );
-    }
-    const currentConfiguration = configurationFromRecord(current);
-    const merged = {
-      clientType: currentConfiguration.clientType,
-      ...Object.fromEntries(
-        editableFields.map((field) => [
-          field,
-          patch[field] === undefined
-            ? currentConfiguration[field]
-            : patch[field],
-        ]),
-      ),
-    };
-    const configuration = this.validate(merged);
-    const changedFields = editableFields.filter(
-      (field) =>
-        JSON.stringify(configuration[field]) !==
-        JSON.stringify(currentConfiguration[field]),
+    this.requireEnabled(current);
+    const clientVersion = this.parseVersion(
+      body["clientVersion"],
+      "clientVersion",
     );
-    if (changedFields.length === 0) {
+    const displayName =
+      body["displayName"] === undefined
+        ? current.client.displayName
+        : this.parseText(body["displayName"], "displayName", 1, 100);
+    const description =
+      body["description"] === undefined
+        ? current.client.description
+        : this.parseText(body["description"], "description", 0, 1000);
+    const changedFields = [
+      ...(displayName !== current.client.displayName ? ["displayName"] : []),
+      ...(description !== current.client.description ? ["description"] : []),
+    ];
+    if (!changedFields.length)
       throw new ClientManagementError(
         400,
         "invalid_request",
         "at least one client field must change",
       );
-    }
-    const becomesPending = changedFields.some((field) =>
-      sensitiveFields.has(field),
+    const timestamp = this.now().toISOString();
+    const updated = await this.repository.updateOidcClientMetadata(
+      clientId,
+      { displayName, description, updatedAt: timestamp },
+      clientVersion,
+      this.audit(actor, clientId, "client.updated", changedFields, timestamp),
     );
-    if (current.status === "active" && becomesPending) {
+    return toPublicClient(this.requireUpdated(updated));
+  }
+
+  async saveRevision(actor: ClientActor, clientId: string, raw: unknown) {
+    const body = this.requireObject(raw);
+    this.assertAllowedKeys(body, [
+      "revisionId",
+      "revisionVersion",
+      ...configurationFields,
+    ]);
+    const current = await this.requireAccessible(actor, clientId);
+    this.requireEnabled(current);
+    if (current.proposedRevision?.status === "pending") {
       throw new ClientManagementError(
         409,
-        "invalid_client_state",
-        "active clients cannot change redirect URIs or scopes; create a new client",
+        "invalid_revision_state",
+        "pending revisions must be withdrawn before editing",
       );
     }
-    const nextStatus = current.status === "rejected" ? "draft" : current.status;
+    const base = current.proposedRevision ?? current.activeRevision;
+    if (!base)
+      throw new ClientManagementError(
+        409,
+        "invalid_revision_state",
+        "client has no editable revision",
+      );
+    const configuration = this.validate({
+      clientType: current.client.clientType,
+      displayName: current.client.displayName,
+      description: current.client.description,
+      ...Object.fromEntries(
+        configurationFields.map((field) => [
+          field,
+          body[field] === undefined ? base[field] : body[field],
+        ]),
+      ),
+    });
+    const changedFields = configurationFields.filter(
+      (field) =>
+        JSON.stringify(configuration[field]) !== JSON.stringify(base[field]),
+    );
+    if (!changedFields.length)
+      throw new ClientManagementError(
+        400,
+        "invalid_request",
+        "at least one revision field must change",
+      );
     const timestamp = this.now().toISOString();
-    const next: OidcClientRecord = {
-      ...current,
-      ...configurationToProtocolFields(configuration),
-      displayName: configuration.displayName,
-      description: configuration.description,
-      redirectUris: configuration.redirectUris,
-      postLogoutRedirectUris: configuration.postLogoutRedirectUris,
-      scopeWhitelist: configuration.scopeWhitelist,
-      status: nextStatus,
-      updatedAt: timestamp,
-      version: current.version + 1,
-    };
-    const updated = await this.repository.updateOidcClient(
-      next,
-      version,
+    const updateDraft = current.proposedRevision?.status === "draft";
+    if (updateDraft) {
+      const revisionId = this.parseVersion(body["revisionId"], "revisionId");
+      const revisionVersion = this.parseVersion(
+        body["revisionVersion"],
+        "revisionVersion",
+      );
+      if (revisionId !== current.proposedRevision!.revisionId) this.conflict();
+      const next = this.revisionFrom(
+        configuration,
+        clientId,
+        current.proposedRevision!.revisionNumber,
+        "draft",
+        timestamp,
+      );
+      const updated = await this.repository.saveOidcClientRevision(
+        clientId,
+        next,
+        revisionId,
+        revisionVersion,
+        [
+          this.audit(
+            actor,
+            clientId,
+            "revision.updated",
+            changedFields,
+            timestamp,
+          ),
+        ],
+      );
+      return toPublicClient(this.requireUpdated(updated));
+    }
+    const nextStatus: ClientRevisionStatus =
+      current.client.lifecycleStatus === "active" &&
+      current.proposedRevision?.status !== "rejected"
+        ? "pending"
+        : "draft";
+    const revisionNumber =
+      Math.max(
+        current.activeRevision?.revisionNumber ?? 0,
+        current.proposedRevision?.revisionNumber ?? 0,
+      ) + 1;
+    const next = this.revisionFrom(
+      configuration,
+      clientId,
+      revisionNumber,
+      nextStatus,
+      timestamp,
+    );
+    const audits = [
       this.audit(
         actor,
         clientId,
-        "client.updated",
+        "revision.created",
         changedFields,
-        current.status,
-        nextStatus,
         timestamp,
+        { newRevisionStatus: nextStatus },
       ),
+      ...(nextStatus === "pending"
+        ? [
+            this.audit(actor, clientId, "revision.submitted", [], timestamp, {
+              previousRevisionStatus: "draft",
+              newRevisionStatus: "pending",
+            }),
+          ]
+        : []),
+    ];
+    const updated = await this.repository.saveOidcClientRevision(
+      clientId,
+      next,
+      null,
+      null,
+      audits,
+      nextStatus === "pending" && !(actor.isAdmin && this.adminQuotaExempt)
+        ? this.maxPendingClientsPerOwner
+        : undefined,
     );
-    if (!updated) {
-      throw new ClientManagementError(
-        409,
-        "version_conflict",
-        "client was modified; reload and retry",
-      );
-    }
-    return toPublicClient(updated);
+    return toPublicClient(this.requireUpdated(updated));
   }
 
   async submit(actor: ClientActor, clientId: string, raw: unknown) {
-    const body = this.requireObject(raw);
-    this.assertAllowedKeys(body, ["version"]);
-    const current = await this.requireAccessible(actor, clientId);
-    if (current.status !== "draft") {
-      throw new ClientManagementError(
-        409,
-        "invalid_client_state",
-        "only draft clients can be submitted",
-      );
-    }
-    return this.transition(
+    return this.transitionOwned(
       actor,
-      current,
-      this.parseVersion(body["version"]),
+      clientId,
+      raw,
+      "draft",
       "pending",
-      "client.submitted",
+      "revision.submitted",
+    );
+  }
+
+  async withdraw(actor: ClientActor, clientId: string, raw: unknown) {
+    return this.transitionOwned(
+      actor,
+      clientId,
+      raw,
+      "pending",
+      "draft",
+      "revision.withdrawn",
     );
   }
 
   async disable(actor: ClientActor, clientId: string, raw: unknown) {
     const body = this.requireObject(raw);
-    this.assertAllowedKeys(body, ["version"]);
-    const version = this.parseVersion(body["version"]);
+    this.assertAllowedKeys(body, ["clientVersion"]);
     const current = await this.requireAccessible(actor, clientId);
-    if (current.status === "disabled") {
-      throw new ClientManagementError(
-        409,
-        "invalid_client_state",
-        "client is already disabled",
-      );
-    }
-    return this.transition(
-      actor,
-      current,
-      version,
-      "disabled",
-      "client.disabled",
+    this.requireEnabled(current);
+    const timestamp = this.now().toISOString();
+    const updated = await this.repository.disableOidcClient(
+      clientId,
+      this.parseVersion(body["clientVersion"], "clientVersion"),
+      timestamp,
+      this.audit(
+        actor,
+        clientId,
+        "client.disabled",
+        ["lifecycleStatus"],
+        timestamp,
+        {
+          previousClientStatus: current.client.lifecycleStatus,
+          newClientStatus: "disabled",
+        },
+      ),
     );
+    return toPublicClient(this.requireUpdated(updated));
   }
 
   async approve(actor: ClientActor, clientId: string, raw: unknown) {
     this.requireAdmin(actor);
-    const body = this.requireObject(raw);
-    this.assertAllowedKeys(body, ["version"]);
-    const current = await this.requireExisting(clientId);
-    if (current.status !== "pending") {
-      throw new ClientManagementError(
-        409,
-        "invalid_client_state",
-        "only pending clients can be approved",
-      );
-    }
-    return this.transition(
-      actor,
-      current,
-      this.parseVersion(body["version"]),
-      "active",
-      "client.approved",
+    const { current, revisionId, revisionVersion } = await this.reviewInput(
+      clientId,
+      raw,
+      false,
     );
+    const timestamp = this.now().toISOString();
+    const updated = await this.repository.approveOidcClientRevision(
+      clientId,
+      revisionId,
+      revisionVersion,
+      [
+        this.audit(actor, clientId, "revision.approved", [], timestamp, {
+          previousRevisionStatus: "pending",
+          newRevisionStatus: "approved",
+        }),
+        this.audit(
+          actor,
+          clientId,
+          "revision.activated",
+          configurationFields,
+          timestamp,
+          {
+            previousClientStatus: current.client.lifecycleStatus,
+            newClientStatus: "active",
+          },
+        ),
+      ],
+    );
+    return toPublicClient(this.requireUpdated(updated));
   }
 
   async reject(actor: ClientActor, clientId: string, raw: unknown) {
     this.requireAdmin(actor);
+    const { revisionId, revisionVersion, body } = await this.reviewInput(
+      clientId,
+      raw,
+      true,
+    );
+    const reason = this.parseText(body["reason"], "reason", 1, 500);
+    const timestamp = this.now().toISOString();
+    const updated = await this.repository.transitionOidcClientRevision(
+      clientId,
+      revisionId,
+      revisionVersion,
+      "rejected",
+      reason,
+      {
+        ...this.audit(actor, clientId, "revision.rejected", [], timestamp, {
+          previousRevisionStatus: "pending",
+          newRevisionStatus: "rejected",
+        }),
+        reason,
+      },
+    );
+    return toPublicClient(this.requireUpdated(updated));
+  }
+
+  private async transitionOwned(
+    actor: ClientActor,
+    clientId: string,
+    raw: unknown,
+    from: ClientRevisionStatus,
+    to: ClientRevisionStatus,
+    action: OidcClientAuditRecord["action"],
+  ) {
     const body = this.requireObject(raw);
-    this.assertAllowedKeys(body, ["version", "reason"]);
+    this.assertAllowedKeys(body, ["revisionId", "revisionVersion"]);
+    const current = await this.requireAccessible(actor, clientId);
+    this.requireEnabled(current);
+    const revision = current.proposedRevision;
+    if (!revision || revision.status !== from)
+      throw new ClientManagementError(
+        409,
+        "invalid_revision_state",
+        `only ${from} revisions can be transitioned`,
+      );
+    const revisionId = this.parseVersion(body["revisionId"], "revisionId");
+    if (revisionId !== revision.revisionId) this.conflict();
+    const timestamp = this.now().toISOString();
+    const updated = await this.repository.transitionOidcClientRevision(
+      clientId,
+      revisionId,
+      this.parseVersion(body["revisionVersion"], "revisionVersion"),
+      to,
+      undefined,
+      this.audit(actor, clientId, action, [], timestamp, {
+        previousRevisionStatus: from,
+        newRevisionStatus: to,
+      }),
+      to === "pending" && !(actor.isAdmin && this.adminQuotaExempt)
+        ? this.maxPendingClientsPerOwner
+        : undefined,
+    );
+    return toPublicClient(this.requireUpdated(updated));
+  }
+
+  private async reviewInput(clientId: string, raw: unknown, reason: boolean) {
+    const body = this.requireObject(raw);
+    this.assertAllowedKeys(
+      body,
+      reason
+        ? ["revisionId", "revisionVersion", "reason"]
+        : ["revisionId", "revisionVersion"],
+    );
     const current = await this.requireExisting(clientId);
-    if (current.status !== "pending") {
+    if (current.client.lifecycleStatus === "disabled")
       throw new ClientManagementError(
         409,
         "invalid_client_state",
-        "only pending clients can be rejected",
+        "disabled clients cannot be reviewed",
       );
-    }
-    const reason =
-      body["reason"] === undefined
-        ? undefined
-        : typeof body["reason"] === "string" &&
-            body["reason"].trim().length <= 500
-          ? body["reason"].trim()
-          : (() => {
-              throw new ClientManagementError(
-                400,
-                "invalid_request",
-                "reason must be at most 500 characters",
-                "reason",
-              );
-            })();
-    return this.transition(
-      actor,
-      current,
-      this.parseVersion(body["version"]),
-      "rejected",
-      "client.rejected",
-      reason,
+    const revisionId = this.parseVersion(body["revisionId"], "revisionId");
+    const revisionVersion = this.parseVersion(
+      body["revisionVersion"],
+      "revisionVersion",
     );
-  }
-
-  private async transition(
-    actor: ClientActor,
-    current: OidcClientRecord,
-    version: number,
-    status: OidcClientRecord["status"],
-    action: OidcClientAuditRecord["action"],
-    reason?: string,
-  ) {
-    const timestamp = this.now().toISOString();
-    const next = {
-      ...current,
-      status,
-      ...(status === "rejected" ? { rejectionReason: reason } : {}),
-      updatedAt: timestamp,
-      version: current.version + 1,
-    };
-    const updated = await this.repository.updateOidcClient(next, version, {
-      ...this.audit(
-        actor,
-        current.clientId,
-        action,
-        ["status"],
-        current.status,
-        status,
-        timestamp,
-      ),
-      ...(reason ? { reason } : {}),
-    });
-    if (!updated) {
+    if (
+      !current.proposedRevision ||
+      current.proposedRevision.status !== "pending" ||
+      current.proposedRevision.revisionId !== revisionId
+    ) {
       throw new ClientManagementError(
         409,
-        "version_conflict",
-        "client was modified; reload and retry",
+        "invalid_revision_state",
+        "only the current pending revision can be reviewed",
       );
     }
-    return toPublicClient(updated);
+    return { current, revisionId, revisionVersion, body };
+  }
+
+  private revisionFrom(
+    configuration: ReturnType<ClientManagementService["validate"]>,
+    clientId: string,
+    revisionNumber: number,
+    status: ClientRevisionStatus,
+    timestamp: string,
+  ): OidcClientRevisionRecord {
+    return {
+      revisionId: 0,
+      clientId,
+      revisionNumber,
+      status,
+      redirectUris: configuration.redirectUris,
+      postLogoutRedirectUris: configuration.postLogoutRedirectUris,
+      scopeWhitelist: configuration.scopeWhitelist,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      version: 1,
+    };
   }
 
   private validate(raw: unknown) {
     try {
       return validateManagedClientConfiguration(raw, this.appEnv);
     } catch (error) {
-      if (error instanceof ClientValidationError) {
+      if (error instanceof ClientValidationError)
         throw new ClientManagementError(
           400,
           "invalid_client_metadata",
           error.message,
           error.field,
         );
-      }
       throw error;
     }
   }
 
   private async requireAccessible(actor: ClientActor, clientId: string) {
-    const client = await this.requireExisting(clientId);
-    if (!actor.isAdmin && client.ownerSubjectId !== actor.subjectId) {
+    const managed = await this.requireExisting(clientId);
+    if (!actor.isAdmin && managed.client.ownerSubjectId !== actor.subjectId)
       throw new ClientManagementError(404, "not_found", "client not found");
-    }
-    return client;
+    return managed;
   }
 
   private async requireExisting(clientId: string) {
-    const client = await this.repository.findOidcClient(clientId);
-    if (!client) {
+    const managed = await this.repository.findManagedOidcClient(clientId);
+    if (!managed)
       throw new ClientManagementError(404, "not_found", "client not found");
-    }
-    return client;
+    return managed;
+  }
+
+  private requireEnabled(managed: ManagedOidcClientRecord) {
+    if (managed.client.lifecycleStatus === "disabled")
+      throw new ClientManagementError(
+        409,
+        "invalid_client_state",
+        "disabled clients cannot be modified",
+      );
   }
 
   private requireAdmin(actor: ClientActor) {
-    if (!actor.isAdmin) {
-      throw new ClientManagementError(
-        403,
-        "access_denied",
-        "administrator access is required",
-      );
-    }
+    if (!actor.isAdmin) this.denyAdmin();
+  }
+
+  private denyAdmin(): never {
+    throw new ClientManagementError(
+      403,
+      "access_denied",
+      "administrator access is required",
+    );
+  }
+
+  private requireUpdated(value: ManagedOidcClientRecord | null) {
+    if (!value) this.conflict();
+    return value;
+  }
+
+  private conflict(): never {
+    throw new ClientManagementError(
+      409,
+      "version_conflict",
+      "client revision was modified; reload and retry",
+    );
   }
 
   private requireObject(raw: unknown): Record<string, unknown> {
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    if (typeof raw !== "object" || raw === null || Array.isArray(raw))
       throw new ClientManagementError(
         400,
         "invalid_request",
         "request body must be an object",
       );
-    }
     return raw as Record<string, unknown>;
   }
 
   private assertAllowedKeys(raw: unknown, allowed: readonly string[]) {
     const body = this.requireObject(raw);
     const allowedKeys = new Set(allowed);
-    const unexpected = Object.keys(body).filter((key) => !allowedKeys.has(key));
-    if (unexpected.length > 0) {
+    const unexpected = Object.keys(body).find((key) => !allowedKeys.has(key));
+    if (unexpected)
       throw new ClientManagementError(
         400,
         "invalid_request",
-        `unsupported request field: ${unexpected[0]}`,
-        unexpected[0],
+        `unsupported request field: ${unexpected}`,
+        unexpected,
       );
-    }
   }
 
-  private parseVersion(value: unknown) {
-    if (!Number.isInteger(value) || Number(value) <= 0) {
+  private parseVersion(value: unknown, field: string) {
+    if (!Number.isInteger(value) || Number(value) <= 0)
       throw new ClientManagementError(
         400,
         "invalid_request",
-        "version must be a positive integer",
-        "version",
+        `${field} must be a positive integer`,
+        field,
       );
-    }
     return Number(value);
+  }
+
+  private parseText(value: unknown, field: string, min: number, max: number) {
+    if (typeof value !== "string")
+      throw new ClientManagementError(
+        400,
+        "invalid_request",
+        `${field} must be a string`,
+        field,
+      );
+    const normalized = value.trim();
+    if (normalized.length < min || normalized.length > max)
+      throw new ClientManagementError(
+        400,
+        "invalid_request",
+        `${field} must contain ${min}-${max} characters`,
+        field,
+      );
+    return normalized;
   }
 
   private audit(
@@ -496,50 +696,63 @@ export class ClientManagementService {
     clientId: string,
     action: OidcClientAuditRecord["action"],
     changedFields: readonly string[],
-    previousStatus: OidcClientRecord["status"] | undefined,
-    newStatus: OidcClientRecord["status"] | undefined,
     createdAt: string,
+    states: Partial<
+      Pick<
+        OidcClientAuditRecord,
+        | "previousClientStatus"
+        | "newClientStatus"
+        | "previousRevisionStatus"
+        | "newRevisionStatus"
+      >
+    > = {},
   ): OidcClientAuditRecord {
     return {
       clientId,
       actorSubjectId: actor.subjectId,
       action,
       changedFields: [...changedFields],
-      ...(previousStatus ? { previousStatus } : {}),
-      ...(newStatus ? { newStatus } : {}),
+      ...states,
       ...(actor.sourceIp ? { sourceIp: actor.sourceIp } : {}),
       createdAt,
     };
   }
 }
 
-export function toPublicClient(client: OidcClientRecord): PublicOidcClient {
+export function toPublicClient(
+  managed: ManagedOidcClientRecord,
+): PublicOidcClient {
+  const client = managed.client;
   return {
     clientId: client.clientId,
     displayName: client.displayName,
     description: client.description,
     ownerSubjectId: client.ownerSubjectId,
-    clientType: client.tokenEndpointAuthMethod === "none" ? "spa" : "web",
-    redirectUris: client.redirectUris,
-    postLogoutRedirectUris: client.postLogoutRedirectUris,
-    scopeWhitelist: client.scopeWhitelist,
-    status: client.status,
-    rejectionReason: client.rejectionReason ?? null,
+    clientType: client.clientType,
+    lifecycleStatus: client.lifecycleStatus,
+    activeRevision: toPublicRevision(managed.activeRevision),
+    proposedRevision: toPublicRevision(managed.proposedRevision),
     createdAt: client.createdAt,
     updatedAt: client.updatedAt,
-    version: client.version,
+    clientVersion: client.version,
   };
 }
 
-function configurationFromRecord(
-  client: OidcClientRecord,
-): ManagedClientConfiguration {
-  return {
-    clientType: client.tokenEndpointAuthMethod === "none" ? "spa" : "web",
-    displayName: client.displayName,
-    description: client.description,
-    redirectUris: client.redirectUris,
-    postLogoutRedirectUris: client.postLogoutRedirectUris,
-    scopeWhitelist: client.scopeWhitelist,
-  };
+function toPublicRevision(
+  revision: OidcClientRevisionRecord | null,
+): PublicClientRevision | null {
+  return revision
+    ? {
+        revisionId: revision.revisionId,
+        revisionNumber: revision.revisionNumber,
+        status: revision.status,
+        redirectUris: revision.redirectUris,
+        postLogoutRedirectUris: revision.postLogoutRedirectUris,
+        scopeWhitelist: revision.scopeWhitelist,
+        rejectionReason: revision.rejectionReason ?? null,
+        createdAt: revision.createdAt,
+        updatedAt: revision.updatedAt,
+        version: revision.version,
+      }
+    : null;
 }

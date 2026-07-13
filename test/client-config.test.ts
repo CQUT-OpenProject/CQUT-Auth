@@ -46,7 +46,7 @@ test("loadOidcClientsFromConfig applies defaults for minimal client config", asy
   assert.equal(clients[0]?.requirePkce, true);
   assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
   assert.equal(clients[0]?.autoConsent, false);
-  assert.equal(clients[0]?.status, "active");
+  assert.equal(clients[0]?.lifecycleStatus, "active");
 });
 
 test("loadOidcClientsFromConfig applies safer defaults for public client config", async () => {
