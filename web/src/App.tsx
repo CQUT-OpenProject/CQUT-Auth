@@ -177,7 +177,9 @@ function Login({
               required
             />
           </label>
-          <button disabled={busy}>{busy ? "正在登录…" : "登录管理台"}</button>
+          <button type="submit" disabled={busy}>
+            {busy ? "正在登录…" : "登录管理台"}
+          </button>
         </form>
       </section>
     </main>
@@ -252,7 +254,7 @@ function Dashboard({
             {context.user.displayName}
             {context.user.isAdmin && <small className="badge">管理员</small>}
           </span>
-          <button className="secondary" onClick={logout}>
+          <button type="button" className="secondary" onClick={logout}>
             退出登录
           </button>
         </div>
@@ -260,6 +262,7 @@ function Dashboard({
       <main className="workspace">
         <nav className="tabs" aria-label="客户端视图">
           <button
+            type="button"
             className={tab === "mine" ? "active" : ""}
             onClick={() => {
               setTab("mine");
@@ -270,6 +273,7 @@ function Dashboard({
           </button>
           {context.user.isAdmin && (
             <button
+              type="button"
               className={tab === "all" ? "active" : ""}
               onClick={() => {
                 setTab("all");
@@ -281,6 +285,7 @@ function Dashboard({
           )}
           {context.user.isAdmin && (
             <button
+              type="button"
               className={tab === "reviews" ? "active" : ""}
               onClick={() => {
                 setTab("reviews");
@@ -300,6 +305,7 @@ function Dashboard({
           </div>
           {tab !== "reviews" && (
             <button
+              type="button"
               onClick={() => {
                 setCreating(true);
                 setSelectedClientId(null);
@@ -510,7 +516,7 @@ function ClientEditor({
     <section className="panel">
       <div className="panel-title">
         <h2>{title}</h2>
-        <button className="secondary" onClick={onCancel}>
+        <button type="button" className="secondary" onClick={onCancel}>
           关闭
         </button>
       </div>
@@ -610,7 +616,9 @@ function ClientEditor({
         </fieldset>
         <div className="actions full">
           {!disabled && (
-            <button disabled={busy}>{busy ? "正在保存…" : submitLabel}</button>
+            <button type="submit" disabled={busy}>
+              {busy ? "正在保存…" : submitLabel}
+            </button>
           )}
           {extraActions}
         </div>
@@ -667,7 +675,11 @@ function ClientTable({
                 })}
               </td>
               <td>
-                <button className="secondary" onClick={() => onSelect(client)}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => onSelect(client)}
+                >
                   查看详情
                 </button>
               </td>
@@ -696,11 +708,12 @@ function SecretPanel({
       </div>
       <div className="actions">
         <button
+          type="button"
           onClick={() => void navigator.clipboard.writeText(secret.value)}
         >
           复制 Secret
         </button>
-        <button className="secondary" onClick={onClose}>
+        <button type="button" className="secondary" onClick={onClose}>
           我已安全保存
         </button>
       </div>
