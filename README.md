@@ -139,7 +139,7 @@ docker compose -f deploy/docker-compose.prod.yml up -d --build
 
 API 或管理台创建的客户端先进入客户端草稿，并生成 Draft Revision；所有者确认后显式提交审核。Web 客户端的 `client_id` 与高熵 `client_secret` 由服务端生成，Secret 仅在创建响应中显示一次；SPA 是公开客户端，不生成 Secret。客户端类型创建后不可修改，Web/SPA 类型变更必须新建客户端。
 
-客户端生命周期（`draft`、`active`、`disabled`）与 Revision 审核状态（`draft`、`pending`、`approved`、`rejected`）相互独立。Active 客户端修改 Redirect URI、Logout URI 或 Scope 时会创建 Pending Revision，审核期间 OIDC 仍读取旧的 Active Revision；批准后原子切换，拒绝不会影响线上配置。Pending Revision 必须先撤回才能编辑，拒绝原因必填且会展示给所有者。停用立即生效且不能恢复。
+客户端生命周期（`draft`、`active`、`disabled`）与 Revision 审核状态（`draft`、`pending`、`approved`、`rejected`、`cancelled`）相互独立。Active 客户端修改 Redirect URI、Logout URI 或 Scope 时会创建 Pending Revision，审核期间 OIDC 仍读取旧的 Active Revision；批准后原子切换，拒绝不会影响线上配置。Pending Revision 必须先撤回才能编辑，拒绝原因必填且会展示给所有者。停用立即生效且不能恢复，并会原子取消开放的 Draft/Pending Revision、释放待审配额。
 
 普通主体默认最多拥有 10 个非停用客户端，其中最多 5 个 Revision 处于待审核状态；管理员默认豁免配额。创建操作还按主体（默认每小时 5 次）和来源 IP（默认每小时 20 次）限流。
 

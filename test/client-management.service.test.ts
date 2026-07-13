@@ -166,6 +166,23 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
       (await store.findOidcClient(active.clientId))?.scopeWhitelist,
       webInput.scopeWhitelist,
     );
+    const secondPending = await service.submit(owner, active.clientId, {
+      revisionId: newDraft.proposedRevision!.revisionId,
+      revisionVersion: newDraft.proposedRevision!.version,
+    });
+    const secondApproved = await service.approve(admin, active.clientId, {
+      revisionId: secondPending.proposedRevision!.revisionId,
+      revisionVersion: secondPending.proposedRevision!.version,
+    });
+    assert.equal(secondApproved.proposedRevision, null);
+    const nextPending = await service.saveRevision(owner, active.clientId, {
+      redirectUris: ["http://localhost:3002/revision-4"],
+    });
+    assert.equal(nextPending.proposedRevision?.revisionNumber, 4);
+    assert.deepEqual(nextPending.proposedRevision?.scopeWhitelist, [
+      "openid",
+      "email",
+    ]);
   } finally {
     await store.close();
   }
@@ -267,12 +284,37 @@ test("client and pending revision quotas cannot be bypassed", async () => {
           revisionVersion: second.client.proposedRevision!.version,
         }),
       (error: unknown) =>
-        error instanceof ClientManagementError && error.status === 409,
+        error instanceof ClientManagementError &&
+        error.status === 409 &&
+        error.code === "pending_revision_quota_exceeded",
+    );
+
+    const firstPending = await pendingLimited.get(owner, first.client.clientId);
+    await pendingLimited.disable(owner, first.client.clientId, {
+      clientVersion: firstPending.clientVersion,
+    });
+    const released = await pendingLimited.submit(
+      owner,
+      second.client.clientId,
+      {
+        revisionId: second.client.proposedRevision!.revisionId,
+        revisionVersion: second.client.proposedRevision!.version,
+      },
+    );
+    assert.equal(released.proposedRevision?.status, "pending");
+    assert.equal(
+      (await pendingLimited.get(owner, first.client.clientId)).proposedRevision,
+      null,
+    );
+    assert.ok(
+      (await store.listOidcClientAuditLogs(first.client.clientId)).some(
+        (entry) => entry.action === "revision.cancelled",
+      ),
     );
 
     const totalLimited = new ClientManagementService(store, "test", {
       createClientId: () => `total_${++id}`,
-      maxClientsPerOwner: 2,
+      maxClientsPerOwner: 1,
       maxPendingClientsPerOwner: 2,
       adminQuotaExempt: false,
     });

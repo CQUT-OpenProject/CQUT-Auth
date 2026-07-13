@@ -13,6 +13,7 @@ import type {
   OidcClientRecord,
   OidcClientRepository,
   OidcClientRevisionRecord,
+  RevisionMutationResult,
 } from "../persistence/contracts.js";
 import { base64Url, randomId } from "../utils.js";
 
@@ -325,7 +326,7 @@ export class ClientManagementService {
           ),
         ],
       );
-      return toPublicClient(this.requireUpdated(updated));
+      return toPublicClient(this.requireRevisionUpdated(updated));
     }
     const nextStatus: ClientRevisionStatus =
       current.client.lifecycleStatus === "active" &&
@@ -372,7 +373,7 @@ export class ClientManagementService {
         ? this.maxPendingClientsPerOwner
         : undefined,
     );
-    return toPublicClient(this.requireUpdated(updated));
+    return toPublicClient(this.requireRevisionUpdated(updated));
   }
 
   async submit(actor: ClientActor, clientId: string, raw: unknown) {
@@ -407,17 +408,28 @@ export class ClientManagementService {
       clientId,
       this.parseVersion(body["clientVersion"], "clientVersion"),
       timestamp,
-      this.audit(
-        actor,
-        clientId,
-        "client.disabled",
-        ["lifecycleStatus"],
-        timestamp,
-        {
-          previousClientStatus: current.client.lifecycleStatus,
-          newClientStatus: "disabled",
-        },
-      ),
+      [
+        this.audit(
+          actor,
+          clientId,
+          "client.disabled",
+          ["lifecycleStatus"],
+          timestamp,
+          {
+            previousClientStatus: current.client.lifecycleStatus,
+            newClientStatus: "disabled",
+          },
+        ),
+        ...(current.proposedRevision?.status === "draft" ||
+        current.proposedRevision?.status === "pending"
+          ? [
+              this.audit(actor, clientId, "revision.cancelled", [], timestamp, {
+                previousRevisionStatus: current.proposedRevision.status,
+                newRevisionStatus: "cancelled",
+              }),
+            ]
+          : []),
+      ],
     );
     return toPublicClient(this.requireUpdated(updated));
   }
@@ -478,7 +490,7 @@ export class ClientManagementService {
         reason,
       },
     );
-    return toPublicClient(this.requireUpdated(updated));
+    return toPublicClient(this.requireRevisionUpdated(updated));
   }
 
   private async transitionOwned(
@@ -517,7 +529,7 @@ export class ClientManagementService {
         ? this.maxPendingClientsPerOwner
         : undefined,
     );
-    return toPublicClient(this.requireUpdated(updated));
+    return toPublicClient(this.requireRevisionUpdated(updated));
   }
 
   private async reviewInput(clientId: string, raw: unknown, reason: boolean) {
@@ -628,6 +640,17 @@ export class ClientManagementService {
   private requireUpdated(value: ManagedOidcClientRecord | null) {
     if (!value) this.conflict();
     return value;
+  }
+
+  private requireRevisionUpdated(result: RevisionMutationResult) {
+    if (result.status === "pending_quota_exceeded")
+      throw new ClientManagementError(
+        409,
+        "pending_revision_quota_exceeded",
+        "pending revision quota exceeded for this account",
+      );
+    if (result.status === "version_conflict") this.conflict();
+    return result.client;
   }
 
   private conflict(): never {

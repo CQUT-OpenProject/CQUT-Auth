@@ -338,7 +338,7 @@ function Dashboard({
           <ClientEditor
             title="创建客户端"
             initial={emptyClient}
-            submitLabel="提交审核"
+            submitLabel="创建草稿"
             allowTypeChange
             onCancel={() => setCreating(false)}
             onSubmit={async (value) => {
@@ -365,13 +365,51 @@ function Dashboard({
           <>
             <RevisionComparison client={selected} />
             <ClientEditor
-              title="编辑客户端"
+              title="基本信息"
+              initial={formValue(selected)}
+              submitLabel="保存基本信息"
+              section="metadata"
+              disabled={selected.lifecycleStatus === "disabled"}
+              onCancel={() => setSelectedClientId(null)}
+              onSubmit={async (value) => {
+                try {
+                  if (
+                    value.displayName === selected.displayName &&
+                    value.description === selected.description
+                  )
+                    throw new Error("至少修改一项基本信息。");
+                  await api(
+                    `/clients/${encodeURIComponent(selected.clientId)}`,
+                    {
+                      method: "PATCH",
+                      body: JSON.stringify({
+                        displayName: value.displayName,
+                        description: value.description,
+                        clientVersion: selected.clientVersion,
+                      }),
+                    },
+                    context.csrfToken,
+                  );
+                  setNotice("客户端基本信息已保存。");
+                  await refreshClients();
+                } catch (reason) {
+                  if (reason instanceof ApiError && reason.status === 409)
+                    throw new Error(
+                      "客户端已被其他操作更新，请关闭编辑器并重新加载。",
+                    );
+                  throw reason;
+                }
+              }}
+            />
+            <ClientEditor
+              title="OIDC 配置"
               initial={formValue(selected)}
               submitLabel={
                 selected.lifecycleStatus === "active"
                   ? "保存并提交敏感修改"
-                  : "保存设置"
+                  : "保存配置"
               }
+              section="configuration"
               disabled={selected.lifecycleStatus === "disabled"}
               configurationDisabled={
                 selected.proposedRevision?.status === "pending"
@@ -381,52 +419,33 @@ function Dashboard({
               onCancel={() => setSelectedClientId(null)}
               onSubmit={async (value) => {
                 try {
-                  const metadataChanged =
-                    value.displayName !== selected.displayName ||
-                    value.description !== selected.description;
                   const baseRevision =
                     selected.proposedRevision ?? selected.activeRevision;
-                  const revisionChanged =
-                    !!baseRevision && configurationChanged(value, baseRevision);
-                  if (!metadataChanged && !revisionChanged)
-                    throw new Error("至少修改一项设置。");
-                  if (metadataChanged) {
-                    await api(
-                      `/clients/${encodeURIComponent(selected.clientId)}`,
-                      {
-                        method: "PATCH",
-                        body: JSON.stringify({
-                          displayName: value.displayName,
-                          description: value.description,
-                          clientVersion: selected.clientVersion,
-                        }),
-                      },
-                      context.csrfToken,
-                    );
-                  }
-                  if (revisionChanged) {
-                    await api(
-                      `/clients/${encodeURIComponent(selected.clientId)}/revision`,
-                      {
-                        method: "PUT",
-                        body: JSON.stringify({
-                          redirectUris: value.redirectUris,
-                          postLogoutRedirectUris: value.postLogoutRedirectUris,
-                          scopeWhitelist: value.scopeWhitelist,
-                          ...(selected.proposedRevision?.status === "draft"
-                            ? {
-                                revisionId:
-                                  selected.proposedRevision.revisionId,
-                                revisionVersion:
-                                  selected.proposedRevision.version,
-                              }
-                            : {}),
-                        }),
-                      },
-                      context.csrfToken,
-                    );
-                  }
-                  setNotice("客户端设置已保存。");
+                  if (
+                    !baseRevision ||
+                    !configurationChanged(value, baseRevision)
+                  )
+                    throw new Error("至少修改一项 OIDC 配置。");
+                  await api(
+                    `/clients/${encodeURIComponent(selected.clientId)}/revision`,
+                    {
+                      method: "PUT",
+                      body: JSON.stringify({
+                        redirectUris: value.redirectUris,
+                        postLogoutRedirectUris: value.postLogoutRedirectUris,
+                        scopeWhitelist: value.scopeWhitelist,
+                        ...(selected.proposedRevision?.status === "draft"
+                          ? {
+                              revisionId: selected.proposedRevision.revisionId,
+                              revisionVersion:
+                                selected.proposedRevision.version,
+                            }
+                          : {}),
+                      }),
+                    },
+                    context.csrfToken,
+                  );
+                  setNotice("OIDC 配置已保存。");
                   await refreshClients();
                 } catch (reason) {
                   if (reason instanceof ApiError && reason.status === 409)
@@ -560,6 +579,7 @@ function ClientEditor({
   onCancel,
   disabled,
   allowTypeChange,
+  section = "all",
   configurationDisabled,
   sensitiveNotice,
   rejectionReason,
@@ -572,11 +592,14 @@ function ClientEditor({
   onCancel: () => void;
   disabled?: boolean;
   allowTypeChange?: boolean;
+  section?: "all" | "metadata" | "configuration";
   configurationDisabled?: boolean;
   sensitiveNotice?: boolean;
   rejectionReason?: string | null;
   extraActions?: React.ReactNode;
 }) {
+  const showMetadata = section !== "configuration";
+  const showConfiguration = section !== "metadata";
   const [value, setValue] = useState(initial);
   const [redirects, setRedirects] = useState(() =>
     initial.redirectUris.join("\n"),
@@ -621,95 +644,109 @@ function ClientEditor({
       )}
       {error && <Notice tone="danger">{error}</Notice>}
       <form onSubmit={submit} className="form-grid">
-        <label>
-          客户端类型
-          <select
-            disabled={disabled || !allowTypeChange}
-            value={value.clientType}
-            onChange={(event) => {
-              const clientType = event.target.value as "web" | "spa";
-              setValue({
-                ...value,
-                clientType,
-                scopeWhitelist:
-                  clientType === "spa"
-                    ? value.scopeWhitelist.filter(
-                        (scope) => scope !== "offline_access",
-                      )
-                    : value.scopeWhitelist,
-              });
-            }}
-          >
-            <option value="web">Web（服务端保密）</option>
-            <option value="spa">SPA（公开客户端）</option>
-          </select>
-        </label>
-        <label>
-          显示名称
-          <input
-            disabled={disabled}
-            maxLength={100}
-            value={value.displayName}
-            onChange={(event) =>
-              setValue({ ...value, displayName: event.target.value })
-            }
-            required
-          />
-        </label>
-        <label className="full">
-          描述
-          <textarea
-            disabled={disabled}
-            maxLength={1000}
-            value={value.description}
-            onChange={(event) =>
-              setValue({ ...value, description: event.target.value })
-            }
-          />
-        </label>
-        <label className="full">
-          Redirect URI（每行一个）
-          <textarea
-            disabled={disabled || configurationDisabled}
-            value={redirects}
-            onChange={(event) => setRedirects(event.target.value)}
-            required
-          />
-        </label>
-        <label className="full">
-          Post Logout Redirect URI（每行一个，可选）
-          <textarea
-            disabled={disabled || configurationDisabled}
-            value={logoutRedirects}
-            onChange={(event) => setLogoutRedirects(event.target.value)}
-          />
-        </label>
-        <fieldset className="full" disabled={disabled || configurationDisabled}>
-          <legend>允许的 scopes</legend>
-          <div className="checks">
-            {clientScopes.map((scope) => (
-              <label key={scope}>
-                <input
-                  type="checkbox"
-                  checked={value.scopeWhitelist.includes(scope)}
-                  disabled={
-                    scope === "openid" ||
-                    (value.clientType === "spa" && scope === "offline_access")
-                  }
-                  onChange={(event) =>
-                    setValue({
-                      ...value,
-                      scopeWhitelist: event.target.checked
-                        ? [...value.scopeWhitelist, scope]
-                        : value.scopeWhitelist.filter((item) => item !== scope),
-                    })
-                  }
-                />
-                {scope}
-              </label>
-            ))}
-          </div>
-        </fieldset>
+        {showMetadata && (
+          <>
+            <label>
+              客户端类型
+              <select
+                disabled={disabled || !allowTypeChange}
+                value={value.clientType}
+                onChange={(event) => {
+                  const clientType = event.target.value as "web" | "spa";
+                  setValue({
+                    ...value,
+                    clientType,
+                    scopeWhitelist:
+                      clientType === "spa"
+                        ? value.scopeWhitelist.filter(
+                            (scope) => scope !== "offline_access",
+                          )
+                        : value.scopeWhitelist,
+                  });
+                }}
+              >
+                <option value="web">Web（服务端保密）</option>
+                <option value="spa">SPA（公开客户端）</option>
+              </select>
+            </label>
+            <label>
+              显示名称
+              <input
+                disabled={disabled}
+                maxLength={100}
+                value={value.displayName}
+                onChange={(event) =>
+                  setValue({ ...value, displayName: event.target.value })
+                }
+                required
+              />
+            </label>
+            <label className="full">
+              描述
+              <textarea
+                disabled={disabled}
+                maxLength={1000}
+                value={value.description}
+                onChange={(event) =>
+                  setValue({ ...value, description: event.target.value })
+                }
+              />
+            </label>
+          </>
+        )}
+        {showConfiguration && (
+          <>
+            <label className="full">
+              Redirect URI（每行一个）
+              <textarea
+                disabled={disabled || configurationDisabled}
+                value={redirects}
+                onChange={(event) => setRedirects(event.target.value)}
+                required
+              />
+            </label>
+            <label className="full">
+              Post Logout Redirect URI（每行一个，可选）
+              <textarea
+                disabled={disabled || configurationDisabled}
+                value={logoutRedirects}
+                onChange={(event) => setLogoutRedirects(event.target.value)}
+              />
+            </label>
+            <fieldset
+              className="full"
+              disabled={disabled || configurationDisabled}
+            >
+              <legend>允许的 scopes</legend>
+              <div className="checks">
+                {clientScopes.map((scope) => (
+                  <label key={scope}>
+                    <input
+                      type="checkbox"
+                      checked={value.scopeWhitelist.includes(scope)}
+                      disabled={
+                        scope === "openid" ||
+                        (value.clientType === "spa" &&
+                          scope === "offline_access")
+                      }
+                      onChange={(event) =>
+                        setValue({
+                          ...value,
+                          scopeWhitelist: event.target.checked
+                            ? [...value.scopeWhitelist, scope]
+                            : value.scopeWhitelist.filter(
+                                (item) => item !== scope,
+                              ),
+                        })
+                      }
+                    />
+                    {scope}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          </>
+        )}
         <div className="actions full">
           {!disabled && (
             <button type="submit" disabled={busy}>

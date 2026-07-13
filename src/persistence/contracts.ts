@@ -12,7 +12,8 @@ export type ClientRevisionStatus =
   | "draft"
   | "pending"
   | "approved"
-  | "rejected";
+  | "rejected"
+  | "cancelled";
 
 export type OidcClientRecord = {
   clientId: string;
@@ -49,6 +50,11 @@ export type ManagedOidcClientRecord = {
   proposedRevision: OidcClientRevisionRecord | null;
 };
 
+export type RevisionMutationResult =
+  | { status: "updated"; client: ManagedOidcClientRecord }
+  | { status: "version_conflict" }
+  | { status: "pending_quota_exceeded" };
+
 export type ActiveOidcClientRecord = OidcClientRecord & {
   activeRevisionId: number;
   activeRevision: OidcClientRevisionRecord;
@@ -75,6 +81,7 @@ export type OidcClientAuditAction =
   | "revision.withdrawn"
   | "revision.approved"
   | "revision.rejected"
+  | "revision.cancelled"
   | "revision.activated";
 
 export type OidcClientAuditRecord = {
@@ -182,7 +189,7 @@ export interface OidcClientRepository {
     expectedRevisionVersion: number | null,
     audits: OidcClientAuditRecord[],
     maxPendingClients?: number,
-  ): Promise<ManagedOidcClientRecord | null>;
+  ): Promise<RevisionMutationResult>;
   transitionOidcClientRevision(
     clientId: string,
     revisionId: number,
@@ -191,7 +198,7 @@ export interface OidcClientRepository {
     reason: string | undefined,
     audit: OidcClientAuditRecord,
     maxPendingClients?: number,
-  ): Promise<ManagedOidcClientRecord | null>;
+  ): Promise<RevisionMutationResult>;
   approveOidcClientRevision(
     clientId: string,
     revisionId: number,
@@ -202,7 +209,7 @@ export interface OidcClientRepository {
     clientId: string,
     expectedVersion: number,
     updatedAt: string,
-    audit: OidcClientAuditRecord,
+    audits: OidcClientAuditRecord[],
   ): Promise<ManagedOidcClientRecord | null>;
   findManagedOidcClient(
     clientId: string,
