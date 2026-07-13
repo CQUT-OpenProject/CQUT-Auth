@@ -1,4 +1,5 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useState } from "react";
+import useSWR, { SWRConfig } from "swr";
 
 type User = {
   subjectId: string;
@@ -39,6 +40,7 @@ const emptyClient: ClientFormValue = {
   postLogoutRedirectUris: [],
   scopeWhitelist: ["openid", "profile"],
 };
+const emptyClients: Client[] = [];
 
 class ApiError extends Error {
   constructor(
@@ -75,21 +77,42 @@ async function api<T>(
     : ((await response.json()) as T);
 }
 
-export function App() {
-  const [context, setContext] = useState<AuthContext | null>(null);
-  const [error, setError] = useState("");
+const swrConfiguration = {
+  provider: () => new Map(),
+};
 
-  useEffect(() => {
-    api<AuthContext>("/auth/context")
-      .then(setContext)
-      .catch((reason) => setError(reason.message));
-  }, []);
+export function App() {
+  return (
+    <SWRConfig value={swrConfiguration}>
+      <ManagementApp />
+    </SWRConfig>
+  );
+}
+
+function ManagementApp() {
+  const {
+    data: context,
+    error,
+    mutate: updateContext,
+  } = useSWR<AuthContext>("/auth/context", api);
 
   if (error && !context)
-    return <Message title="管理服务暂时不可用" detail={error} />;
+    return (
+      <Message
+        title="管理服务暂时不可用"
+        detail={
+          error instanceof Error ? error.message : "请求失败，请稍后重试。"
+        }
+      />
+    );
   if (!context) return <Message title="正在加载" detail="正在读取登录状态。" />;
   if (!context.authenticated) {
-    return <Login context={context} onLogin={setContext} />;
+    return (
+      <Login
+        context={context}
+        onLogin={(value) => void updateContext(value, { revalidate: false })}
+      />
+    );
   }
   return <Dashboard context={context} />;
 }
@@ -167,47 +190,38 @@ function Dashboard({
   context: AuthContext & { authenticated: true };
 }) {
   const [tab, setTab] = useState<"mine" | "all" | "reviews">("mine");
-  const [clients, setClients] = useState<Client[]>([]);
-  const [selected, setSelected] = useState<Client | null>(null);
+  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [secret, setSecret] = useState<{
     clientId: string;
     value: string;
   } | null>(null);
   const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [actionError, setActionError] = useState("");
 
   const endpoint =
     tab === "reviews"
       ? "/admin/reviews"
       : `/clients${tab === "all" ? "?view=all" : ""}`;
-  async function refresh() {
-    setLoading(true);
-    setError("");
-    try {
-      const result = await api<{ clients: Client[] }>(endpoint);
-      setClients(result.clients);
-      if (selected)
-        setSelected(
-          result.clients.find(
-            (client) => client.clientId === selected.clientId,
-          ) ?? null,
-        );
-    } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : "客户端列表加载失败。",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }
-  useEffect(() => {
-    void refresh();
-  }, [endpoint]);
+  const {
+    data,
+    error: clientsError,
+    isLoading,
+    mutate: refreshClients,
+  } = useSWR<{ clients: Client[] }>(endpoint, api);
+  const clients = data?.clients ?? emptyClients;
+  const selected =
+    clients.find((client) => client.clientId === selectedClientId) ?? null;
+  const error =
+    actionError ||
+    (clientsError instanceof Error
+      ? clientsError.message
+      : clientsError
+        ? "客户端列表加载失败。"
+        : "");
 
-  async function mutate(path: string, body: object, success: string) {
-    setError("");
+  async function mutateClient(path: string, body: object, success: string) {
+    setActionError("");
     try {
       await api(
         path,
@@ -215,9 +229,9 @@ function Dashboard({
         context.csrfToken,
       );
       setNotice(success);
-      await refresh();
+      await refreshClients();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "操作失败。");
+      setActionError(reason instanceof Error ? reason.message : "操作失败。");
     }
   }
 
@@ -249,7 +263,7 @@ function Dashboard({
             className={tab === "mine" ? "active" : ""}
             onClick={() => {
               setTab("mine");
-              setSelected(null);
+              setSelectedClientId(null);
             }}
           >
             我的客户端
@@ -259,7 +273,7 @@ function Dashboard({
               className={tab === "all" ? "active" : ""}
               onClick={() => {
                 setTab("all");
-                setSelected(null);
+                setSelectedClientId(null);
               }}
             >
               全部客户端
@@ -270,7 +284,7 @@ function Dashboard({
               className={tab === "reviews" ? "active" : ""}
               onClick={() => {
                 setTab("reviews");
-                setSelected(null);
+                setSelectedClientId(null);
               }}
             >
               待审核
@@ -288,7 +302,7 @@ function Dashboard({
             <button
               onClick={() => {
                 setCreating(true);
-                setSelected(null);
+                setSelectedClientId(null);
               }}
             >
               创建客户端
@@ -323,7 +337,7 @@ function Dashboard({
                   clientId: result.client.clientId,
                   value: result.clientSecret,
                 });
-              await refresh();
+              await refreshClients();
             }}
           />
         )}
@@ -335,7 +349,7 @@ function Dashboard({
             disabled={selected.status === "disabled"}
             configurationDisabled={selected.status === "active"}
             rejectionReason={selected.rejectionReason}
-            onCancel={() => setSelected(null)}
+            onCancel={() => setSelectedClientId(null)}
             onSubmit={async (value) => {
               try {
                 const result = await api<{ client: Client }>(
@@ -353,9 +367,8 @@ function Dashboard({
                   },
                   context.csrfToken,
                 );
-                setSelected(result.client);
                 setNotice("客户端设置已保存。");
-                await refresh();
+                await refreshClients();
               } catch (reason) {
                 if (reason instanceof ApiError && reason.status === 409)
                   throw new Error(
@@ -370,7 +383,7 @@ function Dashboard({
                   <button
                     type="button"
                     onClick={() =>
-                      void mutate(
+                      void mutateClient(
                         `/clients/${encodeURIComponent(selected.clientId)}/submit`,
                         { version: selected.version },
                         "客户端已重新提交审核。",
@@ -386,7 +399,7 @@ function Dashboard({
                     type="button"
                     onClick={() =>
                       window.confirm("停用后第一轮无法恢复，确定继续吗？") &&
-                      void mutate(
+                      void mutateClient(
                         `/clients/${encodeURIComponent(selected.clientId)}/disable`,
                         { version: selected.version },
                         "客户端已停用。",
@@ -401,7 +414,7 @@ function Dashboard({
                     <button
                       type="button"
                       onClick={() =>
-                        void mutate(
+                        void mutateClient(
                           `/admin/reviews/${encodeURIComponent(selected.clientId)}/approve`,
                           { version: selected.version },
                           "客户端已批准。",
@@ -416,7 +429,7 @@ function Dashboard({
                       onClick={() => {
                         const reason =
                           window.prompt("可选：填写拒绝原因") ?? undefined;
-                        void mutate(
+                        void mutateClient(
                           `/admin/reviews/${encodeURIComponent(selected.clientId)}/reject`,
                           {
                             version: selected.version,
@@ -437,8 +450,8 @@ function Dashboard({
         {!creating && !selected && (
           <ClientTable
             clients={clients}
-            loading={loading}
-            onSelect={setSelected}
+            loading={isLoading}
+            onSelect={(client) => setSelectedClientId(client.clientId)}
           />
         )}
       </main>

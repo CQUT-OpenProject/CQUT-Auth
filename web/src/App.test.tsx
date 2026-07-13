@@ -83,3 +83,83 @@ test("keeps active client type and sensitive settings read-only", async () => {
       .disabled,
   ).toBe(true);
 });
+
+test("keeps the current client view when an older request finishes last", async () => {
+  let resolveMine: ((response: Response) => void) | undefined;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path.endsWith("/auth/context")) {
+        return new Response(
+          JSON.stringify({
+            authenticated: true,
+            csrfToken: "csrf",
+            user: {
+              subjectId: "subj_admin",
+              displayName: "Admin",
+              isAdmin: true,
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+      if (path.endsWith("/clients")) {
+        return await new Promise<Response>((resolve) => {
+          resolveMine = resolve;
+        });
+      }
+      return new Response(
+        JSON.stringify({
+          clients: [
+            {
+              clientId: "all-client",
+              displayName: "All Client",
+              description: "",
+              clientType: "web",
+              redirectUris: ["https://all.example.com/callback"],
+              postLogoutRedirectUris: [],
+              scopeWhitelist: ["openid"],
+              status: "active",
+              rejectionReason: null,
+              updatedAt: "2026-07-13T00:00:00.000Z",
+              version: 1,
+            },
+          ],
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }),
+  );
+
+  render(<App />);
+  await waitFor(() => expect(resolveMine).toBeTypeOf("function"));
+  fireEvent.click(screen.getByRole("button", { name: "全部客户端" }));
+  expect(await screen.findByText("All Client")).toBeTruthy();
+
+  resolveMine!(
+    new Response(
+      JSON.stringify({
+        clients: [
+          {
+            clientId: "mine-client",
+            displayName: "Mine Client",
+            description: "",
+            clientType: "web",
+            redirectUris: ["https://mine.example.com/callback"],
+            postLogoutRedirectUris: [],
+            scopeWhitelist: ["openid"],
+            status: "active",
+            rejectionReason: null,
+            updatedAt: "2026-07-13T00:00:00.000Z",
+            version: 1,
+          },
+        ],
+      }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ),
+  );
+
+  await waitFor(() => expect(screen.queryByText("Mine Client")).toBeNull());
+  expect(screen.getByText("All Client")).toBeTruthy();
+});
