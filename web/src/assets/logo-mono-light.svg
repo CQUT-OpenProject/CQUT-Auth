@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 128" role="img" aria-label="CQUT OpenProject 单色浅色长条标志">
+  <g transform="translate(-2.5 0)">
+    <g fill="none" stroke="#FFFFFF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M56 24a21 21 0 1 0 0 32"/>
+      <circle cx="91" cy="40" r="21"/>
+      <path d="M21 76v18a18 18 0 0 0 36 0V76"/>
+      <path d="M76 76h34M93 76v36"/>
+    </g>
+    <circle cx="110" cy="59" r="5" fill="#FFFFFF"/>
+  </g>
+  <line x1="136" y1="20" x2="136" y2="108" stroke="#FFFFFF" stroke-width="2" opacity="0.2" stroke-linecap="round"/>
+  <text x="160" y="56" fill="#FFFFFF" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="40" font-weight="700">Auth</text>
+  <text x="160" y="98" fill="#FFFFFF" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="22" opacity="0.7">统一身份认证与客户端授权管理中心</text>
+</svg>

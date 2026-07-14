@@ -5,6 +5,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+    user: root
     env_file:
       - ./.env
     environment:
@@ -41,7 +42,9 @@ services:
     ports:
       - "${OIDC_APP_PORT:-3003}:3003"
     volumes:
+      - ../:/app
       - ./oidc-clients.json:${OIDC_CLIENTS_CONFIG_PATH:-/app/config/oidc-clients.json}:ro
+    command: sh -c "corepack enable && pnpm dev"
     depends_on:
       redis:
         condition: service_healthy

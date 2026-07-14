@@ -10,9 +10,9 @@
     "build:ui": "vite build --config web/vite.config.ts",
     "check:env-source": "node scripts/check-single-env-source.mjs",
     "dev": "concurrently -k \"pnpm dev:server\" \"pnpm dev:ui\"",
-    "dev:server": "tsx watch src/main.ts",
+    "dev:server": "tsx watch --env-file=deploy/.env src/main.ts",
     "dev:ui": "vite build --watch --config web/vite.config.ts",
-    "dev:oidc": "tsx watch src/main.ts",
+    "dev:oidc": "tsx watch --env-file=deploy/.env src/main.ts",
     "docker:build": "docker build -t cqut-auth-oidc .",
     "docker:up": "docker compose -f deploy/docker-compose.yml up -d --build",
     "docker:down": "docker compose -f deploy/docker-compose.yml down",
@@ -27,6 +27,11 @@
     "format": "prettier --write ."
   },
   "pnpm": {
+    "supportedArchitectures": {
+      "os": ["current", "linux"],
+      "cpu": ["current", "arm64", "x64"],
+      "libc": ["current", "musl"]
+    },
     "overrides": {
       "lodash": "^4.18.0",
       "path-to-regexp": "^8.4.0"
