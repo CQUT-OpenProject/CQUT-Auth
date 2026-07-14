@@ -10,6 +10,7 @@ import { ClientCreate } from "../pages/clients/ClientCreate";
 import { ClientDetail } from "../pages/clients/ClientDetail";
 import { ProjectAudit } from "../pages/audit/ProjectAudit";
 import { AdminReviews } from "../pages/admin/AdminReviews";
+import { EmailSettings } from "../pages/admin/EmailSettings";
 import { Authenticated } from "@refinedev/core";
 
 export const AppRouter: React.FC = () => {
@@ -68,6 +69,7 @@ export const AppRouter: React.FC = () => {
 
         {/* Admin Reviews */}
         <Route path="/admin/reviews" element={<AdminReviews />} />
+        <Route path="/admin/settings/email" element={<EmailSettings />} />
         <Route
           path="/admin/projects"
           element={<Navigate to="/projects" replace />}

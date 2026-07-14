@@ -806,6 +806,89 @@ test("management API rate limits client creation by source IP", async () => {
   }
 });
 
+test("email settings API is admin-only and never echoes secrets", async () => {
+  const { app, state } = await createApp();
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+
+    // Default view: no provider configured, no secret leaked.
+    const initial = await admin.get("/api/management/settings/email");
+    assert.equal(initial.status, 200);
+    assert.equal(initial.body.settings.provider, "disabled");
+    assert.equal(initial.body.settings.resend.apiKeyConfigured, false);
+
+    // Save a Resend key.
+    const saved = await admin
+      .put("/api/management/settings/email")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        provider: "resend",
+        resend: {
+          apiKey: "re_super_secret_value",
+          from: "noreply@example.edu.cn",
+        },
+      });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.settings.provider, "resend");
+    assert.equal(saved.body.settings.resend.apiKeyConfigured, true);
+    // The plaintext secret must never be echoed back to the client.
+    assert.equal(
+      JSON.stringify(saved.body).includes("re_super_secret_value"),
+      false,
+    );
+
+    // Re-reading also stays redacted.
+    const reread = await admin.get("/api/management/settings/email");
+    assert.equal(
+      JSON.stringify(reread.body).includes("re_super_secret_value"),
+      false,
+    );
+    assert.equal(reread.body.settings.resend.apiKeyConfigured, true);
+
+    // Blank secret on update keeps the stored key (still valid Resend config).
+    const kept = await admin
+      .put("/api/management/settings/email")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        provider: "resend",
+        resend: { apiKey: "", from: "changed@example.edu.cn" },
+      });
+    assert.equal(kept.status, 200);
+    assert.equal(kept.body.settings.resend.from, "changed@example.edu.cn");
+    assert.equal(kept.body.settings.resend.apiKeyConfigured, true);
+
+    // Invalid provider selection is rejected with a field error.
+    const invalid = await admin
+      .put("/api/management/settings/email")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ provider: "smtp", smtp: { port: 465 } });
+    assert.equal(invalid.status, 400);
+
+    // Non-admins cannot read or write email settings.
+    const outsider = request.agent(app);
+    const outsiderLogin = await login(outsider, "settings-outsider");
+    assert.equal(
+      (await outsider.get("/api/management/settings/email")).status,
+      403,
+    );
+    assert.equal(
+      (
+        await outsider
+          .put("/api/management/settings/email")
+          .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
+          .send({ provider: "disabled" })
+      ).status,
+      403,
+    );
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
 test("liveness does not depend on dynamic client CSP lookup", async () => {
   const { app, state } = await createApp();
   state.store.listActiveOidcClients = async () => {

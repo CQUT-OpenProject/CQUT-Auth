@@ -31,7 +31,11 @@ export const accessControlProvider: AccessControlProvider = {
     }
 
     // Global admin views
-    if (resource === "adminReviews" || resource === "adminProjects") {
+    if (
+      resource === "adminReviews" ||
+      resource === "adminProjects" ||
+      resource === "emailSettings"
+    ) {
       return { can: !!currentUser?.isAdmin };
     }
 

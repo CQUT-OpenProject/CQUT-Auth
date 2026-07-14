@@ -20,6 +20,7 @@ import {
   DesktopOutlined,
   AuditOutlined,
   SafetyCertificateOutlined,
+  MailOutlined,
   LogoutOutlined,
   SunOutlined,
   MoonOutlined,
@@ -154,6 +155,12 @@ export const DashboardLayout: React.FC = () => {
             icon: <SafetyCertificateOutlined />,
             label: "全局待审核",
             onClick: () => navigate("/admin/reviews"),
+          },
+          {
+            key: "email-settings",
+            icon: <MailOutlined />,
+            label: "邮件设置",
+            onClick: () => navigate("/admin/settings/email"),
           },
         ],
       });

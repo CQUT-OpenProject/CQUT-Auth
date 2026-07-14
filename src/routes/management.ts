@@ -17,6 +17,7 @@ import { RetryableProviderError } from "../identity/errors.js";
 import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
+import type { EmailSettingsService } from "../email/email-settings.service.js";
 import {
   clearManagementSessionCookie,
   ensureManagementNonce,
@@ -29,6 +30,7 @@ import {
 
 type ManagementRouterServices = {
   interactiveAuthenticator: InteractiveAuthenticatorService;
+  emailSettingsService: EmailSettingsService;
 };
 
 export function createManagementRouter(
@@ -66,6 +68,17 @@ export function createManagementRouter(
     },
   );
   const adminIds = new Set(config.adminSubjectIds);
+  const emailSettings = services.emailSettingsService;
+
+  function requireAdmin(actor: { isAdmin: boolean }) {
+    if (!actor.isAdmin) {
+      throw new ClientManagementError(
+        403,
+        "access_denied",
+        "administrator access is required",
+      );
+    }
+  }
 
   router.use((_request, response, next) => {
     response.setHeader("Cache-Control", "no-store");
@@ -644,6 +657,25 @@ export function createManagementRouter(
       response.json({ clients: await clients.listPending(auth.actor) });
     });
   });
+
+  router.get("/settings/email", async (request, response, next) => {
+    await withActor(request, response, next, async (auth) => {
+      requireAdmin(auth.actor);
+      response.json({ settings: await emailSettings.getView() });
+    });
+  });
+
+  router.put(
+    "/settings/email",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        requireAdmin(auth.actor);
+        const settings = await emailSettings.update(request.body ?? {});
+        response.json({ settings });
+      });
+    },
+  );
 
   router.post(
     "/admin/projects/:projectId/clients/:clientId/revisions/:revisionId/approve",
