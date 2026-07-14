@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  ClientManagementError,
-  ClientManagementService,
-} from "../src/clients/client-management.service.js";
+import { ClientManagementService } from "../src/clients/client-management.service.js";
+import { ClientManagementError } from "../src/management/management-error.js";
 import { readOidcOpConfig } from "../src/config.js";
 import { verifyClientSecretDigest } from "../src/crypto.js";
 import { OidcPersistenceImpl } from "../src/persistence/persistence.js";

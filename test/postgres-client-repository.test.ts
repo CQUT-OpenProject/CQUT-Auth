@@ -3,10 +3,8 @@ import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { Pool } from "pg";
-import {
-  ClientManagementError,
-  ClientManagementService,
-} from "../src/clients/client-management.service.js";
+import { ClientManagementService } from "../src/clients/client-management.service.js";
+import { ClientManagementError } from "../src/management/management-error.js";
 import type {
   OidcClientAuditRecord,
   ProjectAuditRecord,
