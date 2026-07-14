@@ -43,17 +43,11 @@ export const __cryptoTestHooks = {
 };
 
 function encodeBase64Url(raw: Buffer) {
-  return raw
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+  return raw.toString("base64url");
 }
 
 function decodeBase64Url(value: string) {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  return Buffer.from(padded, "base64");
+  return Buffer.from(value, "base64url");
 }
 
 type ParsedScryptDigest = {
@@ -79,13 +73,9 @@ function parsePositiveInteger(value: string) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function parseScryptDigest(encodedDigest: string): ParsedScryptDigest | null {
-  const segments = encodedDigest.split("$");
-  if (segments.length !== 4 || segments[0] !== SCRYPT_DIGEST_PREFIX) {
-    return null;
-  }
+function parseCommaKeyValuePairs(str: string): Map<string, string> | null {
   const parameterPairs = new Map<string, string>();
-  for (const entry of segments[1]!.split(",")) {
+  for (const entry of str.split(",")) {
     const equalsIndex = entry.indexOf("=");
     if (equalsIndex <= 0) {
       return null;
@@ -94,6 +84,18 @@ function parseScryptDigest(encodedDigest: string): ParsedScryptDigest | null {
       entry.slice(0, equalsIndex),
       entry.slice(equalsIndex + 1),
     );
+  }
+  return parameterPairs;
+}
+
+function parseScryptDigest(encodedDigest: string): ParsedScryptDigest | null {
+  const segments = encodedDigest.split("$");
+  if (segments.length !== 4 || segments[0] !== SCRYPT_DIGEST_PREFIX) {
+    return null;
+  }
+  const parameterPairs = parseCommaKeyValuePairs(segments[1] ?? "");
+  if (!parameterPairs) {
+    return null;
   }
   const N = parsePositiveInteger(parameterPairs.get("N") ?? "");
   const r = parsePositiveInteger(parameterPairs.get("r") ?? "");
@@ -131,16 +133,9 @@ function serializeScryptParams(
 }
 
 function parseScryptParams(encoded: string) {
-  const parameterPairs = new Map<string, string>();
-  for (const entry of encoded.split(",")) {
-    const equalsIndex = entry.indexOf("=");
-    if (equalsIndex <= 0) {
-      return null;
-    }
-    parameterPairs.set(
-      entry.slice(0, equalsIndex),
-      entry.slice(equalsIndex + 1),
-    );
+  const parameterPairs = parseCommaKeyValuePairs(encoded);
+  if (!parameterPairs) {
+    return null;
   }
   const N = parsePositiveInteger(parameterPairs.get("N") ?? "");
   const r = parsePositiveInteger(parameterPairs.get("r") ?? "");

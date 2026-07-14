@@ -1,5 +1,6 @@
 import { Resend } from "resend";
 import type { EmailSender, SendVerificationCodeInput } from "./email-sender.js";
+import { escapeHtml } from "../utils.js";
 
 type ResendEmailSenderOptions = {
   apiKey: string;
@@ -49,13 +50,4 @@ export class ResendEmailSender implements EmailSender {
       throw new Error(`resend email send failed: ${error.message}`);
     }
   }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

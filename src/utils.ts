@@ -1,11 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 
 export function base64Url(buffer: Buffer): string {
-  return buffer
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
+  return buffer.toString("base64url");
+}
+
+export function toIsoString(value: unknown): string {
+  return value instanceof Date
+    ? value.toISOString()
+    : new Date(String(value)).toISOString();
 }
 
 export function randomId(prefix: string, size = 18): string {
