@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import useSWR, { SWRConfig } from "swr";
+import logoMonoLight from "./assets/logo-mono-light.svg";
+import logoColor from "./assets/logo-color.svg";
 
 type User = {
   subjectId: string;
@@ -208,38 +210,48 @@ function Login({
   }
 
   return (
-    <main className="login-layout">
-      <section className="login-card" aria-labelledby="login-title">
-        <p className="eyebrow">CQUT-AUTH</p>
-        <h1 id="login-title">客户端管理</h1>
-        <p className="muted">
-          使用校园统一身份认证账号登录。密码仅用于本次认证，不会被保存。
-        </p>
-        {error && <Notice tone="danger">{error}</Notice>}
-        <form onSubmit={submit} className="stack">
-          <label>
-            账号
-            <input
-              value={account}
-              onChange={(event) => setAccount(event.target.value)}
-              autoComplete="username"
-              required
-            />
-          </label>
-          <label>
-            密码
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-              required
-            />
-          </label>
-          <button type="submit" disabled={busy}>
-            {busy ? "正在登录…" : "登录管理台"}
-          </button>
-        </form>
+    <main className="login-split-layout">
+      <section className="login-hero-pane">
+        <div className="login-hero-content">
+          <picture className="login-hero-logo">
+            <source srcSet={logoMonoLight} media="(prefers-color-scheme: dark)" />
+            <img src={logoColor} alt="CQUT-AUTH Logo" className="hero-logo-img" />
+          </picture>
+        </div>
+      </section>
+      <div className="login-divider"></div>
+      <section className="login-form-pane" aria-labelledby="login-title">
+        <div className="login-form-content">
+          <h2 id="login-title">登录管理台</h2>
+          <p className="muted">
+            使用校园统一身份认证账号登录。密码仅用于本次认证，不会被保存。
+          </p>
+          {error && <Notice tone="danger">{error}</Notice>}
+          <form onSubmit={submit} className="stack">
+            <label>
+              账号
+              <input
+                value={account}
+                onChange={(event) => setAccount(event.target.value)}
+                autoComplete="username"
+                required
+              />
+            </label>
+            <label>
+              密码
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="current-password"
+                required
+              />
+            </label>
+            <button type="submit" disabled={busy}>
+              {busy ? "正在登录…" : "登录管理台"}
+            </button>
+          </form>
+        </div>
       </section>
     </main>
   );
@@ -323,9 +335,14 @@ function Dashboard({
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div>
-          <p className="eyebrow">CQUT-AUTH</p>
-          <strong>客户端管理</strong>
+        <div className="topbar-brand">
+          <picture className="topbar-logo">
+            <source srcSet={logoMonoLight} media="(prefers-color-scheme: dark)" />
+            <img src={logoColor} alt="CQUT-AUTH Logo" className="logo-img" />
+          </picture>
+          <div className="topbar-title">
+            <strong>客户端管理</strong>
+          </div>
         </div>
         <div className="user-actions">
           <span>
