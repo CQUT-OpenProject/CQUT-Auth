@@ -13,6 +13,7 @@ import {
   RateLimitUnavailableError,
 } from "../persistence/rate-limit.service.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
+import { RetryableProviderError } from "../identity/errors.js";
 import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
@@ -149,6 +150,20 @@ export function createManagementRouter(
           ),
         );
       } catch (error) {
+        if (error instanceof RetryableProviderError) {
+          console.error(
+            "[oidc-op] management sign-in upstream unavailable",
+            error instanceof Error
+              ? `${error.name}: ${error.message}`
+              : "unknown error",
+          );
+          response.setHeader("Retry-After", "60");
+          response.status(503).json({
+            error: "service_unavailable",
+            error_description: "try again later",
+          });
+          return;
+        }
         const failureKey = `oidc:login:failure:account-ip:${sha256(account || "unknown")}:${ip}`;
         const failure = await rateLimitService.consume(
           failureKey,

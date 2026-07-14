@@ -37,6 +37,9 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
     }, this.options.providerTotalTimeoutMs);
 
     try {
+      // Campus UIS usernames/student IDs are case-insensitive; normalize before
+      // deriving the identity key so casing/whitespace variants map to one subject.
+      const normalizedAccount = input.account.trim().toLowerCase();
       const jar = new CookieJar();
       const client = wrapper(
         axios.create({
@@ -142,11 +145,11 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
       }
 
       return {
-        schoolUid: input.account,
+        schoolUid: normalizedAccount,
         verified: true,
         studentStatus: "active",
         school: this.options.schoolCode,
-        identityHash: `cqut:${input.account}`,
+        identityHash: `cqut:${normalizedAccount}`,
       };
     } catch (error) {
       if (error instanceof RetryableProviderError) {

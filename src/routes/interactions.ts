@@ -1,5 +1,5 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
-import { IdentityCoreError } from "../identity/errors.js";
+import { IdentityCoreError, RetryableProviderError } from "../identity/errors.js";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
 import {
@@ -1257,6 +1257,13 @@ export function createInteractionRouter(
           );
         return;
       }
+      const loginDetails = await provider.interactionDetails(request, response);
+      if (loginDetails.prompt.name !== "login" || loginDetails.uid !== uid) {
+        response
+          .status(400)
+          .send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+        return;
+      }
       const account =
         typeof request.body?.account === "string"
           ? request.body.account.trim()
@@ -1334,6 +1341,17 @@ export function createInteractionRouter(
           authTime: Math.floor(Date.now() / 1000),
         });
       } catch (error) {
+        if (error instanceof RetryableProviderError) {
+          console.error(
+            "[oidc-op] interactive sign-in upstream unavailable",
+            error,
+          );
+          response
+            .status(503)
+            .setHeader("Retry-After", "60")
+            .send(serviceUnavailableView());
+          return;
+        }
         let failure;
         try {
           failure = await consumeLoginRateLimit(
@@ -1381,6 +1399,13 @@ export function createInteractionRouter(
     try {
       setNoStore(response);
       const uid = request.params["uid"] ?? "";
+      const details = await provider.interactionDetails(request, response);
+      if (details.prompt.name !== "login" || details.uid !== uid) {
+        response
+          .status(400)
+          .send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+        return;
+      }
       const pending = await store.getInteractionLogin(uid);
       if (!pending) {
         response.redirect(302, `/interaction/${encodeURIComponent(uid)}`);
@@ -1426,6 +1451,13 @@ export function createInteractionRouter(
     try {
       setNoStore(response);
       const uid = request.params["uid"] ?? "";
+      const details = await provider.interactionDetails(request, response);
+      if (details.prompt.name !== "login" || details.uid !== uid) {
+        response
+          .status(400)
+          .send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+        return;
+      }
       if (
         !validateCsrf(request, config, {
           uid,
