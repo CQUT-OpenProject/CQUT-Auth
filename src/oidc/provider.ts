@@ -698,12 +698,22 @@ export async function createOidcServices(
           ctx.set("X-Content-Type-Options", "nosniff");
           ctx.set("Referrer-Policy", "no-referrer");
           if (redirectUri) {
-            const target = new URL(redirectUri);
-            if (state) {
-              target.searchParams.set("state", state);
+            // oidc-provider validates the URI against the client's registered
+            // post_logout_redirect_uris before this hook runs; parse defensively
+            // so a malformed value degrades to the success page, not a 500.
+            let target: URL | undefined;
+            try {
+              target = new URL(redirectUri);
+            } catch {
+              target = undefined;
             }
-            ctx.redirect(target.toString());
-            return;
+            if (target) {
+              if (state) {
+                target.searchParams.set("state", state);
+              }
+              ctx.redirect(target.toString());
+              return;
+            }
           }
 
           ctx.type = "html";
@@ -765,18 +775,13 @@ export async function createOidcServices(
       return code.scopes.has("offline_access");
     },
     loadExistingGrant: async (ctx: any) => {
-      const sessionGrantId = ctx.oidc.session?.grantIdFor(
-        ctx.oidc.client.clientId,
-      );
-      if (sessionGrantId) {
-        return ctx.oidc.provider.Grant.find(sessionGrantId);
+      const grantId =
+        ctx.oidc.result?.consent?.grantId ??
+        ctx.oidc.session?.grantIdFor(ctx.oidc.client.clientId);
+      if (grantId) {
+        return ctx.oidc.provider.Grant.find(grantId);
       }
-      const grant = new ctx.oidc.provider.Grant({
-        accountId: ctx.oidc.session.accountId,
-        clientId: ctx.oidc.client.clientId,
-      });
-      await grant.save();
-      return grant;
+      return undefined;
     },
     renderError(ctx: any, out: Record<string, unknown>) {
       console.error("[oidc-op] provider renderError", out);
@@ -805,7 +810,7 @@ export async function createOidcServices(
     ttl: {
       AccessToken: () => config.accessTokenTtlSeconds,
       AuthorizationCode: () => config.authorizationCodeTtlSeconds,
-      Grant: () => config.refreshTokenTtlSeconds,
+      Grant: () => config.grantTtlSeconds,
       IdToken: () => config.idTokenTtlSeconds,
       Interaction: () => config.interactionTtlSeconds,
       RefreshToken: () => config.refreshTokenTtlSeconds,

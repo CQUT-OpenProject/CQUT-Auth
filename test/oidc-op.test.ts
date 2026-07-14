@@ -26,6 +26,7 @@ import {
   generateSigningKey,
 } from "../src/oidc/provider.js";
 import { sha256Base64Url } from "../src/utils.js";
+import { MOCK_SIMULATE_UPSTREAM_OUTAGE_PASSWORD } from "../src/identity/providers/mock.provider.js";
 
 const TEST_REDIRECT_URI = "http://localhost:3002/demo/callback";
 const TEST_POST_LOGOUT_REDIRECT_URI =
@@ -1883,6 +1884,76 @@ test("stale interaction requests return an expired-flow page instead of server_e
   await state.store.close();
 });
 
+test("profile routes reject requests without the interaction session cookie", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  const victim = request.agent(app);
+  const { profileLocation } = await sendEmailVerificationCode(
+    victim,
+    "manual-state-profile-binding",
+    "victim@example.com",
+  );
+
+  // A fresh client that knows only the interaction uid (leaked via the URL,
+  // Referer, browser history, or access logs) but holds no _interaction cookie
+  // must not reach the profile page or trigger any side effects.
+  const attacker = request(app);
+  const attackerGet = await attacker.get(profileLocation);
+  assert.equal(attackerGet.status, 400);
+  assert.match(attackerGet.text, /登录流程已过期/);
+  assert.doesNotMatch(attackerGet.text, /name="csrf"/);
+
+  const attackerPost = await attacker.post(profileLocation).type("form").send({
+    csrf: "forged-token",
+    action: "send_code",
+    email: "attacker@evil.com",
+  });
+  assert.equal(attackerPost.status, 400);
+  assert.match(attackerPost.text, /登录流程已过期/);
+
+  // No verification email was ever dispatched to the attacker-chosen address.
+  assert.equal(
+    emailSender.sentVerifications.some(
+      (entry) => entry.to === "attacker@evil.com",
+    ),
+    false,
+  );
+
+  await state.store.close();
+});
+
+test("interactive login treats upstream outages as retryable 503 without consuming the failure budget", async () => {
+  const { app, state } = await createTestApp({
+    // Isolate the failure-bucket behavior from the separate attempt limiter.
+    OIDC_LOGIN_RATE_LIMIT_MAX: "100",
+  });
+  const agent = request.agent(app);
+  const { interactionLocation, loginPage } = await openLoginInteraction(
+    agent,
+    "manual-state-upstream-outage",
+  );
+
+  // Well above the default failure limit (5): if outages were counted as
+  // credential failures, later attempts would return 429, not 503.
+  const attempts = 8;
+  for (let index = 0; index < attempts; index += 1) {
+    const page =
+      index === 0 ? loginPage : await agent.get(interactionLocation);
+    const csrf = extractCsrf(page.text);
+    const login = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf,
+        account: TEST_LOGIN_ACCOUNT,
+        password: MOCK_SIMULATE_UPSTREAM_OUTAGE_PASSWORD,
+      });
+    assert.equal(login.status, 503);
+    assert.equal(login.headers["retry-after"], "60");
+  }
+
+  await state.store.close();
+});
+
 test("consent denial returns access_denied to client redirect uri", async () => {
   const { app, state, emailSender } = await createTestApp();
   await disableDemoAutoConsent(state);
@@ -2755,6 +2826,29 @@ test("config rejects when session idle ttl exceeds absolute session ttl", () => 
         OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
       }),
     /OIDC_SESSION_IDLE_TTL_SECONDS must be less than or equal to OIDC_SESSION_TTL_SECONDS/,
+  );
+});
+
+test("config defaults grant ttl above refresh token ttl and enforces the floor", () => {
+  const config = readOidcOpConfig({
+    APP_ENV: "test",
+    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+    OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
+  });
+  assert.ok(config.grantTtlSeconds >= config.refreshTokenTtlSeconds);
+
+  assert.throws(
+    () =>
+      readOidcOpConfig({
+        APP_ENV: "test",
+        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+        OIDC_REFRESH_TTL_SECONDS: "1000",
+        OIDC_GRANT_TTL_SECONDS: "500",
+        OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
+      }),
+    /OIDC_GRANT_TTL_SECONDS must be greater than or equal to OIDC_REFRESH_TTL_SECONDS/,
   );
 });
 

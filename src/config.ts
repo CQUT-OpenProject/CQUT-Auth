@@ -42,6 +42,7 @@ export type OidcOpConfig = {
   accessTokenTtlSeconds: number;
   idTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
+  grantTtlSeconds: number;
   artifactCleanupEnabled: boolean;
   artifactCleanupCron: string;
   artifactCleanupBatchSize: number;
@@ -692,6 +693,26 @@ export function readOidcOpConfig(
       );
     }
   }
+  const refreshTokenTtlSeconds = Number(
+    env["OIDC_REFRESH_TTL_SECONDS"] ?? 60 * 60 * 24 * 30,
+  );
+  if (!Number.isInteger(refreshTokenTtlSeconds) || refreshTokenTtlSeconds <= 0) {
+    throw new Error("OIDC_REFRESH_TTL_SECONDS must be a positive integer");
+  }
+  // The Grant anchors consent and outlives individual refresh tokens; under
+  // refresh-token rotation the grant must not expire before a still-valid
+  // rotated refresh token, so it defaults to (and is enforced ≥) the refresh TTL.
+  const grantTtlSeconds = Number(
+    env["OIDC_GRANT_TTL_SECONDS"] ?? 60 * 60 * 24 * 90,
+  );
+  if (!Number.isInteger(grantTtlSeconds) || grantTtlSeconds <= 0) {
+    throw new Error("OIDC_GRANT_TTL_SECONDS must be a positive integer");
+  }
+  if (grantTtlSeconds < refreshTokenTtlSeconds) {
+    throw new Error(
+      "OIDC_GRANT_TTL_SECONDS must be greater than or equal to OIDC_REFRESH_TTL_SECONDS",
+    );
+  }
   return {
     port,
     appEnv,
@@ -747,9 +768,8 @@ export function readOidcOpConfig(
       env["OIDC_ACCESS_TOKEN_TTL_SECONDS"] ?? 60 * 5,
     ),
     idTokenTtlSeconds: Number(env["OIDC_ID_TOKEN_TTL_SECONDS"] ?? 60 * 5),
-    refreshTokenTtlSeconds: Number(
-      env["OIDC_REFRESH_TTL_SECONDS"] ?? 60 * 60 * 24 * 30,
-    ),
+    refreshTokenTtlSeconds,
+    grantTtlSeconds,
     artifactCleanupEnabled,
     artifactCleanupCron,
     artifactCleanupBatchSize,
