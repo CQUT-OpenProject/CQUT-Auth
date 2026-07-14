@@ -112,7 +112,11 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
       if (loginResponse.status >= 500) {
         throw new RetryableProviderError("campus login service is unavailable");
       }
-      if (loginResponse.status >= 400 || loginResponse.data?.code !== 200) {
+      // Upstream has historically returned the status code as either a number
+      // or a numeric string; compare loosely so a `"200"` body is not mistaken
+      // for a rejected credential.
+      const upstreamCode = Number(loginResponse.data?.code);
+      if (loginResponse.status >= 400 || upstreamCode !== 200) {
         throw new IdentityCoreError(
           "verification_failed",
           "campus credentials rejected",
