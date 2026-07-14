@@ -227,6 +227,17 @@ create table if not exists oidc_signing_keys (
   retired_at timestamptz
 );
 
+-- Runtime-editable application settings (e.g. email delivery configuration).
+-- value_ciphertext holds an AES-256-GCM encrypted JSON blob so secrets such as
+-- the Resend API key / SMTP password are never stored in plaintext at rest.
+create table if not exists app_settings (
+  key text primary key,
+  value_ciphertext text not null,
+  version integer not null default 1 check (version > 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create extension if not exists pg_cron;
 
 do $$
