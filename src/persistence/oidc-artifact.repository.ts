@@ -4,6 +4,7 @@ import type {
   OidcArtifactRepository,
   PendingInteractionLogin,
 } from "./contracts.js";
+import { buildArtifactCleanupSql } from "./contracts.js";
 
 type EncryptedArtifactPayloadEnvelope = {
   version: 1;
@@ -312,6 +313,17 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     await this.destroyArtifact(`interaction_login:${uid}`);
   }
 
+  private isExpired(record: ArtifactRecord): boolean {
+    if (
+      record.expiresAt &&
+      new Date(record.expiresAt).getTime() <= Date.now()
+    ) {
+      this.artifacts.delete(record.id);
+      return true;
+    }
+    return false;
+  }
+
   private async readArtifactById(id: string): Promise<ArtifactRecord | null> {
     const pool = this.poolProvider();
     if (!pool) {
@@ -319,11 +331,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       if (!record) {
         return null;
       }
-      if (
-        record.expiresAt &&
-        new Date(record.expiresAt).getTime() <= Date.now()
-      ) {
-        this.artifacts.delete(id);
+      if (this.isExpired(record)) {
         return null;
       }
       return record;
@@ -356,11 +364,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       if (!record) {
         return null;
       }
-      if (
-        record.expiresAt &&
-        new Date(record.expiresAt).getTime() <= Date.now()
-      ) {
-        this.artifacts.delete(record.id);
+      if (this.isExpired(record)) {
         return null;
       }
       return record;
@@ -531,21 +535,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     }
     this.lastCleanupAt = now;
     this.cleanupInFlight = pool
-      .query(
-        `
-        with doomed as (
-          select id
-          from oidc_artifacts
-          where expires_at is not null and expires_at <= now()
-          order by expires_at asc
-          limit $1
-        )
-        delete from oidc_artifacts as oa
-        using doomed
-        where oa.id = doomed.id
-        `,
-        [this.cleanupOptions.batchSize],
-      )
+      .query(buildArtifactCleanupSql("$1"), [this.cleanupOptions.batchSize])
       .then(() => undefined)
       .catch((error) => {
         this.logger.warn(

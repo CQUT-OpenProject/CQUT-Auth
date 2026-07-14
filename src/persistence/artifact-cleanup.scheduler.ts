@@ -1,4 +1,5 @@
 import type { Pool } from "pg";
+import { buildArtifactCleanupSql } from "./contracts.js";
 
 export class ArtifactCleanupConfigurationError extends Error {}
 
@@ -74,18 +75,7 @@ export async function ensureArtifactCleanupJob(
 }
 
 function buildCleanupCommand(batchSize: number) {
-  return `
-with doomed as (
-  select id
-  from oidc_artifacts
-  where expires_at is not null and expires_at <= now()
-  order by expires_at asc
-  limit ${batchSize}
-)
-delete from oidc_artifacts as oa
-using doomed
-where oa.id = doomed.id
-`;
+  return buildArtifactCleanupSql(batchSize);
 }
 
 function normalizeSql(raw: string) {

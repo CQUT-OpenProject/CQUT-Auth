@@ -53,6 +53,33 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       }),
   ) {}
 
+  private async transaction<T>(
+    pool: Pool,
+    fn: (connection: PoolClient, rollback: () => Promise<void>) => Promise<T>,
+  ): Promise<T> {
+    const connection = await pool.connect();
+    let rolledBack = false;
+    const rollback = async () => {
+      await connection.query("rollback");
+      rolledBack = true;
+    };
+    try {
+      await connection.query("begin");
+      const result = await fn(connection, rollback);
+      if (!rolledBack) {
+        await connection.query("commit");
+      }
+      return result;
+    } catch (error) {
+      if (!rolledBack) {
+        await connection.query("rollback");
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async upsertOidcClient(
     active: ActiveOidcClientRecord,
   ): Promise<ActiveOidcClientRecord> {
@@ -72,18 +99,9 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         this.usableMemorySecrets(active.clientId),
       );
     }
-    const connection = await pool.connect();
-    try {
-      await connection.query("begin");
-      const result = await this.upsertActive(connection, active);
-      await connection.query("commit");
-      return result;
-    } catch (error) {
-      await connection.query("rollback");
-      throw error;
-    } finally {
-      connection.release();
-    }
+    return this.transaction(pool, async (connection) => {
+      return this.upsertActive(connection, active);
+    });
   }
 
   async countOidcClients(): Promise<number> {
@@ -117,9 +135,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
       );
       return { imported: true, count: clients.length };
     }
-    const connection = await pool.connect();
-    try {
-      await connection.query("begin");
+    return this.transaction(pool, async (connection) => {
       await connection.query(
         "select pg_advisory_xact_lock(hashtext('cqut-auth:oidc-client-initialize'))",
       );
@@ -127,7 +143,6 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         "select count(*)::int as count from oidc_clients",
       );
       if (Number(count.rows[0]?.count ?? 0) > 0) {
-        await connection.query("commit");
         return { imported: false, count: 0 };
       }
       const revisionIds = new Map<string, { id: number; number: number }>();
@@ -147,14 +162,8 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
             : {}),
         });
       }
-      await connection.query("commit");
       return { imported: true, count: clients.length };
-    } catch (error) {
-      await connection.query("rollback");
-      throw error;
-    } finally {
-      connection.release();
-    }
+    });
   }
 
   async createOidcClient(
@@ -206,9 +215,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         },
       );
     }
-    const connection = await pool.connect();
-    try {
-      await connection.query("begin");
+    return this.transaction(pool, async (connection, rollback) => {
       const project = await this.authorizeProjectWrite(
         connection,
         authorization,
@@ -231,7 +238,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
             Number(count.rows[0]?.["subject_non_disabled"] ?? 0) >=
               projectLimits.maxNonDisabledClientsPerSubject)
         ) {
-          await connection.query("rollback");
+          await rollback();
           return null;
         }
       }
@@ -249,14 +256,8 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
             : {}),
         });
       }
-      await connection.query("commit");
       return this.findManagedOidcClient(client.clientId);
-    } catch (error) {
-      await connection.query("rollback");
-      throw error;
-    } finally {
-      connection.release();
-    }
+    });
   }
 
   async updateOidcClientMetadata(
@@ -284,9 +285,7 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         },
       );
     }
-    const connection = await pool.connect();
-    try {
-      await connection.query("begin");
+    return this.transaction(pool, async (connection, rollback) => {
       await this.authorizeProjectWrite(connection, authorization, clientId);
       const result = await connection.query(
         `update oidc_clients set display_name = $2, description = $3,
@@ -301,18 +300,12 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         ],
       );
       if (result.rowCount !== 1) {
-        await connection.query("rollback");
+        await rollback();
         return null;
       }
       await this.insertAudit(connection, audit);
-      await connection.query("commit");
       return this.findManagedOidcClient(clientId);
-    } catch (error) {
-      await connection.query("rollback");
-      throw error;
-    } finally {
-      connection.release();
-    }
+    });
   }
 
   async saveOidcClientRevision(
