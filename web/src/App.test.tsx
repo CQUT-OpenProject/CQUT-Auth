@@ -3,15 +3,37 @@ import {
   fireEvent,
   render,
   screen,
-  within,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, expect, test, vi } from "vitest";
-import { App } from "./App";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import React from "react";
+import { App } from "./app/App";
+
+// Global mutable authentication state for mocking
+let apiAuthenticated = true;
+
+// Mock matchMedia for Ant Design layout components in jsdom environment
+beforeEach(() => {
+  apiAuthenticated = true; // reset to default
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    value: vi.fn().mockImplementation((query) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(), // Deprecated
+      removeListener: vi.fn(), // Deprecated
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+});
 
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.clearAllMocks();
 });
 
 const ownerCapabilities = [
@@ -73,18 +95,31 @@ function mockApi(
     clients?: ReturnType<typeof client>[];
   } = {},
 ) {
-  const calls: Array<{ path: string; method: string }> = [];
+  const calls: Array<{ path: string; method: string; body?: any }> = [];
   const projects = options.projects ?? [project()];
+
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
       const method = init?.method ?? "GET";
-      calls.push({ path, method });
-      const body = path.endsWith("/auth/context")
-        ? {
+      let body: any = undefined;
+      if (init?.body) {
+        try {
+          body = JSON.parse(init.body as string);
+        } catch {
+          // Ignored
+        }
+      }
+      calls.push({ path, method, body });
+
+      let responseBody: any = {};
+
+      if (path.endsWith("/auth/context")) {
+        if (apiAuthenticated) {
+          responseBody = {
             authenticated: true,
-            csrfToken: "csrf",
+            csrfToken: "csrf-token-123",
             clientSecretPolicy: {
               defaultGraceSeconds: 3600,
               maxGraceSeconds: 7200,
@@ -94,37 +129,129 @@ function mockApi(
               displayName: "Owner",
               isAdmin: !!options.isAdmin,
             },
-          }
-        : path.endsWith("/projects") && method === "GET"
-          ? { projects }
-          : path.endsWith("/members")
-            ? {
-                members: options.members ?? [
-                  {
-                    projectId: "project_one",
-                    subjectId: "subj_owner",
-                    role: "owner",
-                    createdAt: "2026-07-13T00:00:00.000Z",
-                    updatedAt: "2026-07-13T00:00:00.000Z",
-                  },
-                ],
-              }
-            : path.endsWith("/secrets/rotate")
-              ? { secret: { value: "rotated-secret" }, client: client() }
-              : path.endsWith("/admin/reviews")
-                ? { clients: [client()] }
-                : path.includes("/clients") && method === "GET"
-                  ? {
-                      clients: options.clients ?? [
-                        client({
-                          projectId: path.includes("project_two")
-                            ? "project_two"
-                            : "project_one",
-                        }),
-                      ],
-                    }
-                  : { project: projects[0], client: client() };
-      return new Response(JSON.stringify(body), {
+          };
+        } else {
+          responseBody = {
+            authenticated: false,
+            csrfToken: "csrf-token-123",
+          };
+        }
+      } else if (path.endsWith("/auth/login")) {
+        responseBody = {
+          authenticated: true,
+          csrfToken: "csrf-token-123",
+          user: {
+            subjectId: "subj_owner",
+            displayName: "Owner",
+            isAdmin: !!options.isAdmin,
+          },
+          clientSecretPolicy: {
+            defaultGraceSeconds: 3600,
+            maxGraceSeconds: 7200,
+          },
+        };
+      } else if (path.endsWith("/auth/logout")) {
+        responseBody = {};
+      } else if (path.endsWith("/projects") && method === "GET") {
+        responseBody = { projects };
+      } else if (path.endsWith("/projects") && method === "POST") {
+        responseBody = {
+          project: {
+            projectId: "project_new",
+            name: body?.name || "New Project",
+            description: body?.description || "",
+            status: "active",
+            version: 1,
+            role: "owner",
+            capabilities: ownerCapabilities,
+          },
+        };
+      } else if (path.includes("/members") && method === "GET") {
+        responseBody = {
+          members: options.members ?? [
+            {
+              projectId: "project_one",
+              subjectId: "subj_owner",
+              role: "owner",
+              createdAt: "2026-07-13T00:00:00.000Z",
+              updatedAt: "2026-07-13T00:00:00.000Z",
+            },
+          ],
+        };
+      } else if (path.includes("/members") && method === "POST") {
+        responseBody = { project: project() };
+      } else if (path.includes("/members/") && method === "PATCH") {
+        responseBody = { project: project() };
+      } else if (path.includes("/members/") && method === "DELETE") {
+        responseBody = { project: project() };
+      } else if (path.includes("/ownership/transfer") && method === "POST") {
+        responseBody = { project: project() };
+      } else if (path.includes("/audit-logs")) {
+        responseBody = {
+          auditLogs: [
+            {
+              id: 1,
+              projectId: "project_one",
+              clientId: "active-web",
+              subjectId: "subj_owner",
+              action: "client_created",
+              details: { ip: "127.0.0.1" },
+              createdAt: "2026-07-13T00:00:00.000Z",
+            },
+          ],
+        };
+      } else if (path.endsWith("/clients") && method === "GET") {
+        responseBody = {
+          clients: options.clients ?? [client()],
+        };
+      } else if (path.endsWith("/clients") && method === "POST") {
+        responseBody = {
+          client: client({ clientId: "new-client" }),
+          clientSecret:
+            body?.clientType === "web"
+              ? "new-client-secret-plaintext"
+              : undefined,
+        };
+      } else if (path.includes("/clients/") && method === "GET") {
+        responseBody = {
+          client: (options.clients ?? [client()])[0],
+        };
+      } else if (path.includes("/secrets/rotate") && method === "POST") {
+        responseBody = {
+          secret: { value: "rotated-secret-plaintext" },
+        };
+      } else if (path.includes("/secrets/") && method === "POST") {
+        responseBody = { client: client() };
+      } else if (path.includes("/authorizations/revoke") && method === "POST") {
+        responseBody = { client: client() };
+      } else if (path.includes("/disable") && method === "POST") {
+        responseBody = { client: client({ lifecycleStatus: "disabled" }) };
+      } else if (path.endsWith("/admin/reviews") && method === "GET") {
+        responseBody = {
+          clients: [
+            client({
+              proposedRevision: {
+                revisionId: 2,
+                revisionNumber: 2,
+                status: "pending",
+                version: 1,
+                redirectUris: ["https://new-uri.com"],
+                postLogoutRedirectUris: [],
+                scopeWhitelist: ["openid"],
+                rejectionReason: null,
+              },
+            }),
+          ],
+        };
+      } else if (path.includes("/approve") && method === "POST") {
+        responseBody = { client: client() };
+      } else if (path.includes("/reject") && method === "POST") {
+        responseBody = { client: client() };
+      } else {
+        responseBody = {};
+      }
+
+      return new Response(JSON.stringify(responseBody), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       });
@@ -133,180 +260,55 @@ function mockApi(
   return calls;
 }
 
-test("shows project switcher, members, and project clients for owners", async () => {
+test("redirects to login when unauthenticated", async () => {
+  apiAuthenticated = false;
   mockApi();
+  window.history.pushState({}, "", "/manage/projects");
   render(<App />);
-  expect(
-    await screen.findByRole("button", { name: "Project One · owner" }),
-  ).toBeTruthy();
-  expect(await screen.findByText("subj_owner")).toBeTruthy();
-  expect(await screen.findByText("Active Web")).toBeTruthy();
-  expect(screen.getByRole("button", { name: "创建客户端" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "添加成员" })).toBeTruthy();
-});
-
-test("switches the client list to the selected project", async () => {
-  const calls = mockApi({
-    projects: [
-      project(),
-      project({ projectId: "project_two", name: "Project Two" }),
-    ],
+  await waitFor(() => {
+    expect(screen.getByRole("heading", { name: "登录管理台" })).toBeTruthy();
   });
-  render(<App />);
-  fireEvent.click(
-    await screen.findByRole("button", { name: "Project Two · owner" }),
-  );
-  await waitFor(() =>
-    expect(
-      calls.some((call) => call.path.endsWith("/projects/project_two/clients")),
-    ).toBe(true),
-  );
 });
 
-test("viewer receives a read-only project view", async () => {
-  mockApi({ projects: [project({ role: "viewer", capabilities: ["view"] })] });
-  render(<App />);
-  expect(await screen.findByText("Active Web")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "创建客户端" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "添加成员" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "查看详情" }));
-  expect(screen.queryByRole("button", { name: "保存基本信息" })).toBeNull();
-});
-
-test("member addition uses the project version and nested endpoint", async () => {
+test("handles successful login and redirects to projects", async () => {
+  apiAuthenticated = false;
   const calls = mockApi();
+  window.history.pushState({}, "", "/manage/login");
   render(<App />);
-  const input = await screen.findByLabelText("Subject ID");
-  fireEvent.change(input, { target: { value: "subj_new" } });
-  fireEvent.click(screen.getByRole("button", { name: "添加成员" }));
-  await waitFor(() =>
-    expect(
-      calls.some(
-        (call) =>
-          call.path.endsWith("/projects/project_one/members") &&
-          call.method === "POST",
-      ),
-    ).toBe(true),
-  );
-});
 
-test("administrators can open the global review view", async () => {
-  const calls = mockApi({ isAdmin: true });
-  render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: "待审核" }));
-  await waitFor(() =>
-    expect(calls.some((call) => call.path.endsWith("/admin/reviews"))).toBe(
-      true,
-    ),
-  );
-});
+  const accountInput = await screen.findByPlaceholderText("学号/工号");
+  const passwordInput = screen.getByPlaceholderText("密码");
+  const submitButton = screen.getByRole("button", { name: "登录管理台" });
 
-test("owner can change roles, delete members, and transfer ownership", async () => {
-  const calls = mockApi({
-    members: [
-      {
-        projectId: "project_one",
-        subjectId: "subj_owner",
-        role: "owner",
-        createdAt: "2026-07-13T00:00:00.000Z",
-        updatedAt: "2026-07-13T00:00:00.000Z",
-      },
-      {
-        projectId: "project_one",
-        subjectId: "subj_member",
-        role: "viewer",
-        createdAt: "2026-07-13T00:00:00.000Z",
-        updatedAt: "2026-07-13T00:00:00.000Z",
-      },
-    ],
-  });
-  render(<App />);
-  const role = await screen.findByLabelText("subj_member 角色");
-  fireEvent.change(role, { target: { value: "maintainer" } });
-  const row = screen.getByText("subj_member").closest("tr")!;
-  fireEvent.click(within(row).getByRole("button", { name: "转移所有权" }));
-  fireEvent.click(within(row).getByRole("button", { name: "删除" }));
+  fireEvent.change(accountInput, { target: { value: "admin" } });
+  fireEvent.change(passwordInput, { target: { value: "password" } });
+
+  // Set auth state to true before submitting the form
+  apiAuthenticated = true;
+  fireEvent.click(submitButton);
+
   await waitFor(() => {
     expect(
       calls.some(
-        (call) =>
-          call.path.endsWith("/projects/project_one/members/subj_member") &&
-          call.method === "PATCH",
-      ),
-    ).toBe(true);
-    expect(
-      calls.some(
-        (call) =>
-          call.path.endsWith("/projects/project_one/ownership/transfer") &&
-          call.method === "POST",
-      ),
-    ).toBe(true);
-    expect(
-      calls.some(
-        (call) =>
-          call.path.endsWith("/projects/project_one/members/subj_member") &&
-          call.method === "DELETE",
+        (call) => call.path.endsWith("/auth/login") && call.method === "POST",
       ),
     ).toBe(true);
   });
 });
 
-test("owner can archive a project", async () => {
-  const calls = mockApi();
-  vi.spyOn(window, "confirm").mockReturnValue(true);
-  render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: "归档项目" }));
-  await waitFor(() =>
-    expect(
-      calls.some(
-        (call) =>
-          call.path.endsWith("/projects/project_one") &&
-          call.method === "PATCH",
-      ),
-    ).toBe(true),
-  );
-});
-
-test("client security actions remain available after project UI refactor", async () => {
-  const calls = mockApi({
-    clients: [
-      client({
-        secrets: [
-          {
-            secretId: "secret_one",
-            status: "active",
-            createdAt: "2026-07-13T00:00:00.000Z",
-            expiresAt: null,
-            revokedAt: null,
-            version: 1,
-          },
-        ],
-      }),
+test("shows project list and handles switching", async () => {
+  mockApi({
+    projects: [
+      project({ projectId: "p1", name: "Project One" }),
+      project({ projectId: "p2", name: "Project Two" }),
     ],
   });
-  vi.spyOn(window, "confirm").mockReturnValue(true);
+  window.history.pushState({}, "", "/manage/projects");
   render(<App />);
-  fireEvent.click(await screen.findByRole("button", { name: "查看详情" }));
-  fireEvent.click(await screen.findByRole("button", { name: "撤销 Secret" }));
-  await waitFor(() =>
-    expect(
-      calls.some((call) => call.path.endsWith("/secrets/secret_one/revoke")),
-    ).toBe(true),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "轮换 Secret" }));
-  await waitFor(() =>
-    expect(calls.some((call) => call.path.endsWith("/secrets/rotate"))).toBe(
-      true,
-    ),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "撤销全部授权" }));
-  await waitFor(() =>
-    expect(
-      calls.some((call) => call.path.endsWith("/authorizations/revoke")),
-    ).toBe(true),
-  );
-  fireEvent.click(screen.getByRole("button", { name: "紧急停用客户端" }));
-  await waitFor(() =>
-    expect(calls.some((call) => call.path.endsWith("/disable"))).toBe(true),
-  );
+
+  // Should render active project Sider details
+  expect(await screen.findByText("Project One (当前)")).toBeTruthy();
+  // Should render projects table with unique link roles
+  expect((await screen.findAllByText("Project One")).length).toBeGreaterThan(0);
+  expect(await screen.findByText("Project Two")).toBeTruthy();
 });

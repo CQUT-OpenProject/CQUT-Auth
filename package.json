@@ -28,9 +28,19 @@
   },
   "pnpm": {
     "supportedArchitectures": {
-      "os": ["current", "linux"],
-      "cpu": ["current", "arm64", "x64"],
-      "libc": ["current", "musl"]
+      "os": [
+        "current",
+        "linux"
+      ],
+      "cpu": [
+        "current",
+        "arm64",
+        "x64"
+      ],
+      "libc": [
+        "current",
+        "musl"
+      ]
     },
     "overrides": {
       "lodash": "^4.18.0",
@@ -38,8 +48,16 @@
     }
   },
   "dependencies": {
+    "@ant-design/icons": "^5.6.1",
+    "@ant-design/v5-patch-for-react-19": "^1.0.3",
+    "@refinedev/antd": "^6.0.3",
+    "@refinedev/core": "^5.0.12",
+    "@refinedev/react-router": "^2.0.4",
+    "@tanstack/react-query": "^5.101.2",
+    "antd": "^5.29.3",
     "axios": "^1.18.1",
     "axios-cookiejar-support": "^6.0.4",
+    "dayjs": "^1.11.21",
     "express": "^5.1.0",
     "ioredis": "^5.8.1",
     "jose": "^6.2.2",
@@ -47,8 +65,9 @@
     "pg": "^8.16.3",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
+    "react-router": "^7.18.1",
+    "react-router-dom": "^7.18.1",
     "resend": "^6.10.0",
-    "swr": "^2.4.2",
     "tough-cookie": "^5.1.2"
   },
   "devDependencies": {
