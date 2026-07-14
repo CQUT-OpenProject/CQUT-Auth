@@ -437,9 +437,7 @@ export const ClientDetail: React.FC = () => {
           <Button
             icon={<ArrowLeftOutlined />}
             onClick={() =>
-              navigate(
-                `/projects/${encodeURIComponent(projectId!)}/clients`,
-              )
+              navigate(`/projects/${encodeURIComponent(projectId!)}/clients`)
             }
           />
           <Space direction="vertical" size={0}>

@@ -245,11 +245,20 @@ export const DashboardLayout: React.FC = () => {
 
           <Space size="middle">
             {identity && (
-              <Space size={4}>
-                <Text strong>{identity.displayName}</Text>
-                {identity.isAdmin && (
-                  <Badge status="success" text="系统管理员" />
-                )}
+              <Space size={8}>
+                <Space size={4}>
+                  <Text strong>{identity.displayName}</Text>
+                  {identity.isAdmin && (
+                    <Badge status="success" text="系统管理员" />
+                  )}
+                </Space>
+                <Text
+                  type="secondary"
+                  copyable={{ tooltips: ["复制 Subject ID", "已复制"] }}
+                  style={{ fontSize: "12px", fontFamily: "monospace" }}
+                >
+                  {identity.subjectId}
+                </Text>
               </Space>
             )}
             <Button
