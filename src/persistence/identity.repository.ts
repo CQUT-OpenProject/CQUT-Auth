@@ -2,7 +2,7 @@ import type {
   AuthenticatedPrincipal,
   SubjectIdentityRecord,
   SubjectProfileRecord,
-  SubjectRecord
+  SubjectRecord,
 } from "../identity/index.js";
 import type { Pool } from "pg";
 import type { IdentityRepository } from "./contracts.js";
@@ -19,7 +19,10 @@ export class IdentityRepositoryImpl implements IdentityRepository {
     if (!pool) {
       return this.subjects.get(subjectId) ?? null;
     }
-    const result = await pool.query("select * from subjects where subject_id = $1 limit 1", [subjectId]);
+    const result = await pool.query(
+      "select * from subjects where subject_id = $1 limit 1",
+      [subjectId],
+    );
     const row = result.rows[0];
     if (!row) {
       return null;
@@ -28,14 +31,19 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       subjectId: row.subject_id,
       status: row.status,
       createdAt: row.created_at.toISOString(),
-      updatedAt: row.updated_at.toISOString()
+      updatedAt: row.updated_at.toISOString(),
     };
   }
 
-  async findIdentity(provider: string, identityKey: string): Promise<SubjectIdentityRecord | null> {
+  async findIdentity(
+    provider: string,
+    identityKey: string,
+  ): Promise<SubjectIdentityRecord | null> {
     const pool = this.poolProvider();
     if (!pool) {
-      return this.identities.get(this.identityMapKey(provider, identityKey)) ?? null;
+      return (
+        this.identities.get(this.identityMapKey(provider, identityKey)) ?? null
+      );
     }
     const result = await pool.query(
       `
@@ -43,19 +51,22 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       where provider = $1 and identity_key = $2
       limit 1
       `,
-      [provider, identityKey]
+      [provider, identityKey],
     );
     return this.mapIdentityRow(result.rows[0]);
   }
 
   async createSubjectWithIdentity(
     subject: SubjectRecord,
-    identity: SubjectIdentityRecord
+    identity: SubjectIdentityRecord,
   ): Promise<SubjectIdentityRecord> {
     const pool = this.poolProvider();
     if (!pool) {
       this.subjects.set(subject.subjectId, subject);
-      this.identities.set(this.identityMapKey(identity.provider, identity.identityKey), identity);
+      this.identities.set(
+        this.identityMapKey(identity.provider, identity.identityKey),
+        identity,
+      );
       return identity;
     }
 
@@ -67,7 +78,12 @@ export class IdentityRepositoryImpl implements IdentityRepository {
         insert into subjects (subject_id, status, created_at, updated_at)
         values ($1, $2, $3::timestamptz, $4::timestamptz)
         `,
-        [subject.subjectId, subject.status, subject.createdAt, subject.updatedAt]
+        [
+          subject.subjectId,
+          subject.status,
+          subject.createdAt,
+          subject.updatedAt,
+        ],
       );
       const identityResult = await client.query(
         `
@@ -92,15 +108,20 @@ export class IdentityRepositoryImpl implements IdentityRepository {
           identity.currentStudentStatus,
           identity.school,
           identity.createdAt,
-          identity.updatedAt
-        ]
+          identity.updatedAt,
+        ],
       );
       await client.query("commit");
-      return this.mapIdentityRow(identityResult.rows[0]) as SubjectIdentityRecord;
+      return this.mapIdentityRow(
+        identityResult.rows[0],
+      ) as SubjectIdentityRecord;
     } catch (error) {
       await client.query("rollback");
       if ((error as { code?: string }).code === "23505") {
-        const existing = await this.findIdentity(identity.provider, identity.identityKey);
+        const existing = await this.findIdentity(
+          identity.provider,
+          identity.identityKey,
+        );
         if (existing) {
           return existing;
         }
@@ -114,11 +135,16 @@ export class IdentityRepositoryImpl implements IdentityRepository {
   async updateIdentity(
     provider: string,
     identityKey: string,
-    patch: Pick<SubjectIdentityRecord, "schoolUid" | "currentStudentStatus" | "school" | "updatedAt">
+    patch: Pick<
+      SubjectIdentityRecord,
+      "schoolUid" | "currentStudentStatus" | "school" | "updatedAt"
+    >,
   ): Promise<SubjectIdentityRecord> {
     const pool = this.poolProvider();
     if (!pool) {
-      const existing = this.identities.get(this.identityMapKey(provider, identityKey));
+      const existing = this.identities.get(
+        this.identityMapKey(provider, identityKey),
+      );
       if (!existing) {
         throw new Error(`identity not found: ${provider}/${identityKey}`);
       }
@@ -127,7 +153,7 @@ export class IdentityRepositoryImpl implements IdentityRepository {
         schoolUid: patch.schoolUid,
         currentStudentStatus: patch.currentStudentStatus,
         school: patch.school,
-        updatedAt: patch.updatedAt
+        updatedAt: patch.updatedAt,
       };
       this.identities.set(this.identityMapKey(provider, identityKey), next);
       return next;
@@ -142,7 +168,14 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       where provider = $1 and identity_key = $2
       returning *
       `,
-      [provider, identityKey, patch.schoolUid, patch.currentStudentStatus, patch.school, patch.updatedAt]
+      [
+        provider,
+        identityKey,
+        patch.schoolUid,
+        patch.currentStudentStatus,
+        patch.school,
+        patch.updatedAt,
+      ],
     );
     const row = result.rows[0];
     if (!row) {
@@ -156,7 +189,10 @@ export class IdentityRepositoryImpl implements IdentityRepository {
     if (!pool) {
       return this.profiles.get(subjectId) ?? null;
     }
-    const result = await pool.query("select * from subject_profiles where subject_id = $1 limit 1", [subjectId]);
+    const result = await pool.query(
+      "select * from subject_profiles where subject_id = $1 limit 1",
+      [subjectId],
+    );
     const row = result.rows[0];
     if (!row) {
       return null;
@@ -167,11 +203,13 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       displayName: row.display_name ?? undefined,
       email: row.email ?? undefined,
       emailVerified: row.email_verified,
-      updatedAt: row.updated_at.toISOString()
+      updatedAt: row.updated_at.toISOString(),
     };
   }
 
-  async upsertProfile(profile: SubjectProfileRecord): Promise<SubjectProfileRecord> {
+  async upsertProfile(
+    profile: SubjectProfileRecord,
+  ): Promise<SubjectProfileRecord> {
     const pool = this.poolProvider();
     if (!pool) {
       this.profiles.set(profile.subjectId, profile);
@@ -202,8 +240,8 @@ export class IdentityRepositoryImpl implements IdentityRepository {
         profile.displayName ?? null,
         profile.email ?? null,
         profile.emailVerified,
-        profile.updatedAt
-      ]
+        profile.updatedAt,
+      ],
     );
     const row = result.rows[0];
     return {
@@ -212,11 +250,13 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       displayName: row.display_name ?? undefined,
       email: row.email ?? undefined,
       emailVerified: row.email_verified,
-      updatedAt: row.updated_at.toISOString()
+      updatedAt: row.updated_at.toISOString(),
     };
   }
 
-  async findPrincipalBySubjectId(subjectId: string): Promise<AuthenticatedPrincipal | null> {
+  async findPrincipalBySubjectId(
+    subjectId: string,
+  ): Promise<AuthenticatedPrincipal | null> {
     const pool = this.poolProvider();
     if (!pool) {
       const subject = this.subjects.get(subjectId);
@@ -225,7 +265,9 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       }
       const identity = [...this.identities.values()]
         .filter((candidate) => candidate.subjectId === subjectId)
-        .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
+        .sort((left, right) =>
+          right.updatedAt.localeCompare(left.updatedAt),
+        )[0];
       if (!identity) {
         return null;
       }
@@ -240,7 +282,7 @@ export class IdentityRepositoryImpl implements IdentityRepository {
         email: profile?.email,
         emailVerified: profile?.emailVerified ?? false,
         displayName: profile?.displayName,
-        preferredUsername: profile?.preferredUsername ?? identity.schoolUid
+        preferredUsername: profile?.preferredUsername ?? identity.schoolUid,
       };
     }
     const result = await pool.query(
@@ -269,7 +311,7 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       where s.subject_id = $1
       limit 1
       `,
-      [subjectId]
+      [subjectId],
     );
     const row = result.rows[0];
     if (!row || row.status !== "active") {
@@ -285,7 +327,7 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       email: row.email ?? undefined,
       emailVerified: row.email_verified ?? false,
       displayName: row.display_name ?? undefined,
-      preferredUsername: row.preferred_username ?? row.school_uid
+      preferredUsername: row.preferred_username ?? row.school_uid,
     };
   }
 
@@ -293,7 +335,9 @@ export class IdentityRepositoryImpl implements IdentityRepository {
     return `${provider}:${identityKey}`;
   }
 
-  private mapIdentityRow(row: Record<string, unknown> | undefined): SubjectIdentityRecord | null {
+  private mapIdentityRow(
+    row: Record<string, unknown> | undefined,
+  ): SubjectIdentityRecord | null {
     if (!row) {
       return null;
     }
@@ -302,10 +346,12 @@ export class IdentityRepositoryImpl implements IdentityRepository {
       provider: String(row["provider"]),
       schoolUid: String(row["school_uid"]),
       identityKey: String(row["identity_key"]),
-      currentStudentStatus: row["current_student_status"] as SubjectIdentityRecord["currentStudentStatus"],
+      currentStudentStatus: row[
+        "current_student_status"
+      ] as SubjectIdentityRecord["currentStudentStatus"],
       school: String(row["school"]),
       createdAt: (row["created_at"] as Date).toISOString(),
-      updatedAt: (row["updated_at"] as Date).toISOString()
+      updatedAt: (row["updated_at"] as Date).toISOString(),
     };
   }
 }

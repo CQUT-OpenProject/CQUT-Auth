@@ -5,7 +5,7 @@ import {
   createClientSecretDigest,
   decryptJson,
   encryptJson,
-  verifyClientSecretDigest
+  verifyClientSecretDigest,
 } from "../src/crypto.js";
 
 test("derived key cache keys do not include plaintext secrets", async () => {
@@ -17,7 +17,10 @@ test("derived key cache keys do not include plaintext secrets", async () => {
 
   const cacheKeys = __cryptoTestHooks.derivedKeyCacheKeys();
   assert.ok(cacheKeys.length > 0);
-  assert.equal(cacheKeys.some((cacheKey) => cacheKey.includes(secret)), false);
+  assert.equal(
+    cacheKeys.some((cacheKey) => cacheKey.includes(secret)),
+    false,
+  );
 });
 
 test("client secret verification does not cache submitted secrets", async () => {
@@ -26,7 +29,10 @@ test("client secret verification does not cache submitted secrets", async () => 
 
   const digest = await createClientSecretDigest(secret);
   assert.equal(await verifyClientSecretDigest(secret, digest), true);
-  assert.equal(await verifyClientSecretDigest("wrong-client-secret", digest), false);
+  assert.equal(
+    await verifyClientSecretDigest("wrong-client-secret", digest),
+    false,
+  );
 
   assert.deepEqual(__cryptoTestHooks.derivedKeyCacheKeys(), []);
 });

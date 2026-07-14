@@ -1,7 +1,6 @@
 import { constants, publicEncrypt } from "node:crypto";
 
-const PUBLIC_KEY =
-`-----BEGIN PUBLIC KEY-----
+const PUBLIC_KEY = `-----BEGIN PUBLIC KEY-----
 MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDACwPDxYycdCiNeblZa9LjvDzb
 iZU1vc9gKRcG/pGjZ/DJkI4HmoUE2r/o6SfB5az3s+H5JDzmOMVQ63hD7LZQGR4k
 3iYWnCg3UpQZkZEtFtXBXsQHjKVJqCiEtK+gtxz4WnriDjf+e/CxJ7OD03e7sy5N
@@ -12,9 +11,9 @@ function encryptChunk(chunk: string): string {
   return publicEncrypt(
     {
       key: PUBLIC_KEY,
-      padding: constants.RSA_PKCS1_PADDING
+      padding: constants.RSA_PKCS1_PADDING,
     },
-    Buffer.from(chunk, "utf8")
+    Buffer.from(chunk, "utf8"),
   ).toString("base64");
 }
 

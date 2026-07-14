@@ -36,7 +36,9 @@ function parseForwardedFor(header: HeaderValue): string[] {
     .filter((value): value is string => Boolean(value));
 }
 
-function parseIpAddress(value: string | undefined): ParsedIpAddress | undefined {
+function parseIpAddress(
+  value: string | undefined,
+): ParsedIpAddress | undefined {
   const normalized = normalizeIp(value)?.replace(/^\[|\]$/g, "");
   if (!normalized) {
     return undefined;
@@ -46,30 +48,45 @@ function parseIpAddress(value: string | undefined): ParsedIpAddress | undefined 
   const ipv4Parts = ipv4.split(".");
   if (ipv4Parts.length === 4) {
     const octets = ipv4Parts.map((part) => Number(part));
-    if (octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255)) {
+    if (
+      octets.every(
+        (octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255,
+      )
+    ) {
       return {
         family: 4,
-        value: (((octets[0]! * 256 + octets[1]!) * 256 + octets[2]!) * 256 + octets[3]!) >>> 0
+        value:
+          (((octets[0]! * 256 + octets[1]!) * 256 + octets[2]!) * 256 +
+            octets[3]!) >>>
+          0,
       };
     }
   }
 
   const zoneIndex = normalized.indexOf("%");
-  const withoutZone = zoneIndex >= 0 ? normalized.slice(0, zoneIndex) : normalized;
+  const withoutZone =
+    zoneIndex >= 0 ? normalized.slice(0, zoneIndex) : normalized;
   const sections = withoutZone.split("::");
   if (sections.length > 2) {
     return undefined;
   }
   const head = sections[0] ? sections[0].split(":") : [];
   const tail = sections[1] ? sections[1].split(":") : [];
-  if (head.some((part) => part.length === 0) || tail.some((part) => part.length === 0)) {
+  if (
+    head.some((part) => part.length === 0) ||
+    tail.some((part) => part.length === 0)
+  ) {
     return undefined;
   }
   const missing = sections.length === 2 ? 8 - head.length - tail.length : 0;
   if (missing < 0 || (sections.length === 1 && head.length !== 8)) {
     return undefined;
   }
-  const parts = [...head, ...Array.from({ length: missing }, () => "0"), ...tail];
+  const parts = [
+    ...head,
+    ...Array.from({ length: missing }, () => "0"),
+    ...tail,
+  ];
   if (parts.length !== 8) {
     return undefined;
   }
@@ -91,7 +108,11 @@ function parseCidr(value: string): ParsedCidr | undefined {
   }
   const prefixLength = Number(prefixRaw);
   const maxPrefix = parsed.family === 4 ? 32 : 128;
-  if (!Number.isInteger(prefixLength) || prefixLength < 0 || prefixLength > maxPrefix) {
+  if (
+    !Number.isInteger(prefixLength) ||
+    prefixLength < 0 ||
+    prefixLength > maxPrefix
+  ) {
     return undefined;
   }
   return { ...parsed, prefixLength };
@@ -108,7 +129,7 @@ function ipInCidr(ip: ParsedIpAddress, cidr: ParsedCidr): boolean {
   }
   if (ip.family === 6 && cidr.family === 6) {
     const shift = BigInt(128 - cidr.prefixLength);
-    return (ip.value >> shift) === (cidr.value >> shift);
+    return ip.value >> shift === cidr.value >> shift;
   }
   return false;
 }
@@ -126,7 +147,7 @@ function isTrustedProxy(remoteAddress: string, cidrs: string[]): boolean {
 
 export function resolveTrustedRequestIp(
   config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
-  input: TrustedRequestIpInput
+  input: TrustedRequestIpInput,
 ): string {
   const remoteAddress = normalizeIp(input.remoteAddress) ?? "unknown";
   if (config.trustProxyHops <= 0) {
@@ -141,25 +162,32 @@ export function resolveTrustedRequestIp(
     return remoteAddress;
   }
 
-  return forwardedFor[forwardedFor.length - config.trustProxyHops] ?? remoteAddress;
+  return (
+    forwardedFor[forwardedFor.length - config.trustProxyHops] ?? remoteAddress
+  );
 }
 
 export function resolveTrustedExpressRequestIp(
   config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
-  request: Pick<Request, "headers" | "socket">
+  request: Pick<Request, "headers" | "socket">,
 ): string {
   return resolveTrustedRequestIp(config, {
     headers: request.headers,
-    remoteAddress: request.socket.remoteAddress
+    remoteAddress: request.socket.remoteAddress,
   });
 }
 
 export function resolveTrustedKoaRequestIp(
   config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
-  ctx: { req?: { headers?: IncomingHttpHeaders; socket?: { remoteAddress?: string | undefined } } }
+  ctx: {
+    req?: {
+      headers?: IncomingHttpHeaders;
+      socket?: { remoteAddress?: string | undefined };
+    };
+  },
 ): string {
   return resolveTrustedRequestIp(config, {
     headers: ctx.req?.headers,
-    remoteAddress: ctx.req?.socket?.remoteAddress
+    remoteAddress: ctx.req?.socket?.remoteAddress,
   });
 }

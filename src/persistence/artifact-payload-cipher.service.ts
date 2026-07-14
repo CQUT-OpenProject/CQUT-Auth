@@ -9,10 +9,15 @@ export class ArtifactPayloadCipherServiceImpl {
   }
 
   async decryptPayload(ciphertext: string) {
-    return decryptJson<Record<string, unknown>>(this.encryptionSecret, ciphertext);
+    return decryptJson<Record<string, unknown>>(
+      this.encryptionSecret,
+      ciphertext,
+    );
   }
 
   hashLookupValue(value: string) {
-    return createHmac("sha256", this.encryptionSecret).update(value).digest("hex");
+    return createHmac("sha256", this.encryptionSecret)
+      .update(value)
+      .digest("hex");
   }
 }
