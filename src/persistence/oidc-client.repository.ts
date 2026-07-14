@@ -215,49 +215,60 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         },
       );
     }
-    return this.transaction(pool, async (connection, rollback) => {
-      const project = await this.authorizeProjectWrite(
-        connection,
-        authorization,
-      );
-      if (client.projectId !== authorization.projectId)
-        throw new ClientManagementError(404, "not_found", "project not found");
-      if (projectLimits) {
-        await this.lockQuotaSubject(connection, project.createdBySubjectId);
-        const count = await connection.query(
-          `select
+    const success = await this.transaction(
+      pool,
+      async (connection, rollback) => {
+        const project = await this.authorizeProjectWrite(
+          connection,
+          authorization,
+        );
+        if (client.projectId !== authorization.projectId)
+          throw new ClientManagementError(
+            404,
+            "not_found",
+            "project not found",
+          );
+        if (projectLimits) {
+          await this.lockQuotaSubject(connection, project.createdBySubjectId);
+          const count = await connection.query(
+            `select
              count(*) filter (where c.project_id = $1 and c.lifecycle_status <> 'disabled')::int as project_non_disabled,
              count(*) filter (where p.created_by_subject_id = $2 and c.lifecycle_status <> 'disabled')::int as subject_non_disabled
            from oidc_clients c join projects p on p.project_id = c.project_id`,
-          [client.projectId, project.createdBySubjectId],
-        );
-        if (
-          Number(count.rows[0]?.["project_non_disabled"] ?? 0) >=
-            projectLimits.maxNonDisabledClients ||
-          (project.createdBySubjectId !== null &&
-            Number(count.rows[0]?.["subject_non_disabled"] ?? 0) >=
-              projectLimits.maxNonDisabledClientsPerSubject)
-        ) {
-          await rollback();
-          return null;
+            [client.projectId, project.createdBySubjectId],
+          );
+          if (
+            Number(count.rows[0]?.["project_non_disabled"] ?? 0) >=
+              projectLimits.maxNonDisabledClients ||
+            (project.createdBySubjectId !== null &&
+              Number(count.rows[0]?.["subject_non_disabled"] ?? 0) >=
+                projectLimits.maxNonDisabledClientsPerSubject)
+          ) {
+            await rollback();
+            return false;
+          }
         }
-      }
-      await connection.query(this.insertClientSql(), this.clientValues(client));
-      const inserted = await this.insertRevision(connection, revision);
-      if (secret) await this.insertSecret(connection, secret);
-      for (const audit of audits) {
-        await this.insertAudit(connection, {
-          ...audit,
-          ...(audit.action.startsWith("revision.")
-            ? {
-                revisionId: inserted.revisionId,
-                revisionNumber: inserted.revisionNumber,
-              }
-            : {}),
-        });
-      }
-      return this.findManagedOidcClient(client.clientId);
-    });
+        await connection.query(
+          this.insertClientSql(),
+          this.clientValues(client),
+        );
+        const inserted = await this.insertRevision(connection, revision);
+        if (secret) await this.insertSecret(connection, secret);
+        for (const audit of audits) {
+          await this.insertAudit(connection, {
+            ...audit,
+            ...(audit.action.startsWith("revision.")
+              ? {
+                  revisionId: inserted.revisionId,
+                  revisionNumber: inserted.revisionNumber,
+                }
+              : {}),
+          });
+        }
+        return true;
+      },
+    );
+    return success ? this.findManagedOidcClient(client.clientId) : null;
   }
 
   async updateOidcClientMetadata(
@@ -285,27 +296,31 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
         },
       );
     }
-    return this.transaction(pool, async (connection, rollback) => {
-      await this.authorizeProjectWrite(connection, authorization, clientId);
-      const result = await connection.query(
-        `update oidc_clients set display_name = $2, description = $3,
+    const success = await this.transaction(
+      pool,
+      async (connection, rollback) => {
+        await this.authorizeProjectWrite(connection, authorization, clientId);
+        const result = await connection.query(
+          `update oidc_clients set display_name = $2, description = $3,
            updated_at = $4::timestamptz, version = version + 1
          where client_id = $1 and version = $5`,
-        [
-          clientId,
-          patch.displayName,
-          patch.description,
-          patch.updatedAt,
-          expectedVersion,
-        ],
-      );
-      if (result.rowCount !== 1) {
-        await rollback();
-        return null;
-      }
-      await this.insertAudit(connection, audit);
-      return this.findManagedOidcClient(clientId);
-    });
+          [
+            clientId,
+            patch.displayName,
+            patch.description,
+            patch.updatedAt,
+            expectedVersion,
+          ],
+        );
+        if (result.rowCount !== 1) {
+          await rollback();
+          return false;
+        }
+        await this.insertAudit(connection, audit);
+        return true;
+      },
+    );
+    return success ? this.findManagedOidcClient(clientId) : null;
   }
 
   async saveOidcClientRevision(
