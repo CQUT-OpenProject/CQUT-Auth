@@ -49,7 +49,7 @@ export const ProjectList: React.FC = () => {
 
   const handleEnter = (projectId: string) => {
     selectProject(projectId);
-    navigate(`/manage/projects/${encodeURIComponent(projectId)}/overview`);
+    navigate(`/projects/${encodeURIComponent(projectId)}/overview`);
   };
 
   const columns = [

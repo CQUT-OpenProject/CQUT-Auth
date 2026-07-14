@@ -72,7 +72,7 @@ export const ClientDetail: React.FC = () => {
 
   const handleTabChange = (key: string) => {
     navigate(
-      `/manage/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/${key}`,
+      `/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/${key}`,
     );
   };
 
@@ -438,7 +438,7 @@ export const ClientDetail: React.FC = () => {
             icon={<ArrowLeftOutlined />}
             onClick={() =>
               navigate(
-                `/manage/projects/${encodeURIComponent(projectId!)}/clients`,
+                `/projects/${encodeURIComponent(projectId!)}/clients`,
               )
             }
           />
