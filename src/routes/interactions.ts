@@ -167,237 +167,390 @@ function getScriptNonce(response: Response) {
   return typeof nonce === "string" ? nonce : "";
 }
 
+const BRAND_MARK_SVG = `<svg class="brand-mark" viewBox="10 12 110 108" aria-hidden="true" focusable="false">
+  <g fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M56 24a21 21 0 1 0 0 32"/>
+    <circle cx="91" cy="40" r="21"/>
+    <path d="M21 76v18a18 18 0 0 0 36 0V76"/>
+    <path d="M76 76h34M93 76v36"/>
+  </g>
+  <circle cx="110" cy="59" r="5.5" fill="var(--accent)"/>
+</svg>`;
+
+function renderInteractionPageStyles(): string {
+  return `
+        :root {
+          --ink: #0e2233;
+          --ink-soft: #52667a;
+          --paper: #eef3f8;
+          --card: #fdfefe;
+          --line: #d3dfe9;
+          --line-strong: #a9bfd2;
+          --brand: #0b1f33;
+          --brand-2: #055088;
+          --accent: #2eaf72;
+          --danger: #a43e2e;
+          --danger-bg: #faeee9;
+          --ok: #1e7a53;
+          --ok-bg: #eaf5ec;
+          --info: #0b4a72;
+          --info-bg: #ecf3f2;
+          --focus-ring: rgba(5, 80, 136, 0.22);
+          --serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", STSong, Georgia, "Times New Roman", serif;
+          --sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+        }
+        * { box-sizing: border-box; }
+        body {
+          font-family: var(--sans);
+          margin: 0;
+          padding: 2rem 1.25rem;
+          min-height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          color: var(--ink);
+          background-color: var(--paper);
+          background-image:
+            repeating-radial-gradient(circle at 50% -60vh, transparent 0, transparent 38px, rgba(5, 80, 136, 0.035) 39px, transparent 40px),
+            repeating-linear-gradient(45deg, transparent 0, transparent 11px, rgba(5, 80, 136, 0.02) 11px, rgba(5, 80, 136, 0.02) 12px),
+            repeating-linear-gradient(-45deg, transparent 0, transparent 11px, rgba(5, 80, 136, 0.02) 11px, rgba(5, 80, 136, 0.02) 12px),
+            radial-gradient(120% 90% at 50% 0%, rgba(5, 80, 136, 0.06), transparent 60%);
+        }
+        .container {
+          width: 100%;
+          max-width: 27rem;
+          background: var(--card);
+          border: 1px solid var(--line-strong);
+          border-radius: 3px;
+          box-shadow:
+            0 0 0 4px var(--card),
+            0 0 0 5px var(--line),
+            0 24px 48px -24px rgba(11, 31, 51, 0.35);
+          padding: 2.25rem 2.25rem 2rem;
+          position: relative;
+          animation: card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .container::before {
+          content: "";
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          height: 4px;
+          background: repeating-linear-gradient(
+            -55deg,
+            var(--brand-2) 0,
+            var(--brand-2) 7px,
+            var(--accent) 7px,
+            var(--accent) 9px
+          );
+        }
+        .brand {
+          display: flex;
+          align-items: center;
+          gap: 0.85rem;
+          margin-bottom: 1.6rem;
+          animation: rise-in 0.55s 0.08s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        .brand-mark {
+          width: 2.6rem;
+          height: 2.6rem;
+          flex: none;
+          color: var(--brand-2);
+        }
+        .brand-name {
+          font-family: var(--serif);
+          font-weight: 700;
+          font-size: 1.18rem;
+          letter-spacing: 0.02em;
+          color: var(--brand);
+          line-height: 1.2;
+        }
+        .brand-sub {
+          font-size: 0.68rem;
+          letter-spacing: 0.32em;
+          color: var(--ink-soft);
+          margin-top: 0.2rem;
+        }
+        .rule {
+          border: none;
+          height: 1px;
+          margin: 0 0 1.5rem;
+          background: linear-gradient(to right, transparent, var(--line-strong) 18%, var(--line-strong) 82%, transparent);
+          position: relative;
+          overflow: visible;
+        }
+        .rule::after {
+          content: "";
+          position: absolute;
+          left: 50%;
+          top: -3px;
+          width: 7px;
+          height: 7px;
+          transform: translateX(-50%) rotate(45deg);
+          background: var(--card);
+          border: 1px solid var(--line-strong);
+        }
+        main {
+          animation: rise-in 0.55s 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        h1 {
+          font-family: var(--serif);
+          font-size: 1.5rem;
+          font-weight: 700;
+          letter-spacing: 0.04em;
+          margin: 0 0 0.5rem;
+          text-align: center;
+          color: var(--brand);
+        }
+        .hint {
+          color: var(--ink-soft);
+          font-size: 0.92rem;
+          line-height: 1.6;
+          text-align: center;
+          margin: 0 0 1.6rem;
+        }
+        .hint strong { color: var(--ink); }
+        form {
+          display: grid;
+          gap: 0.9rem;
+        }
+        form + form { margin-top: 0.9rem; }
+        input {
+          padding: 0.78rem 0.9rem;
+          font-size: 1rem;
+          font-family: var(--sans);
+          background-color: rgba(255, 255, 255, 0.65);
+          border: 1px solid var(--line-strong);
+          border-radius: 2px;
+          color: var(--ink);
+          outline: none;
+          transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+          width: 100%;
+        }
+        input::placeholder { color: #8aa2b6; }
+        input:focus {
+          border-color: var(--brand-2);
+          background-color: #ffffff;
+          box-shadow: 0 0 0 3px var(--focus-ring);
+        }
+        input[readonly] {
+          background-color: var(--paper);
+          color: var(--ink-soft);
+          cursor: not-allowed;
+        }
+        button {
+          padding: 0.82rem 1.25rem;
+          font-size: 0.98rem;
+          font-weight: 600;
+          font-family: var(--sans);
+          letter-spacing: 0.14em;
+          background-color: var(--brand-2);
+          color: #f2f7fb;
+          border: 1px solid var(--brand-2);
+          border-radius: 2px;
+          cursor: pointer;
+          position: relative;
+          transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.1s ease, box-shadow 0.18s ease;
+        }
+        button:hover {
+          background-color: #0a66a8;
+          border-color: #0a66a8;
+          box-shadow: 0 6px 16px -8px rgba(5, 80, 136, 0.55);
+        }
+        button:focus-visible {
+          outline: none;
+          box-shadow: 0 0 0 3px var(--focus-ring);
+        }
+        button:active { transform: translateY(1px); }
+        button[disabled] {
+          cursor: wait;
+          opacity: 0.6;
+          pointer-events: none;
+        }
+        .secondary {
+          background-color: transparent;
+          border: 1px solid var(--line-strong);
+          color: var(--ink-soft);
+        }
+        .secondary:hover {
+          background-color: rgba(11, 31, 51, 0.05);
+          border-color: var(--ink-soft);
+          box-shadow: none;
+        }
+        .error, .success, .pending {
+          padding: 0.75rem 0.9rem;
+          border-radius: 2px;
+          font-size: 0.88rem;
+          line-height: 1.55;
+          margin: 0 0 1rem;
+        }
+        form .error, form .success, form .pending { margin-bottom: 0; }
+        .error {
+          color: var(--danger);
+          background-color: var(--danger-bg);
+          border: 1px solid currentColor;
+          border-left-width: 3px;
+        }
+        .success {
+          color: var(--ok);
+          background-color: var(--ok-bg);
+          border: 1px solid currentColor;
+          border-left-width: 3px;
+        }
+        .pending {
+          display: none;
+          color: var(--info);
+          background-color: var(--info-bg);
+          border: 1px solid currentColor;
+          border-left-width: 3px;
+        }
+        .pending strong {
+          display: block;
+          margin-bottom: 0.2rem;
+          font-weight: 600;
+        }
+        .login-form[data-submitting="true"] .pending { display: block; }
+        .button-loading { display: none; }
+        .login-form[data-submitting="true"] .button-label { display: none; }
+        .login-form[data-submitting="true"] .button-loading { display: inline; }
+        p { line-height: 1.6; }
+        p strong { color: var(--brand); }
+        ul {
+          padding-left: 1.25rem;
+          margin: 0 0 1rem;
+          color: var(--ink-soft);
+          line-height: 1.6;
+        }
+        li { margin-bottom: 0.4rem; }
+        .page-foot {
+          margin-top: 1.4rem;
+          font-size: 0.72rem;
+          letter-spacing: 0.18em;
+          color: var(--ink-soft);
+          text-align: center;
+          animation: rise-in 0.55s 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @keyframes card-in {
+          from { opacity: 0; transform: translateY(14px) scale(0.99); }
+          to { opacity: 1; transform: none; }
+        }
+        @keyframes rise-in {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: none; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .container, .brand, main, .page-foot { animation: none; }
+        }
+        @media (max-width: 480px) {
+          .container { padding: 1.8rem 1.4rem 1.6rem; }
+        }
+
+        @media (prefers-color-scheme: dark) {
+          :root {
+            --ink: #e6e9e4;
+            --ink-soft: #97a5ae;
+            --paper: #081420;
+            --card: #0e2033;
+            --line: #1d3348;
+            --line-strong: #2c4a63;
+            --brand: #d7e5ef;
+            --brand-2: #3c9ae8;
+            --accent: #48c98a;
+            --danger: #e8917f;
+            --danger-bg: rgba(164, 62, 46, 0.16);
+            --ok: #6fce9f;
+            --ok-bg: rgba(30, 122, 83, 0.16);
+            --info: #7cc0e8;
+            --info-bg: rgba(11, 74, 114, 0.2);
+            --focus-ring: rgba(23, 125, 220, 0.35);
+          }
+          body {
+            background-image:
+              repeating-radial-gradient(circle at 50% -60vh, transparent 0, transparent 38px, rgba(126, 168, 199, 0.05) 39px, transparent 40px),
+              repeating-linear-gradient(45deg, transparent 0, transparent 11px, rgba(126, 168, 199, 0.03) 11px, rgba(126, 168, 199, 0.03) 12px),
+              repeating-linear-gradient(-45deg, transparent 0, transparent 11px, rgba(126, 168, 199, 0.03) 11px, rgba(126, 168, 199, 0.03) 12px),
+              radial-gradient(120% 90% at 50% 0%, rgba(23, 125, 220, 0.1), transparent 60%);
+          }
+          .container {
+            box-shadow:
+              0 0 0 4px var(--card),
+              0 0 0 5px var(--line),
+              0 28px 56px -24px rgba(0, 0, 0, 0.6);
+          }
+          .container::before {
+            background: repeating-linear-gradient(
+              -55deg,
+              var(--brand-2) 0,
+              var(--brand-2) 7px,
+              var(--accent) 7px,
+              var(--accent) 9px
+            );
+          }
+          .rule::after { background: var(--card); border-color: var(--line-strong); }
+          input {
+            background-color: rgba(8, 20, 32, 0.55);
+          }
+          input::placeholder { color: #5c7185; }
+          input:focus { background-color: #0a1a2a; }
+          input[readonly] { background-color: #0a1a2a; }
+          button {
+            background-color: #177ddc;
+            border-color: #177ddc;
+            color: #f2f7fb;
+          }
+          button:hover {
+            background-color: #3c9ae8;
+            border-color: #3c9ae8;
+            box-shadow: 0 6px 18px -8px rgba(23, 125, 220, 0.5);
+          }
+          button[disabled] {
+            background-color: #1d3348;
+            border-color: #1d3348;
+            color: #5c7185;
+          }
+          .secondary {
+            background-color: transparent;
+            border-color: var(--line-strong);
+            color: var(--ink-soft);
+          }
+          .secondary:hover {
+            background-color: rgba(126, 168, 199, 0.08);
+            border-color: var(--ink-soft);
+          }
+        }`;
+}
+
 function renderPage(title: string, body: string) {
+  return renderBrandedPage(title, body);
+}
+
+export function renderBrandedPage(title: string, body: string) {
   return `<!DOCTYPE html>
   <html lang="zh-CN">
     <head>
       <meta charset="utf-8">
       <title>${escapeHtml(title)}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        body {
-          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          margin: 0;
-          padding: 1.5rem;
-          min-height: 100vh;
-          box-sizing: border-box;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background-color: #f8fafc;
-          color: #0f172a;
-          transition: background-color 0.3s ease, color 0.3s ease;
-        }
-        .container {
-          width: 100%;
-          max-width: 28rem;
-          background: #ffffff;
-          border: 1px solid #e2e8f0;
-          border-radius: 12px;
-          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-          padding: 2.5rem 2rem;
-          box-sizing: border-box;
-          transition: background-color 0.3s ease, border-color 0.3s ease;
-        }
-        h1 {
-          font-size: 1.75rem;
-          font-weight: 700;
-          margin-top: 0;
-          margin-bottom: 0.5rem;
-          text-align: center;
-        }
-        .hint {
-          color: #475569;
-          font-size: 0.95rem;
-          text-align: center;
-          margin-top: 0;
-          margin-bottom: 2rem;
-        }
-        form {
-          display: grid;
-          gap: 1rem;
-        }
-        input {
-          padding: 0.8rem 1rem;
-          font-size: 1rem;
-          background-color: #ffffff;
-          border: 1px solid #cbd5e1;
-          color: #0f172a;
-          border-radius: 8px;
-          outline: none;
-          transition: border-color 0.2s ease, box-shadow 0.2s ease;
-          box-sizing: border-box;
-        }
-        input:focus {
-          border-color: #0284c7;
-          box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
-        }
-        input[readonly] {
-          background-color: #f1f5f9;
-          color: #64748b;
-          cursor: not-allowed;
-        }
-        button {
-          padding: 0.85rem 1.25rem;
-          font-size: 1rem;
-          font-weight: 600;
-          background-color: #0284c7;
-          color: #ffffff;
-          border: none;
-          border-radius: 8px;
-          cursor: pointer;
-          transition: background-color 0.2s ease, transform 0.1s ease;
-        }
-        button:hover {
-          background-color: #0369a1;
-        }
-        button:active {
-          transform: scale(0.98);
-        }
-        button[disabled] {
-          cursor: wait;
-          opacity: 0.65;
-          pointer-events: none;
-        }
-        .secondary {
-          background-color: #f1f5f9;
-          border: 1px solid #e2e8f0;
-          color: #334155;
-        }
-        .secondary:hover {
-          background-color: #e2e8f0;
-        }
-        .error {
-          color: #ef4444;
-          background-color: rgba(239, 68, 68, 0.05);
-          border: 1px solid rgba(239, 68, 68, 0.15);
-          padding: 0.75rem 1rem;
-          border-radius: 8px;
-          font-size: 0.9rem;
-          margin: 0;
-        }
-        .success {
-          color: #10b981;
-          background-color: rgba(16, 185, 129, 0.05);
-          border: 1px solid rgba(16, 185, 129, 0.15);
-          padding: 0.75rem 1rem;
-          border-radius: 8px;
-          font-size: 0.9rem;
-          margin: 0;
-        }
-        .pending {
-          display: none;
-          border: 1px solid #bae6fd;
-          background-color: #f0f9ff;
-          color: #0369a1;
-          padding: 1rem;
-          border-radius: 8px;
-          font-size: 0.9rem;
-          line-height: 1.5;
-        }
-        .pending strong {
-          display: block;
-          color: #0c4a6e;
-          margin-bottom: 0.25rem;
-          font-weight: 600;
-        }
-        .login-form[data-submitting="true"] .pending {
-          display: block;
-        }
-        .button-loading {
-          display: none;
-        }
-        .login-form[data-submitting="true"] .button-label {
-          display: none;
-        }
-        .login-form[data-submitting="true"] .button-loading {
-          display: inline;
-        }
-        ul {
-          padding-left: 1.25rem;
-          margin: 0 0 1rem 0;
-          color: #475569;
-        }
-        li {
-          margin-bottom: 0.5rem;
-        }
-
-        @media (prefers-color-scheme: dark) {
-          body {
-            background-color: #0b1528;
-            color: #f8fafc;
-          }
-          .container {
-            background: #111e35;
-            border-color: #1e293b;
-            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
-          }
-          input {
-            background-color: #1e293b;
-            border-color: #334155;
-            color: #f8fafc;
-          }
-          input::placeholder {
-            color: #64748b;
-          }
-          input:focus {
-            border-color: #38bdf8;
-            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
-          }
-          input[readonly] {
-            background-color: #0f172a;
-            color: #64748b;
-          }
-          button {
-            background-color: #38bdf8;
-            color: #0b1528;
-          }
-          button:hover {
-            background-color: #7dd3fc;
-          }
-          button[disabled] {
-            background-color: #1e293b;
-            color: #64748b;
-          }
-          .secondary {
-            background-color: #1e293b;
-            border-color: #334155;
-            color: #e2e8f0;
-          }
-          .secondary:hover {
-            background-color: #334155;
-          }
-          .error {
-            color: #f87171;
-            background-color: rgba(248, 113, 113, 0.1);
-            border-color: rgba(248, 113, 113, 0.2);
-          }
-          .success {
-            color: #34d399;
-            background-color: rgba(52, 211, 153, 0.1);
-            border-color: rgba(52, 211, 153, 0.2);
-          }
-          .hint {
-            color: #94a3b8;
-          }
-          .pending {
-            border-color: #0c4a6e;
-            background-color: #0c1e36;
-            color: #38bdf8;
-          }
-          .pending strong {
-            color: #7dd3fc;
-          }
-          ul {
-            color: #94a3b8;
-          }
-        }
+      <style>${renderInteractionPageStyles()}
       </style>
     </head>
     <body>
       <div class="container">
+        <header class="brand">
+          ${BRAND_MARK_SVG}
+          <div>
+            <div class="brand-name">CQUT&#8209;Auth</div>
+            <div class="brand-sub">校园统一身份认证</div>
+          </div>
+        </header>
+        <hr class="rule">
+        <main>
         ${body}
+        </main>
       </div>
+      <footer class="page-foot">重庆理工大学开源计划 · OpenID Connect</footer>
     </body>
   </html>`;
 }
@@ -412,7 +565,7 @@ function loginView(
   return renderPage(
     "CQUT-Auth",
     `
-    <h1>CQUT-Auth</h1>
+    <h1>登录</h1>
     <p class="hint">请使用知行理工账号登录。</p>
     ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
     <form class="login-form" method="post" action="/interaction/${encodeURIComponent(uid)}/login" data-login-form>
