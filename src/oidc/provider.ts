@@ -607,7 +607,6 @@ export async function createOidcServices(
         }),
       ],
     ]),
-    config.authProvider,
   );
   const identityLinkService = new IdentityLinkService(store);
   const subjectProfileService = new SubjectProfileService(store);

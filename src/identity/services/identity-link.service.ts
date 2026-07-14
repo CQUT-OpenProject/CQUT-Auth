@@ -1,6 +1,6 @@
 import type { SubjectIdentityRecord } from "../types.js";
 import type { LinkIdentityInput, IdentityStore } from "../store.js";
-import { randomId } from "../utils.js";
+import { randomId } from "../../utils.js";
 
 export class IdentityLinkService {
   constructor(

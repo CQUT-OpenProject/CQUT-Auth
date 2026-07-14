@@ -1,5 +1,6 @@
 import axios, { type AxiosInstance, type AxiosResponse } from "axios";
 import { wrapper } from "axios-cookiejar-support";
+import { setTimeout as sleep } from "node:timers/promises";
 import { CookieJar } from "tough-cookie";
 import type {
   CampusVerifierProvider,
@@ -160,11 +161,7 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
             "campus verification exceeded total timeout",
           );
         }
-        if (
-          error.code === "ERR_CANCELED" ||
-          error.code === "ECONNABORTED" ||
-          !error.response
-        ) {
+        if (isRetryableAxiosNetworkError(error)) {
           const target =
             typeof error.config?.url === "string" && error.config.url.trim()
               ? error.config.url
@@ -234,12 +231,6 @@ function isRetryableAxiosNetworkError(error: unknown): boolean {
     error.code === "ECONNABORTED" ||
     !error.response
   );
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 function normalizeBaseUrl(value: string): string {
