@@ -130,7 +130,7 @@ export const ClientCreate: React.FC = () => {
       } else {
         // Direct redirect for SPA
         navigate(
-          `/manage/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(res.client.clientId)}/overview`,
+          `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(res.client.clientId)}/overview`,
         );
       }
     } catch (error: any) {
@@ -143,7 +143,7 @@ export const ClientCreate: React.FC = () => {
   const handleCloseSecretModal = () => {
     setSecretVal(null);
     navigate(
-      `/manage/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(createdClientId!)}/overview`,
+      `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(createdClientId!)}/overview`,
     );
   };
 

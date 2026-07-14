@@ -82,7 +82,7 @@ export const ClientList: React.FC = () => {
           <Typography.Link
             onClick={() =>
               navigate(
-                `/manage/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(record.clientId)}/overview`,
+                `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(record.clientId)}/overview`,
               )
             }
             strong
@@ -130,7 +130,7 @@ export const ClientList: React.FC = () => {
           icon={<EyeOutlined />}
           onClick={() =>
             navigate(
-              `/manage/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(record.clientId)}/overview`,
+              `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(record.clientId)}/overview`,
             )
           }
         >
@@ -154,7 +154,7 @@ export const ClientList: React.FC = () => {
             icon={<PlusOutlined />}
             onClick={() =>
               navigate(
-                `/manage/projects/${encodeURIComponent(activeProject.projectId)}/clients/new`,
+                `/projects/${encodeURIComponent(activeProject.projectId)}/clients/new`,
               )
             }
           >

@@ -25,7 +25,7 @@ const { Text, Paragraph } = Typography;
 export const ProjectOverview: React.FC = () => {
   const { activeProject, refreshProjects } = useProject();
   const [editVisible, setEditVisible] = useState(false);
-  const [form] = Form.FormInstance();
+  const [form] = Form.useForm();
 
   useEffect(() => {
     if (activeProject) {

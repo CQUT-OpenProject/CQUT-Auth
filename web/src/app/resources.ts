@@ -3,24 +3,24 @@ import type { ResourceProps } from "@refinedev/core";
 export const resources: ResourceProps[] = [
   {
     name: "projects",
-    list: "/manage/projects",
+    list: "/projects",
   },
   {
     name: "clients",
-    list: "/manage/projects/:projectId/clients",
-    create: "/manage/projects/:projectId/clients/new",
-    show: "/manage/projects/:projectId/clients/:id",
+    list: "/projects/:projectId/clients",
+    create: "/projects/:projectId/clients/new",
+    show: "/projects/:projectId/clients/:id",
   },
   {
     name: "projectMembers",
-    list: "/manage/projects/:projectId/members",
+    list: "/projects/:projectId/members",
   },
   {
     name: "projectAuditLogs",
-    list: "/manage/projects/:projectId/audit",
+    list: "/projects/:projectId/audit",
   },
   {
     name: "adminReviews",
-    list: "/manage/admin/reviews",
+    list: "/admin/reviews",
   },
 ];
