@@ -464,6 +464,23 @@ export interface JwkCipherService {
   encryptPrivateJwk(jwk: JsonWebKey): Promise<string>;
 }
 
+export interface AppSettingRecord {
+  key: string;
+  valueCiphertext: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AppSettingsRepository {
+  getAppSetting(key: string): Promise<AppSettingRecord | null>;
+  upsertAppSetting(input: {
+    key: string;
+    valueCiphertext: string;
+    updatedAt: string;
+  }): Promise<AppSettingRecord>;
+}
+
 export interface PersistenceRuntime {
   init(): Promise<void>;
   close(): Promise<void>;
@@ -480,6 +497,7 @@ export interface OidcPersistence
     ManagementSessionRepository,
     OidcArtifactRepository,
     SigningKeyRepository,
+    AppSettingsRepository,
     JwkCipherService {}
 
 export function buildArtifactCleanupSql(limit: string | number): string {

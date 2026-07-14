@@ -28,6 +28,7 @@ import type {
   OidcPersistence,
   OidcSigningKeyRecord,
   PendingInteractionLogin,
+  AppSettingRecord,
 } from "./contracts.js";
 import type { ProjectWriteAuthorization } from "../projects/project-access.js";
 import { IdentityRepositoryImpl } from "./identity.repository.js";
@@ -37,6 +38,7 @@ import { OidcClientRepositoryImpl } from "./oidc-client.repository.js";
 import { ManagementSessionRepositoryImpl } from "./management-session.repository.js";
 import { ProjectRepositoryImpl } from "./project.repository.js";
 import { SigningKeyRepositoryImpl } from "./signing-key.repository.js";
+import { AppSettingsRepositoryImpl } from "./app-settings.repository.js";
 
 export class OidcPersistenceImpl implements OidcPersistence {
   private readonly logger = console;
@@ -49,6 +51,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
   private readonly managementSessionRepository: ManagementSessionRepositoryImpl;
   private readonly oidcArtifactRepository: OidcArtifactRepositoryImpl;
   private readonly signingKeyRepository: SigningKeyRepositoryImpl;
+  private readonly appSettingsRepository: AppSettingsRepositoryImpl;
 
   constructor(private readonly config: OidcOpConfig) {
     const poolProvider = () => this.pool;
@@ -105,6 +108,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
       poolProvider,
       this.jwkCipherService,
     );
+    this.appSettingsRepository = new AppSettingsRepositoryImpl(poolProvider);
   }
 
   async init() {
@@ -677,6 +681,18 @@ export class OidcPersistenceImpl implements OidcPersistence {
     return this.jwkCipherService.encryptPrivateJwk(jwk);
   }
 
+  async getAppSetting(key: string): Promise<AppSettingRecord | null> {
+    return this.appSettingsRepository.getAppSetting(key);
+  }
+
+  async upsertAppSetting(input: {
+    key: string;
+    valueCiphertext: string;
+    updatedAt: string;
+  }): Promise<AppSettingRecord> {
+    return this.appSettingsRepository.upsertAppSetting(input);
+  }
+
   private async ensureSchema() {
     if (!this.pool) {
       return;
@@ -931,6 +947,15 @@ export class OidcPersistenceImpl implements OidcPersistence {
         created_at timestamptz not null default now(),
         activated_at timestamptz,
         retired_at timestamptz
+      );
+    `);
+    await this.pool.query(`
+      create table if not exists app_settings (
+        key text primary key,
+        value_ciphertext text not null,
+        version integer not null default 1 check (version > 0),
+        created_at timestamptz not null default now(),
+        updated_at timestamptz not null default now()
       );
     `);
   }
