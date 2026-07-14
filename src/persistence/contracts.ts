@@ -481,3 +481,18 @@ export interface OidcPersistence
     OidcArtifactRepository,
     SigningKeyRepository,
     JwkCipherService {}
+
+export function buildArtifactCleanupSql(limit: string | number): string {
+  return `
+with doomed as (
+  select id
+  from oidc_artifacts
+  where expires_at is not null and expires_at <= now()
+  order by expires_at asc
+  limit ${limit}
+)
+delete from oidc_artifacts as oa
+using doomed
+where oa.id = doomed.id
+`.trim();
+}
