@@ -21,6 +21,7 @@ import {
 } from "../persistence/rate-limit.service.js";
 import { resolveTrustedKoaRequestIp } from "../request-ip.js";
 import { createAdapter } from "./adapter.js";
+import { renderBrandedPage } from "../routes/interactions.js";
 import { verifyClientSecretDigest } from "../crypto.js";
 import { randomId, parseScope, escapeHtml } from "../utils.js";
 import { initializeOidcClientsFromConfig } from "./client-config.js";
@@ -495,39 +496,25 @@ function renderLogoutConfirmationPage(form: string) {
         "</form>",
         '<input type="hidden" name="logout" value="yes"/></form>',
       );
-  return `<!DOCTYPE html>
-  <html lang="zh-CN">
-    <head>
-      <meta charset="utf-8">
-      <title>确认退出登录</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        body { font-family: sans-serif; margin: 2rem auto; max-width: 28rem; padding: 0 1rem; }
-        button { padding: 0.8rem 1rem; font-size: 1rem; }
-      </style>
-    </head>
-    <body>
+  return renderBrandedPage(
+    "确认退出登录",
+    `
       <h1>确认退出登录</h1>
-      <p>请确认是否退出当前登录状态。</p>
+      <p class="hint">请确认是否退出当前登录状态。</p>
       ${formWithExplicitLogout}
       <button form="op.logoutForm" type="submit" name="logout" value="yes">继续退出</button>
-    </body>
-  </html>`;
+    `,
+  );
 }
 
 function renderLogoutSuccessPage() {
-  return `<!DOCTYPE html>
-  <html lang="zh-CN">
-    <head>
-      <meta charset="utf-8">
-      <title>已退出登录</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-    </head>
-    <body>
+  return renderBrandedPage(
+    "已退出登录",
+    `
       <h1>你已退出登录。</h1>
-      <p>当前认证会话已安全结束。</p>
-    </body>
-  </html>`;
+      <p class="hint">当前认证会话已安全结束。</p>
+    `,
+  );
 }
 
 async function ensureSigningKey(store: OidcPersistence, config: OidcOpConfig) {
@@ -795,14 +782,13 @@ export async function createOidcServices(
       console.error("[oidc-op] provider renderError", out);
       ctx.type = "html";
       ctx.set("Cache-Control", "no-store");
-      ctx.body = `<!DOCTYPE html>
-        <html lang="zh-CN">
-        <head><meta charset="utf-8"><title>认证请求失败</title></head>
-        <body>
+      ctx.body = renderBrandedPage(
+        "认证请求失败",
+        `
           <h1>认证请求失败</h1>
-          <p>${escapeHtml("认证请求未能完成，请刷新后重试。")}</p>
-        </body>
-        </html>`;
+          <p class="error">${escapeHtml("认证请求未能完成，请刷新后重试。")}</p>
+        `,
+      );
     },
     rotateRefreshToken() {
       return true;
