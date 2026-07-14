@@ -5,9 +5,12 @@ import type { OidcOpConfig } from "../config.js";
 import {
   RateLimitUnavailableError,
   type RateLimitDecision,
-  type RateLimitService
+  type RateLimitService,
 } from "../persistence/rate-limit.service.js";
-import type { OidcPersistence, PendingInteractionLogin } from "../persistence/contracts.js";
+import type {
+  OidcPersistence,
+  PendingInteractionLogin,
+} from "../persistence/contracts.js";
 import type { OidcServices } from "../oidc/provider.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 import {
@@ -17,7 +20,7 @@ import {
   parseCookies,
   randomId,
   sha256,
-  sha256Base64Url
+  sha256Base64Url,
 } from "../utils.js";
 
 function setNoStore(response: Response) {
@@ -35,12 +38,16 @@ type CsrfTokenPayload = {
   nonce_hash: string;
 };
 
-function setCsrfNonceCookie(response: Response, config: OidcOpConfig, nonce: string) {
+function setCsrfNonceCookie(
+  response: Response,
+  config: OidcOpConfig,
+  nonce: string,
+) {
   response.cookie(CSRF_NONCE_COOKIE_NAME, nonce, {
     httpOnly: true,
     secure: config.cookieSecure,
     sameSite: "lax",
-    path: "/"
+    path: "/",
   });
 }
 
@@ -60,10 +67,17 @@ function secureStringEqual(left: string, right: string): boolean {
 }
 
 function signCsrfPayload(payloadBase64Url: string, secret: string): string {
-  return base64Url(createHmac("sha256", secret).update(payloadBase64Url).digest());
+  return base64Url(
+    createHmac("sha256", secret).update(payloadBase64Url).digest(),
+  );
 }
 
-function issueCsrfToken(response: Response, config: OidcOpConfig, uid: string, flow: CsrfFlow): string {
+function issueCsrfToken(
+  response: Response,
+  config: OidcOpConfig,
+  uid: string,
+  flow: CsrfFlow,
+): string {
   const nonce = randomId("csrfn");
   setCsrfNonceCookie(response, config, nonce);
   const issuedAt = Math.floor(Date.now() / 1000);
@@ -72,14 +86,19 @@ function issueCsrfToken(response: Response, config: OidcOpConfig, uid: string, f
     flow,
     iat: issuedAt,
     exp: issuedAt + config.csrfTokenTtlSeconds,
-    nonce_hash: sha256Base64Url(nonce)
+    nonce_hash: sha256Base64Url(nonce),
   };
-  const payloadBase64Url = base64Url(Buffer.from(JSON.stringify(payload), "utf8"));
+  const payloadBase64Url = base64Url(
+    Buffer.from(JSON.stringify(payload), "utf8"),
+  );
   const signature = signCsrfPayload(payloadBase64Url, config.csrfSigningSecret);
   return `${payloadBase64Url}.${signature}`;
 }
 
-function parseAndValidateCsrfPayload(token: string, secret: string): CsrfTokenPayload | null {
+function parseAndValidateCsrfPayload(
+  token: string,
+  secret: string,
+): CsrfTokenPayload | null {
   const segments = token.split(".");
   if (segments.length !== 2) {
     return null;
@@ -93,10 +112,14 @@ function parseAndValidateCsrfPayload(token: string, secret: string): CsrfTokenPa
     return null;
   }
   try {
-    const parsed = JSON.parse(decodeBase64Url(payloadBase64Url).toString("utf8")) as Partial<CsrfTokenPayload>;
+    const parsed = JSON.parse(
+      decodeBase64Url(payloadBase64Url).toString("utf8"),
+    ) as Partial<CsrfTokenPayload>;
     if (
       typeof parsed.uid !== "string" ||
-      (parsed.flow !== "login" && parsed.flow !== "profile" && parsed.flow !== "consent") ||
+      (parsed.flow !== "login" &&
+        parsed.flow !== "profile" &&
+        parsed.flow !== "consent") ||
       typeof parsed.iat !== "number" ||
       typeof parsed.exp !== "number" ||
       typeof parsed.nonce_hash !== "string"
@@ -112,12 +135,15 @@ function parseAndValidateCsrfPayload(token: string, secret: string): CsrfTokenPa
 function validateCsrf(
   request: Request,
   config: OidcOpConfig,
-  expected: { uid: string; flow: CsrfFlow; token: string | undefined }
+  expected: { uid: string; flow: CsrfFlow; token: string | undefined },
 ): boolean {
   if (!expected.token) {
     return false;
   }
-  const payload = parseAndValidateCsrfPayload(expected.token, config.csrfSigningSecret);
+  const payload = parseAndValidateCsrfPayload(
+    expected.token,
+    config.csrfSigningSecret,
+  );
   if (!payload) {
     return false;
   }
@@ -149,31 +175,239 @@ function renderPage(title: string, body: string) {
       <title>${escapeHtml(title)}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <style>
-        body { font-family: sans-serif; margin: 2rem auto; max-width: 28rem; padding: 0 1rem; }
-        form { display: grid; gap: 0.75rem; }
-        input { padding: 0.75rem; font-size: 1rem; }
-        button { padding: 0.8rem 1rem; font-size: 1rem; }
-        button[disabled] { cursor: wait; opacity: 0.72; }
-        input[readonly] { background: #f9fafb; color: #667085; }
-        .error { color: #b42318; }
-        .success { color: #067647; }
-        .hint { color: #475467; font-size: 0.95rem; }
-        .secondary { background: #f2f4f7; border: 1px solid #d0d5dd; }
-        .pending { display: none; border: 1px solid #b2ddff; background: #eff8ff; color: #175cd3; padding: 0.75rem; }
-        .pending strong { display: block; color: #1849a9; margin-bottom: 0.2rem; }
-        .login-form[data-submitting="true"] .pending { display: block; }
-        .button-loading { display: none; }
-        .login-form[data-submitting="true"] .button-label { display: none; }
-        .login-form[data-submitting="true"] .button-loading { display: inline; }
+        body {
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+          margin: 0;
+          padding: 1.5rem;
+          min-height: 100vh;
+          box-sizing: border-box;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: #f8fafc;
+          color: #0f172a;
+          transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .container {
+          width: 100%;
+          max-width: 28rem;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
+          border-radius: 12px;
+          box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+          padding: 2.5rem 2rem;
+          box-sizing: border-box;
+          transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+        h1 {
+          font-size: 1.75rem;
+          font-weight: 700;
+          margin-top: 0;
+          margin-bottom: 0.5rem;
+          text-align: center;
+        }
+        .hint {
+          color: #475569;
+          font-size: 0.95rem;
+          text-align: center;
+          margin-top: 0;
+          margin-bottom: 2rem;
+        }
+        form {
+          display: grid;
+          gap: 1rem;
+        }
+        input {
+          padding: 0.8rem 1rem;
+          font-size: 1rem;
+          background-color: #ffffff;
+          border: 1px solid #cbd5e1;
+          color: #0f172a;
+          border-radius: 8px;
+          outline: none;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+          box-sizing: border-box;
+        }
+        input:focus {
+          border-color: #0284c7;
+          box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+        }
+        input[readonly] {
+          background-color: #f1f5f9;
+          color: #64748b;
+          cursor: not-allowed;
+        }
+        button {
+          padding: 0.85rem 1.25rem;
+          font-size: 1rem;
+          font-weight: 600;
+          background-color: #0284c7;
+          color: #ffffff;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+        button:hover {
+          background-color: #0369a1;
+        }
+        button:active {
+          transform: scale(0.98);
+        }
+        button[disabled] {
+          cursor: wait;
+          opacity: 0.65;
+          pointer-events: none;
+        }
+        .secondary {
+          background-color: #f1f5f9;
+          border: 1px solid #e2e8f0;
+          color: #334155;
+        }
+        .secondary:hover {
+          background-color: #e2e8f0;
+        }
+        .error {
+          color: #ef4444;
+          background-color: rgba(239, 68, 68, 0.05);
+          border: 1px solid rgba(239, 68, 68, 0.15);
+          padding: 0.75rem 1rem;
+          border-radius: 8px;
+          font-size: 0.9rem;
+          margin: 0;
+        }
+        .success {
+          color: #10b981;
+          background-color: rgba(16, 185, 129, 0.05);
+          border: 1px solid rgba(16, 185, 129, 0.15);
+          padding: 0.75rem 1rem;
+          border-radius: 8px;
+          font-size: 0.9rem;
+          margin: 0;
+        }
+        .pending {
+          display: none;
+          border: 1px solid #bae6fd;
+          background-color: #f0f9ff;
+          color: #0369a1;
+          padding: 1rem;
+          border-radius: 8px;
+          font-size: 0.9rem;
+          line-height: 1.5;
+        }
+        .pending strong {
+          display: block;
+          color: #0c4a6e;
+          margin-bottom: 0.25rem;
+          font-weight: 600;
+        }
+        .login-form[data-submitting="true"] .pending {
+          display: block;
+        }
+        .button-loading {
+          display: none;
+        }
+        .login-form[data-submitting="true"] .button-label {
+          display: none;
+        }
+        .login-form[data-submitting="true"] .button-loading {
+          display: inline;
+        }
+        ul {
+          padding-left: 1.25rem;
+          margin: 0 0 1rem 0;
+          color: #475569;
+        }
+        li {
+          margin-bottom: 0.5rem;
+        }
+
+        @media (prefers-color-scheme: dark) {
+          body {
+            background-color: #0b1528;
+            color: #f8fafc;
+          }
+          .container {
+            background: #111e35;
+            border-color: #1e293b;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+          }
+          input {
+            background-color: #1e293b;
+            border-color: #334155;
+            color: #f8fafc;
+          }
+          input::placeholder {
+            color: #64748b;
+          }
+          input:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+          }
+          input[readonly] {
+            background-color: #0f172a;
+            color: #64748b;
+          }
+          button {
+            background-color: #38bdf8;
+            color: #0b1528;
+          }
+          button:hover {
+            background-color: #7dd3fc;
+          }
+          button[disabled] {
+            background-color: #1e293b;
+            color: #64748b;
+          }
+          .secondary {
+            background-color: #1e293b;
+            border-color: #334155;
+            color: #e2e8f0;
+          }
+          .secondary:hover {
+            background-color: #334155;
+          }
+          .error {
+            color: #f87171;
+            background-color: rgba(248, 113, 113, 0.1);
+            border-color: rgba(248, 113, 113, 0.2);
+          }
+          .success {
+            color: #34d399;
+            background-color: rgba(52, 211, 153, 0.1);
+            border-color: rgba(52, 211, 153, 0.2);
+          }
+          .hint {
+            color: #94a3b8;
+          }
+          .pending {
+            border-color: #0c4a6e;
+            background-color: #0c1e36;
+            color: #38bdf8;
+          }
+          .pending strong {
+            color: #7dd3fc;
+          }
+          ul {
+            color: #94a3b8;
+          }
+        }
       </style>
     </head>
     <body>
-      ${body}
+      <div class="container">
+        ${body}
+      </div>
     </body>
   </html>`;
 }
 
-function loginView(response: Response, uid: string, csrf: string, error?: string) {
+function loginView(
+  response: Response,
+  uid: string,
+  csrf: string,
+  error?: string,
+) {
   const scriptNonce = getScriptNonce(response);
   return renderPage(
     "CQUT-Auth",
@@ -220,7 +454,7 @@ function loginView(response: Response, uid: string, csrf: string, error?: string
         });
       })();
     </script>
-  `
+  `,
   );
 }
 
@@ -230,7 +464,7 @@ function interactionExpiredView() {
     `
     <h1>登录流程已过期</h1>
     <p class="error">当前登录授权流程已完成或已过期，请返回业务系统重新发起登录。</p>
-  `
+  `,
   );
 }
 
@@ -242,7 +476,7 @@ function profileEmailView(
     error?: string;
     notice?: string;
     verificationEnabled: boolean;
-  }
+  },
 ) {
   const hint = options.verificationEnabled
     ? "请输入用于 OpenID Connect 声明的邮箱地址，系统会发送验证码进行校验。"
@@ -260,7 +494,7 @@ function profileEmailView(
       <input type="email" name="email" placeholder="邮箱地址" value="${escapeHtml(options.email ?? "")}" autocomplete="email" required>
       <button type="submit">${options.verificationEnabled ? "发送验证码" : "继续"}</button>
     </form>
-  `
+  `,
   );
 }
 
@@ -272,7 +506,7 @@ function profileVerifyCodeView(
     error?: string;
     notice?: string;
     resendCooldownSeconds?: number;
-  }
+  },
 ) {
   const resendCooldownSeconds = options.resendCooldownSeconds ?? 0;
   const disableResend = resendCooldownSeconds > 0;
@@ -286,7 +520,7 @@ function profileVerifyCodeView(
     ${
       disableResend
         ? `<p class="hint">可在 ${resendCooldownSeconds} 秒后重新发送验证码。</p>`
-        : "<p class=\"hint\">未收到验证码？可重新发送。</p>"
+        : '<p class="hint">未收到验证码？可重新发送。</p>'
     }
     <form method="post" action="/interaction/${encodeURIComponent(uid)}/profile">
       <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
@@ -300,7 +534,7 @@ function profileVerifyCodeView(
       <input type="hidden" name="email" value="${escapeHtml(options.email)}">
       <button type="submit" class="secondary"${disableResend ? " disabled" : ""}>重新发送验证码</button>
     </form>
-  `
+  `,
   );
 }
 
@@ -308,11 +542,21 @@ function generateVerificationCode() {
   return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
-function hashEmailVerificationCode(config: OidcOpConfig, uid: string, email: string, code: string) {
-  return createHmac("sha256", config.csrfSigningSecret).update(`${uid}:${email}:${code}`).digest("hex");
+function hashEmailVerificationCode(
+  config: OidcOpConfig,
+  uid: string,
+  email: string,
+  code: string,
+) {
+  return createHmac("sha256", config.csrfSigningSecret)
+    .update(`${uid}:${email}:${code}`)
+    .digest("hex");
 }
 
-function getResendCooldownSeconds(nextResendAt: number, now = Math.floor(Date.now() / 1000)) {
+function getResendCooldownSeconds(
+  nextResendAt: number,
+  now = Math.floor(Date.now() / 1000),
+) {
   return Math.max(0, nextResendAt - now);
 }
 
@@ -320,7 +564,7 @@ async function finishInteractionLogin(
   provider: any,
   request: Request,
   response: Response,
-  pending: PendingInteractionLogin
+  pending: PendingInteractionLogin,
 ) {
   await provider.interactionFinished(
     request,
@@ -331,10 +575,10 @@ async function finishInteractionLogin(
         acr: "urn:cqut:loa:1",
         amr: ["pwd"],
         remember: false,
-        ts: pending.authTime
-      }
+        ts: pending.authTime,
+      },
     },
-    { mergeWithLastSubmission: false }
+    { mergeWithLastSubmission: false },
   );
 }
 
@@ -342,41 +586,63 @@ function asStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter((item): item is string => typeof item === "string" && item.length > 0);
+  return value.filter(
+    (item): item is string => typeof item === "string" && item.length > 0,
+  );
 }
 
-function consentView(response: Response, uid: string, csrf: string, details: any, error?: string) {
+function consentView(
+  response: Response,
+  uid: string,
+  csrf: string,
+  details: any,
+  error?: string,
+) {
   const scriptNonce = getScriptNonce(response);
-  const clientId = typeof details?.params?.client_id === "string" ? details.params.client_id : "未知客户端";
-  const requestedScope = typeof details?.params?.scope === "string" ? details.params.scope : "";
-  const missingScopes = asStringArray(details?.prompt?.details?.missingOIDCScope);
-  const missingClaims = asStringArray(details?.prompt?.details?.missingOIDCClaims);
-  const missingResourceScopes = Object.entries(details?.prompt?.details?.missingResourceScopes ?? {})
+  const clientId =
+    typeof details?.params?.client_id === "string"
+      ? details.params.client_id
+      : "未知客户端";
+  const requestedScope =
+    typeof details?.params?.scope === "string" ? details.params.scope : "";
+  const missingScopes = asStringArray(
+    details?.prompt?.details?.missingOIDCScope,
+  );
+  const missingClaims = asStringArray(
+    details?.prompt?.details?.missingOIDCClaims,
+  );
+  const missingResourceScopes = Object.entries(
+    details?.prompt?.details?.missingResourceScopes ?? {},
+  )
     .map(([indicator, scopes]) => ({
       indicator,
-      scopes: asStringArray(scopes)
+      scopes: asStringArray(scopes),
     }))
     .filter((entry) => entry.scopes.length > 0);
   const sections: string[] = [];
 
   if (missingScopes.length > 0) {
-    sections.push(`<p><strong>申请范围：</strong>${escapeHtml(missingScopes.join(" "))}</p>`);
+    sections.push(
+      `<p><strong>申请范围：</strong>${escapeHtml(missingScopes.join(" "))}</p>`,
+    );
   }
   if (missingClaims.length > 0) {
-    sections.push(`<p><strong>申请声明：</strong>${escapeHtml(missingClaims.join(", "))}</p>`);
+    sections.push(
+      `<p><strong>申请声明：</strong>${escapeHtml(missingClaims.join(", "))}</p>`,
+    );
   }
   if (missingResourceScopes.length > 0) {
     sections.push(
       `<p><strong>资源范围：</strong></p><ul>${missingResourceScopes
         .map(
           (entry) =>
-            `<li>${escapeHtml(entry.indicator)}: ${escapeHtml(entry.scopes.join(" "))}</li>`
+            `<li>${escapeHtml(entry.indicator)}: ${escapeHtml(entry.scopes.join(" "))}</li>`,
         )
-        .join("")}</ul>`
+        .join("")}</ul>`,
     );
   }
   if (sections.length === 0) {
-    sections.push("<p class=\"hint\">没有额外申请的权限。</p>");
+    sections.push('<p class="hint">没有额外申请的权限。</p>');
   }
 
   return renderPage(
@@ -437,7 +703,7 @@ function consentView(response: Response, uid: string, csrf: string, details: any
         });
       })();
     </script>
-  `
+  `,
   );
 }
 
@@ -445,15 +711,22 @@ function isInteractionSessionNotFound(error: unknown): boolean {
   if (!(error instanceof Error)) {
     return false;
   }
-  const status = (error as { status?: unknown; statusCode?: unknown }).status ?? (error as { statusCode?: unknown }).statusCode;
-  const description = (error as { error_description?: unknown }).error_description;
+  const status =
+    (error as { status?: unknown; statusCode?: unknown }).status ??
+    (error as { statusCode?: unknown }).statusCode;
+  const description = (error as { error_description?: unknown })
+    .error_description;
   return (
     error.name === "SessionNotFound" ||
     (status === 400 && description === "interaction session not found")
   );
 }
 
-function handleInteractionRouteError(error: unknown, response: Response, next: (error: unknown) => void) {
+function handleInteractionRouteError(
+  error: unknown,
+  response: Response,
+  next: (error: unknown) => void,
+) {
   if (isInteractionSessionNotFound(error)) {
     console.warn("[oidc-op] stale interaction request", error);
     setNoStore(response);
@@ -463,8 +736,14 @@ function handleInteractionRouteError(error: unknown, response: Response, next: (
   next(error);
 }
 
-async function isAutoConsentClient(store: OidcPersistence, details: any): Promise<boolean> {
-  const clientId = typeof details?.params?.client_id === "string" ? details.params.client_id : "";
+async function isAutoConsentClient(
+  store: OidcPersistence,
+  details: any,
+): Promise<boolean> {
+  const clientId =
+    typeof details?.params?.client_id === "string"
+      ? details.params.client_id
+      : "";
   if (!clientId) {
     return false;
   }
@@ -472,8 +751,14 @@ async function isAutoConsentClient(store: OidcPersistence, details: any): Promis
   return Boolean(client?.autoConsent);
 }
 
-async function finishConsent(provider: any, request: Request, response: Response, details?: any) {
-  const interactionDetails = details ?? (await provider.interactionDetails(request, response));
+async function finishConsent(
+  provider: any,
+  request: Request,
+  response: Response,
+  details?: any,
+) {
+  const interactionDetails =
+    details ?? (await provider.interactionDetails(request, response));
   const { prompt, params, session, grantId } = interactionDetails;
   if (prompt.name !== "consent") {
     return false;
@@ -484,7 +769,7 @@ async function finishConsent(provider: any, request: Request, response: Response
   } else {
     grant = new provider.Grant({
       accountId: session.accountId,
-      clientId: String(params.client_id)
+      clientId: String(params.client_id),
     });
   }
   if (prompt.details.missingOIDCScope) {
@@ -494,7 +779,9 @@ async function finishConsent(provider: any, request: Request, response: Response
     grant.addOIDCClaims(prompt.details.missingOIDCClaims);
   }
   if (prompt.details.missingResourceScopes) {
-    for (const [indicator, scope] of Object.entries(prompt.details.missingResourceScopes)) {
+    for (const [indicator, scope] of Object.entries(
+      prompt.details.missingResourceScopes,
+    )) {
       grant.addResourceScope(indicator, (scope as string[]).join(" "));
     }
   }
@@ -502,20 +789,24 @@ async function finishConsent(provider: any, request: Request, response: Response
     request,
     response,
     { consent: { grantId: await grant.save() } },
-    { mergeWithLastSubmission: true }
+    { mergeWithLastSubmission: true },
   );
   return true;
 }
 
-async function denyConsent(provider: any, request: Request, response: Response) {
+async function denyConsent(
+  provider: any,
+  request: Request,
+  response: Response,
+) {
   await provider.interactionFinished(
     request,
     response,
     {
       error: "access_denied",
-      error_description: "resource owner denied consent"
+      error_description: "resource owner denied consent",
     },
-    { mergeWithLastSubmission: false }
+    { mergeWithLastSubmission: false },
   );
 }
 
@@ -545,10 +836,14 @@ function loginFailureIpKey(ip: string) {
 
 async function consumeRateLimitChecks(
   rateLimitService: RateLimitService,
-  checks: Array<{ key: string; max: number; windowSeconds: number }>
+  checks: Array<{ key: string; max: number; windowSeconds: number }>,
 ): Promise<RateLimitDecision | undefined> {
   for (const check of checks) {
-    const decision = await rateLimitService.consume(check.key, check.max, check.windowSeconds);
+    const decision = await rateLimitService.consume(
+      check.key,
+      check.max,
+      check.windowSeconds,
+    );
     if (!decision.allowed) {
       return decision;
     }
@@ -563,7 +858,7 @@ async function consumeLoginRateLimit(
     ip: string;
     account: string;
   },
-  stage: "attempt" | "failure"
+  stage: "attempt" | "failure",
 ): Promise<RateLimitDecision | undefined> {
   const checks =
     stage === "attempt"
@@ -571,35 +866,35 @@ async function consumeLoginRateLimit(
           {
             key: loginAttemptAccountKey(identity.account),
             max: config.loginRateLimitMax,
-            windowSeconds: config.loginRateLimitWindowSeconds
+            windowSeconds: config.loginRateLimitWindowSeconds,
           },
           {
             key: loginAttemptIpKey(identity.ip),
             max: config.loginRateLimitMax,
-            windowSeconds: config.loginRateLimitWindowSeconds
+            windowSeconds: config.loginRateLimitWindowSeconds,
           },
           {
             key: loginAttemptKey(identity.ip, identity.account),
             max: config.loginRateLimitMax,
-            windowSeconds: config.loginRateLimitWindowSeconds
-          }
+            windowSeconds: config.loginRateLimitWindowSeconds,
+          },
         ]
       : [
           {
             key: loginFailureAccountKey(identity.account),
             max: config.loginFailureLimit,
-            windowSeconds: config.loginFailureWindowSeconds
+            windowSeconds: config.loginFailureWindowSeconds,
           },
           {
             key: loginFailureIpKey(identity.ip),
             max: config.loginFailureLimit,
-            windowSeconds: config.loginFailureWindowSeconds
+            windowSeconds: config.loginFailureWindowSeconds,
           },
           {
             key: loginFailureKey(identity.ip, identity.account),
             max: config.loginFailureLimit,
-            windowSeconds: config.loginFailureWindowSeconds
-          }
+            windowSeconds: config.loginFailureWindowSeconds,
+          },
         ];
   return consumeRateLimitChecks(rateLimitService, checks);
 }
@@ -609,11 +904,11 @@ async function resetLoginFailureRateLimit(
   identity: {
     ip: string;
     account: string;
-  }
+  },
 ) {
   await Promise.all([
     rateLimitService.reset(loginFailureAccountKey(identity.account)),
-    rateLimitService.reset(loginFailureKey(identity.ip, identity.account))
+    rateLimitService.reset(loginFailureKey(identity.ip, identity.account)),
   ]);
 }
 
@@ -646,36 +941,36 @@ async function consumeEmailVerifyRateLimit(
     email: string;
     emailDomain: string;
     ip: string;
-  }
+  },
 ): Promise<RateLimitDecision | undefined> {
   return consumeRateLimitChecks(rateLimitService, [
     {
       key: emailVerifySubjectRateLimitKey(identity.subjectId),
       max: config.emailVerifyRateLimitSubjectMax,
-      windowSeconds: config.emailVerifyRateLimitSubjectWindowSeconds
+      windowSeconds: config.emailVerifyRateLimitSubjectWindowSeconds,
     },
     {
       key: emailVerifyEmailRateLimitKey(identity.email),
       max: config.emailVerifyRateLimitEmailMax,
-      windowSeconds: config.emailVerifyRateLimitEmailWindowSeconds
+      windowSeconds: config.emailVerifyRateLimitEmailWindowSeconds,
     },
     {
       key: emailVerifyDomainRateLimitKey(identity.emailDomain),
       max: config.emailVerifyRateLimitDomainMax,
-      windowSeconds: config.emailVerifyRateLimitDomainWindowSeconds
+      windowSeconds: config.emailVerifyRateLimitDomainWindowSeconds,
     },
     {
       key: emailVerifyIpRateLimitKey(identity.ip),
       max: config.emailVerifyRateLimitIpMax,
-      windowSeconds: config.emailVerifyRateLimitIpWindowSeconds
-    }
+      windowSeconds: config.emailVerifyRateLimitIpWindowSeconds,
+    },
   ]);
 }
 
 function serviceUnavailableView() {
   return renderPage(
     "服务暂不可用",
-    `<p class="error">限流服务暂时不可用，请稍后重试。</p>`
+    `<p class="error">限流服务暂时不可用，请稍后重试。</p>`,
   );
 }
 
@@ -684,10 +979,14 @@ export function createInteractionRouter(
   provider: any,
   services: OidcServices,
   store: OidcPersistence,
-  rateLimitService: RateLimitService
+  rateLimitService: RateLimitService,
 ): express.Router {
   const router = express.Router();
-  const formParser = express.urlencoded({ extended: false, limit: "16kb", parameterLimit: 10 });
+  const formParser = express.urlencoded({
+    extended: false,
+    limit: "16kb",
+    parameterLimit: 10,
+  });
 
   router.get("/:uid", async (request, response, next) => {
     try {
@@ -704,12 +1003,21 @@ export function createInteractionRouter(
         return;
       }
       if (details.prompt.name !== "login") {
-        response.status(400).send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+        response
+          .status(400)
+          .send(
+            renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"),
+          );
         return;
       }
-      const pending = await store.getInteractionLogin(request.params["uid"] ?? "");
+      const pending = await store.getInteractionLogin(
+        request.params["uid"] ?? "",
+      );
       if (pending) {
-        response.redirect(302, `/interaction/${encodeURIComponent(request.params["uid"] ?? "")}/profile`);
+        response.redirect(
+          302,
+          `/interaction/${encodeURIComponent(request.params["uid"] ?? "")}/profile`,
+        );
         return;
       }
       const uid = request.params["uid"] ?? "";
@@ -728,18 +1036,33 @@ export function createInteractionRouter(
         !validateCsrf(request, config, {
           uid,
           flow: "consent",
-          token: typeof request.body?.csrf === "string" ? request.body.csrf : undefined
+          token:
+            typeof request.body?.csrf === "string"
+              ? request.body.csrf
+              : undefined,
         })
       ) {
-        response.status(400).send(renderPage("无效请求", "<p class=\"error\">CSRF 校验失败，请刷新后重试。</p>"));
+        response
+          .status(400)
+          .send(
+            renderPage(
+              "无效请求",
+              '<p class="error">CSRF 校验失败，请刷新后重试。</p>',
+            ),
+          );
         return;
       }
       const details = await provider.interactionDetails(request, response);
       if (details.prompt.name !== "consent") {
-        response.status(400).send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+        response
+          .status(400)
+          .send(
+            renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"),
+          );
         return;
       }
-      const action = typeof request.body?.action === "string" ? request.body.action : "";
+      const action =
+        typeof request.body?.action === "string" ? request.body.action : "";
       if (action === "approve") {
         await finishConsent(provider, request, response, details);
         return;
@@ -749,7 +1072,9 @@ export function createInteractionRouter(
         return;
       }
       const csrf = issueCsrfToken(response, config, uid, "consent");
-      response.status(400).send(consentView(response, uid, csrf, details, "请选择允许或拒绝。"));
+      response
+        .status(400)
+        .send(consentView(response, uid, csrf, details, "请选择允许或拒绝。"));
     } catch (error) {
       handleInteractionRouteError(error, response, next);
     }
@@ -763,30 +1088,59 @@ export function createInteractionRouter(
         !validateCsrf(request, config, {
           uid,
           flow: "login",
-          token: typeof request.body?.csrf === "string" ? request.body.csrf : undefined
+          token:
+            typeof request.body?.csrf === "string"
+              ? request.body.csrf
+              : undefined,
         })
       ) {
-        response.status(400).send(renderPage("无效请求", "<p class=\"error\">CSRF 校验失败，请刷新后重试。</p>"));
+        response
+          .status(400)
+          .send(
+            renderPage(
+              "无效请求",
+              '<p class="error">CSRF 校验失败，请刷新后重试。</p>',
+            ),
+          );
         return;
       }
-      const account = typeof request.body?.account === "string" ? request.body.account.trim() : "";
-      const password = typeof request.body?.password === "string" ? request.body.password : "";
+      const account =
+        typeof request.body?.account === "string"
+          ? request.body.account.trim()
+          : "";
+      const password =
+        typeof request.body?.password === "string" ? request.body.password : "";
       const loginRateLimitIdentity = {
         ip: resolveTrustedExpressRequestIp(config, request),
-        account: account || "unknown"
+        account: account || "unknown",
       };
       let precheck;
       try {
-        precheck = await consumeLoginRateLimit(config, rateLimitService, loginRateLimitIdentity, "attempt");
+        precheck = await consumeLoginRateLimit(
+          config,
+          rateLimitService,
+          loginRateLimitIdentity,
+          "attempt",
+        );
       } catch (error) {
         if (error instanceof RateLimitUnavailableError) {
-          response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
+          response
+            .status(503)
+            .setHeader("Retry-After", "60")
+            .send(serviceUnavailableView());
           return;
         }
         throw error;
       }
       if (precheck) {
-        response.status(429).send(renderPage("尝试过于频繁", `<p class="error">${precheck.retryAfterSeconds} 秒后再试。</p>`));
+        response
+          .status(429)
+          .send(
+            renderPage(
+              "尝试过于频繁",
+              `<p class="error">${precheck.retryAfterSeconds} 秒后再试。</p>`,
+            ),
+          );
         return;
       }
 
@@ -796,38 +1150,64 @@ export function createInteractionRouter(
           account,
           password,
           ip: loginRateLimitIdentity.ip,
-          ...(request.get("user-agent") ? { userAgent: request.get("user-agent") as string } : {})
+          ...(request.get("user-agent")
+            ? { userAgent: request.get("user-agent") as string }
+            : {}),
         });
-        await resetLoginFailureRateLimit(rateLimitService, loginRateLimitIdentity).catch((error) => {
+        await resetLoginFailureRateLimit(
+          rateLimitService,
+          loginRateLimitIdentity,
+        ).catch((error) => {
           if (!(error instanceof RateLimitUnavailableError)) {
             throw error;
           }
         });
-        if (!principal.email || (config.emailVerificationEnabled && !principal.emailVerified)) {
+        if (
+          !principal.email ||
+          (config.emailVerificationEnabled && !principal.emailVerified)
+        ) {
           await store.saveInteractionLogin(uid, {
             principal,
-            authTime: Math.floor(Date.now() / 1000)
+            authTime: Math.floor(Date.now() / 1000),
           });
-          response.redirect(302, `/interaction/${encodeURIComponent(uid)}/profile`);
+          response.redirect(
+            302,
+            `/interaction/${encodeURIComponent(uid)}/profile`,
+          );
           return;
         }
         await finishInteractionLogin(provider, request, response, {
           principal,
-          authTime: Math.floor(Date.now() / 1000)
+          authTime: Math.floor(Date.now() / 1000),
         });
       } catch (error) {
         let failure;
         try {
-          failure = await consumeLoginRateLimit(config, rateLimitService, loginRateLimitIdentity, "failure");
+          failure = await consumeLoginRateLimit(
+            config,
+            rateLimitService,
+            loginRateLimitIdentity,
+            "failure",
+          );
         } catch (consumeError) {
           if (consumeError instanceof RateLimitUnavailableError) {
-            response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
+            response
+              .status(503)
+              .setHeader("Retry-After", "60")
+              .send(serviceUnavailableView());
             return;
           }
           throw consumeError;
         }
         if (failure) {
-          response.status(429).send(renderPage("失败次数过多", `<p class="error">失败次数过多，请在 ${failure.retryAfterSeconds} 秒后重试。</p>`));
+          response
+            .status(429)
+            .send(
+              renderPage(
+                "失败次数过多",
+                `<p class="error">失败次数过多，请在 ${failure.retryAfterSeconds} 秒后重试。</p>`,
+              ),
+            );
           return;
         }
         const message = "登录失败，请检查账号或密码后重试。";
@@ -858,8 +1238,10 @@ export function createInteractionRouter(
         response.status(200).send(
           profileEmailView(uid, csrf, {
             verificationEnabled: false,
-            ...(pending.principal.email ? { email: pending.principal.email } : {})
-          })
+            ...(pending.principal.email
+              ? { email: pending.principal.email }
+              : {}),
+          }),
         );
         return;
       }
@@ -867,16 +1249,20 @@ export function createInteractionRouter(
         response.status(200).send(
           profileVerifyCodeView(uid, csrf, {
             email: pending.emailVerification.email,
-            resendCooldownSeconds: getResendCooldownSeconds(pending.emailVerification.nextResendAt)
-          })
+            resendCooldownSeconds: getResendCooldownSeconds(
+              pending.emailVerification.nextResendAt,
+            ),
+          }),
         );
         return;
       }
       response.status(200).send(
         profileEmailView(uid, csrf, {
           verificationEnabled: true,
-          ...(pending.principal.email ? { email: pending.principal.email } : {})
-        })
+          ...(pending.principal.email
+            ? { email: pending.principal.email }
+            : {}),
+        }),
       );
     } catch (error) {
       handleInteractionRouteError(error, response, next);
@@ -891,10 +1277,20 @@ export function createInteractionRouter(
         !validateCsrf(request, config, {
           uid,
           flow: "profile",
-          token: typeof request.body?.csrf === "string" ? request.body.csrf : undefined
+          token:
+            typeof request.body?.csrf === "string"
+              ? request.body.csrf
+              : undefined,
         })
       ) {
-        response.status(400).send(renderPage("无效请求", "<p class=\"error\">CSRF 校验失败，请刷新后重试。</p>"));
+        response
+          .status(400)
+          .send(
+            renderPage(
+              "无效请求",
+              '<p class="error">CSRF 校验失败，请刷新后重试。</p>',
+            ),
+          );
         return;
       }
       const pending = await store.getInteractionLogin(uid);
@@ -903,38 +1299,50 @@ export function createInteractionRouter(
         return;
       }
       if (!config.emailVerificationEnabled) {
-        const email = typeof request.body?.email === "string" ? request.body.email.trim().toLowerCase() : "";
+        const email =
+          typeof request.body?.email === "string"
+            ? request.body.email.trim().toLowerCase()
+            : "";
         if (!isValidEmail(email)) {
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(400).send(
             profileEmailView(uid, csrf, {
               email,
               error: "请输入有效的邮箱地址。",
-              verificationEnabled: false
-            })
+              verificationEnabled: false,
+            }),
           );
           return;
         }
-        await services.subjectProfileService.setEmail(pending.principal.subjectId, email);
+        await services.subjectProfileService.setEmail(
+          pending.principal.subjectId,
+          email,
+        );
         await store.deleteInteractionLogin(uid);
         await finishInteractionLogin(provider, request, response, pending);
         return;
       }
 
       const now = Math.floor(Date.now() / 1000);
-      const action = typeof request.body?.action === "string" ? request.body.action : "send_code";
+      const action =
+        typeof request.body?.action === "string"
+          ? request.body.action
+          : "send_code";
       if (action === "send_code") {
         const emailRaw =
-          typeof request.body?.email === "string" ? request.body.email : pending.emailVerification?.email;
-        const email = typeof emailRaw === "string" ? emailRaw.trim().toLowerCase() : "";
+          typeof request.body?.email === "string"
+            ? request.body.email
+            : pending.emailVerification?.email;
+        const email =
+          typeof emailRaw === "string" ? emailRaw.trim().toLowerCase() : "";
         if (!isValidEmail(email)) {
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(400).send(
             profileEmailView(uid, csrf, {
               email,
               error: "请输入有效的邮箱地址。",
-              verificationEnabled: true
-            })
+              verificationEnabled: true,
+            }),
           );
           return;
         }
@@ -948,8 +1356,9 @@ export function createInteractionRouter(
             profileVerifyCodeView(uid, csrf, {
               email,
               error: `请在 ${pending.emailVerification.nextResendAt - now} 秒后再重试发送。`,
-              resendCooldownSeconds: pending.emailVerification.nextResendAt - now
-            })
+              resendCooldownSeconds:
+                pending.emailVerification.nextResendAt - now,
+            }),
           );
           return;
         }
@@ -958,15 +1367,22 @@ export function createInteractionRouter(
         const emailDomain = getEmailDomain(email);
         let globalRateLimitDecision: RateLimitDecision | undefined;
         try {
-          globalRateLimitDecision = await consumeEmailVerifyRateLimit(config, rateLimitService, {
-            subjectId: pending.principal.subjectId,
-            email,
-            emailDomain,
-            ip
-          });
+          globalRateLimitDecision = await consumeEmailVerifyRateLimit(
+            config,
+            rateLimitService,
+            {
+              subjectId: pending.principal.subjectId,
+              email,
+              emailDomain,
+              ip,
+            },
+          );
         } catch (error) {
           if (error instanceof RateLimitUnavailableError) {
-            response.status(503).setHeader("Retry-After", "60").send(serviceUnavailableView());
+            response
+              .status(503)
+              .setHeader("Retry-After", "60")
+              .send(serviceUnavailableView());
             return;
           }
           throw error;
@@ -976,13 +1392,16 @@ export function createInteractionRouter(
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.setHeader("Retry-After", String(retryAfterSeconds));
           const errorMessage = `发送过于频繁，请在 ${retryAfterSeconds} 秒后再试。`;
-          if (pending.emailVerification && pending.emailVerification.email === email) {
+          if (
+            pending.emailVerification &&
+            pending.emailVerification.email === email
+          ) {
             response.status(429).send(
               profileVerifyCodeView(uid, csrf, {
                 email,
                 error: errorMessage,
-                resendCooldownSeconds: retryAfterSeconds
-              })
+                resendCooldownSeconds: retryAfterSeconds,
+              }),
             );
             return;
           }
@@ -990,8 +1409,8 @@ export function createInteractionRouter(
             profileEmailView(uid, csrf, {
               email,
               error: errorMessage,
-              verificationEnabled: true
-            })
+              verificationEnabled: true,
+            }),
           );
           return;
         }
@@ -1002,7 +1421,7 @@ export function createInteractionRouter(
             to: email,
             code,
             interactionUid: uid,
-            expiresInSeconds: config.emailVerifyCodeTtlSeconds
+            expiresInSeconds: config.emailVerifyCodeTtlSeconds,
           });
         } catch (error) {
           console.error("[oidc-op] email verification send failed", error);
@@ -1011,8 +1430,8 @@ export function createInteractionRouter(
             profileEmailView(uid, csrf, {
               email,
               error: "验证码发送失败，请稍后重试。",
-              verificationEnabled: true
-            })
+              verificationEnabled: true,
+            }),
           );
           return;
         }
@@ -1024,8 +1443,8 @@ export function createInteractionRouter(
             codeHash: hashEmailVerificationCode(config, uid, email, code),
             expiresAt: now + config.emailVerifyCodeTtlSeconds,
             attempts: 0,
-            nextResendAt: now + config.emailVerifyResendCooldownSeconds
-          }
+            nextResendAt: now + config.emailVerifyResendCooldownSeconds,
+          },
         };
         await store.saveInteractionLogin(uid, updatedPending);
         const csrf = issueCsrfToken(response, config, uid, "profile");
@@ -1033,8 +1452,8 @@ export function createInteractionRouter(
           profileVerifyCodeView(uid, csrf, {
             email,
             notice: "验证码已发送，请前往邮箱查看。",
-            resendCooldownSeconds: config.emailVerifyResendCooldownSeconds
-          })
+            resendCooldownSeconds: config.emailVerifyResendCooldownSeconds,
+          }),
         );
         return;
       }
@@ -1047,69 +1466,82 @@ export function createInteractionRouter(
             profileEmailView(uid, csrf, {
               error: "请先发送验证码。",
               verificationEnabled: true,
-              ...(pending.principal.email ? { email: pending.principal.email } : {})
-            })
+              ...(pending.principal.email
+                ? { email: pending.principal.email }
+                : {}),
+            }),
           );
           return;
         }
         if (verification.expiresAt <= now) {
           await store.saveInteractionLogin(uid, {
             principal: pending.principal,
-            authTime: pending.authTime
+            authTime: pending.authTime,
           });
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(400).send(
             profileEmailView(uid, csrf, {
               email: verification.email,
               error: "验证码已过期，请重新发送。",
-              verificationEnabled: true
-            })
+              verificationEnabled: true,
+            }),
           );
           return;
         }
         if (verification.attempts >= config.emailVerifyMaxAttempts) {
           await store.saveInteractionLogin(uid, {
             principal: pending.principal,
-            authTime: pending.authTime
+            authTime: pending.authTime,
           });
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(400).send(
             profileEmailView(uid, csrf, {
               email: verification.email,
               error: "验证码尝试次数过多，请重新发送。",
-              verificationEnabled: true
-            })
+              verificationEnabled: true,
+            }),
           );
           return;
         }
 
-        const code = typeof request.body?.code === "string" ? request.body.code.trim() : "";
+        const code =
+          typeof request.body?.code === "string"
+            ? request.body.code.trim()
+            : "";
         if (!/^\d{6}$/.test(code)) {
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(400).send(
             profileVerifyCodeView(uid, csrf, {
               email: verification.email,
               error: "请输入 6 位数字验证码。",
-              resendCooldownSeconds: getResendCooldownSeconds(verification.nextResendAt, now)
-            })
+              resendCooldownSeconds: getResendCooldownSeconds(
+                verification.nextResendAt,
+                now,
+              ),
+            }),
           );
           return;
         }
-        const inputHash = hashEmailVerificationCode(config, uid, verification.email, code);
+        const inputHash = hashEmailVerificationCode(
+          config,
+          uid,
+          verification.email,
+          code,
+        );
         if (!secureStringEqual(inputHash, verification.codeHash)) {
           const nextAttempts = verification.attempts + 1;
           if (nextAttempts >= config.emailVerifyMaxAttempts) {
             await store.saveInteractionLogin(uid, {
               principal: pending.principal,
-              authTime: pending.authTime
+              authTime: pending.authTime,
             });
             const csrf = issueCsrfToken(response, config, uid, "profile");
             response.status(400).send(
               profileEmailView(uid, csrf, {
                 email: verification.email,
                 error: "验证码尝试次数过多，请重新发送。",
-                verificationEnabled: true
-              })
+                verificationEnabled: true,
+              }),
             );
             return;
           }
@@ -1117,23 +1549,26 @@ export function createInteractionRouter(
             ...pending,
             emailVerification: {
               ...verification,
-              attempts: nextAttempts
-            }
+              attempts: nextAttempts,
+            },
           });
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(400).send(
             profileVerifyCodeView(uid, csrf, {
               email: verification.email,
               error: `验证码错误，还可尝试 ${config.emailVerifyMaxAttempts - nextAttempts} 次。`,
-              resendCooldownSeconds: getResendCooldownSeconds(verification.nextResendAt, now)
-            })
+              resendCooldownSeconds: getResendCooldownSeconds(
+                verification.nextResendAt,
+                now,
+              ),
+            }),
           );
           return;
         }
 
         await services.subjectProfileService.setVerifiedEmail(
           pending.principal.subjectId,
-          verification.email
+          verification.email,
         );
         await store.deleteInteractionLogin(uid);
         await finishInteractionLogin(provider, request, response, pending);
@@ -1145,8 +1580,10 @@ export function createInteractionRouter(
         profileEmailView(uid, csrf, {
           error: "无效操作，请重试。",
           verificationEnabled: true,
-          ...(pending.principal.email ? { email: pending.principal.email } : {})
-        })
+          ...(pending.principal.email
+            ? { email: pending.principal.email }
+            : {}),
+        }),
       );
     } catch (error) {
       handleInteractionRouteError(error, response, next);
