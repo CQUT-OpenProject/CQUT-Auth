@@ -9,6 +9,6 @@
     <circle cx="110" cy="59" r="5.5" fill="#6ADFA3"/>
   </g>
   <line x1="136" y1="20" x2="136" y2="108" stroke="#055088" stroke-width="2" opacity="0.2" stroke-linecap="round"/>
-  <text x="160" y="56" fill="#0B1F33" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="40" font-weight="700">Auth</text>
-  <text x="160" y="98" fill="#526577" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="22">统一身份认证与客户端授权管理中心</text>
+  <text x="160" y="56" fill="#0B1F33" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="40" font-weight="700">OpenProject</text>
+  <text x="160" y="98" fill="#526577" font-family="system-ui, PingFang SC, Microsoft YaHei, sans-serif" font-size="22">重庆理工大学开源计划</text>
 </svg>
