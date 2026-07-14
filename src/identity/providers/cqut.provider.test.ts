@@ -16,17 +16,23 @@ test("CqutCampusVerifierProvider uses UIS CAS endpoints only", async () => {
     const url = new URL(req.url ?? "/", `http://${host}`);
     requests.push({
       method: req.method ?? "GET",
-      pathWithQuery: `${url.pathname}${url.search}`
+      pathWithQuery: `${url.pathname}${url.search}`,
     });
 
-    if (url.pathname === `/center-auth-server/${appCode}/cas/login` && req.method === "GET") {
+    if (
+      url.pathname === `/center-auth-server/${appCode}/cas/login` &&
+      req.method === "GET"
+    ) {
       res.setHeader("Set-Cookie", "SOURCEID_TGC=test-tgc; Path=/; HttpOnly");
       res.statusCode = 200;
       res.end("ok");
       return;
     }
 
-    if (url.pathname === "/center-auth-server/sso/doLogin" && req.method === "POST") {
+    if (
+      url.pathname === "/center-auth-server/sso/doLogin" &&
+      req.method === "POST"
+    ) {
       res.setHeader("Content-Type", "application/json;charset=utf-8");
       res.end(JSON.stringify({ code: 200, msg: "登录成功" }));
       return;
@@ -50,13 +56,13 @@ test("CqutCampusVerifierProvider uses UIS CAS endpoints only", async () => {
     providerTotalTimeoutMs: 10000,
     uisBaseUrl: baseUrl,
     casApplicationCode: appCode,
-    casServiceUrl: `${baseUrl}/ump/common/login/authSourceAuth/auth?applicationCode=${appCode}`
+    casServiceUrl: `${baseUrl}/ump/common/login/authSourceAuth/auth?applicationCode=${appCode}`,
   });
 
   try {
     const identity = await provider.verifyCredentials({
       account: TEST_ACCOUNT,
-      password: TEST_PASSWORD
+      password: TEST_PASSWORD,
     });
     assert.equal(identity.schoolUid, TEST_ACCOUNT);
     assert.equal(identity.identityHash, `cqut:${TEST_ACCOUNT}`);
@@ -76,23 +82,29 @@ test("CqutCampusVerifierProvider uses UIS CAS endpoints only", async () => {
   assert.equal(requests.length >= 3, true);
   assert.equal(
     requests.some((item) => item.pathWithQuery.includes("/cas/clientredirect")),
-    false
+    false,
   );
   assert.equal(
-    requests.some((item) => item.pathWithQuery.includes(`/center-auth-server/${appCode}/cas/login`)),
-    true
+    requests.some((item) =>
+      item.pathWithQuery.includes(`/center-auth-server/${appCode}/cas/login`),
+    ),
+    true,
   );
   assert.equal(
-    requests.some((item) => item.pathWithQuery.startsWith("/center-auth-server/sso/doLogin")),
-    true
+    requests.some((item) =>
+      item.pathWithQuery.startsWith("/center-auth-server/sso/doLogin"),
+    ),
+    true,
   );
   assert.deepEqual(
-    requests.map((item) => `${item.method} ${item.pathWithQuery.split("?")[0]}`),
+    requests.map(
+      (item) => `${item.method} ${item.pathWithQuery.split("?")[0]}`,
+    ),
     [
       `GET /center-auth-server/${appCode}/cas/login`,
       "POST /center-auth-server/sso/doLogin",
-      `GET /center-auth-server/${appCode}/cas/login`
-    ]
+      `GET /center-auth-server/${appCode}/cas/login`,
+    ],
   );
 });
 
@@ -106,10 +118,13 @@ test("CqutCampusVerifierProvider retries transient CAS login GET failures", asyn
     const url = new URL(req.url ?? "/", `http://${host}`);
     requests.push({
       method: req.method ?? "GET",
-      pathWithQuery: `${url.pathname}${url.search}`
+      pathWithQuery: `${url.pathname}${url.search}`,
     });
 
-    if (url.pathname === `/center-auth-server/${appCode}/cas/login` && req.method === "GET") {
+    if (
+      url.pathname === `/center-auth-server/${appCode}/cas/login` &&
+      req.method === "GET"
+    ) {
       loginPageAttempts += 1;
       if (loginPageAttempts === 1) {
         res.statusCode = 503;
@@ -122,7 +137,10 @@ test("CqutCampusVerifierProvider retries transient CAS login GET failures", asyn
       return;
     }
 
-    if (url.pathname === "/center-auth-server/sso/doLogin" && req.method === "POST") {
+    if (
+      url.pathname === "/center-auth-server/sso/doLogin" &&
+      req.method === "POST"
+    ) {
       res.setHeader("Content-Type", "application/json;charset=utf-8");
       res.end(JSON.stringify({ code: 200, msg: "登录成功" }));
       return;
@@ -146,13 +164,13 @@ test("CqutCampusVerifierProvider retries transient CAS login GET failures", asyn
     providerTotalTimeoutMs: 10000,
     uisBaseUrl: baseUrl,
     casApplicationCode: appCode,
-    casServiceUrl: `${baseUrl}/ump/common/login/authSourceAuth/auth?applicationCode=${appCode}`
+    casServiceUrl: `${baseUrl}/ump/common/login/authSourceAuth/auth?applicationCode=${appCode}`,
   });
 
   try {
     const identity = await provider.verifyCredentials({
       account: TEST_ACCOUNT,
-      password: TEST_PASSWORD
+      password: TEST_PASSWORD,
     });
     assert.equal(identity.schoolUid, TEST_ACCOUNT);
     assert.equal(identity.studentStatus, "active");
@@ -169,12 +187,14 @@ test("CqutCampusVerifierProvider retries transient CAS login GET failures", asyn
   }
 
   assert.deepEqual(
-    requests.map((item) => `${item.method} ${item.pathWithQuery.split("?")[0]}`),
+    requests.map(
+      (item) => `${item.method} ${item.pathWithQuery.split("?")[0]}`,
+    ),
     [
       `GET /center-auth-server/${appCode}/cas/login`,
       `GET /center-auth-server/${appCode}/cas/login`,
       "POST /center-auth-server/sso/doLogin",
-      `GET /center-auth-server/${appCode}/cas/login`
-    ]
+      `GET /center-auth-server/${appCode}/cas/login`,
+    ],
   );
 });

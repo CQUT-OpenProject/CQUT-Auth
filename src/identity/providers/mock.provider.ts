@@ -1,4 +1,8 @@
-import type { CampusVerifierProvider, VerificationIdentity, VerifyCredentialsInput } from "../types.js";
+import type {
+  CampusVerifierProvider,
+  VerificationIdentity,
+  VerifyCredentialsInput,
+} from "../types.js";
 import { IdentityCoreError } from "../errors.js";
 
 type MockProviderOptions = {
@@ -10,7 +14,9 @@ export class MockCampusVerifierProvider implements CampusVerifierProvider {
 
   constructor(private readonly options: MockProviderOptions) {}
 
-  async verifyCredentials(input: VerifyCredentialsInput): Promise<VerificationIdentity> {
+  async verifyCredentials(
+    input: VerifyCredentialsInput,
+  ): Promise<VerificationIdentity> {
     // Keep test/dev flows credential-agnostic: reject only empty password.
     if (input.password.trim().length === 0) {
       throw new IdentityCoreError("verification_failed", "verification failed");
@@ -20,7 +26,7 @@ export class MockCampusVerifierProvider implements CampusVerifierProvider {
       verified: true,
       studentStatus: "active",
       school: this.options.schoolCode,
-      identityHash: `mock:${input.account || "mock-student-001"}`
+      identityHash: `mock:${input.account || "mock-student-001"}`,
     };
   }
 }

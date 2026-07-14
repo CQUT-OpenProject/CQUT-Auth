@@ -5,11 +5,15 @@ import { randomId } from "../utils.js";
 export class IdentityLinkService {
   constructor(
     private readonly store: IdentityStore,
-    private readonly createSubjectId: () => string = () => randomId("subj")
+    private readonly createSubjectId: () => string = () => randomId("subj"),
   ) {}
 
-  async linkVerifiedIdentity(input: LinkIdentityInput): Promise<SubjectIdentityRecord> {
-    const identityKey = input.identity.identityHash ?? `${input.provider}:${input.identity.schoolUid}`;
+  async linkVerifiedIdentity(
+    input: LinkIdentityInput,
+  ): Promise<SubjectIdentityRecord> {
+    const identityKey =
+      input.identity.identityHash ??
+      `${input.provider}:${input.identity.schoolUid}`;
     const now = new Date().toISOString();
     const existing = await this.store.findIdentity(input.provider, identityKey);
     if (existing) {
@@ -17,7 +21,7 @@ export class IdentityLinkService {
         schoolUid: input.identity.schoolUid,
         currentStudentStatus: input.identity.studentStatus,
         school: input.identity.school,
-        updatedAt: now
+        updatedAt: now,
       });
     }
 
@@ -27,7 +31,7 @@ export class IdentityLinkService {
         subjectId,
         status: "active",
         createdAt: now,
-        updatedAt: now
+        updatedAt: now,
       },
       {
         subjectId,
@@ -37,8 +41,8 @@ export class IdentityLinkService {
         currentStudentStatus: input.identity.studentStatus,
         school: input.identity.school,
         createdAt: now,
-        updatedAt: now
-      }
+        updatedAt: now,
+      },
     );
   }
 }

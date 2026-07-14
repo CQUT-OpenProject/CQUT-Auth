@@ -15,7 +15,9 @@ export type VerifyCredentialsInput = {
 
 export interface CampusVerifierProvider {
   readonly name: string;
-  verifyCredentials(input: VerifyCredentialsInput): Promise<VerificationIdentity>;
+  verifyCredentials(
+    input: VerifyCredentialsInput,
+  ): Promise<VerificationIdentity>;
 }
 
 export type InteractiveLoginInput = {

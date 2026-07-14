@@ -32,7 +32,7 @@ export class RateLimitService {
     if (!this.config.redisUrl) {
       if (this.config.rateLimitFailClosed) {
         this.logger.warn(
-          "redis unavailable for oidc rate limiting, entering fail-closed mode: REDIS_URL is not configured"
+          "redis unavailable for oidc rate limiting, entering fail-closed mode: REDIS_URL is not configured",
         );
         this.mode = "fail-closed";
         this.memory.clear();
@@ -46,7 +46,7 @@ export class RateLimitService {
       this.redis = new Redis(this.config.redisUrl, {
         lazyConnect: true,
         maxRetriesPerRequest: 1,
-        retryStrategy: () => null
+        retryStrategy: () => null,
       });
       this.redis.on("error", () => undefined);
       await this.redis.connect();
@@ -57,21 +57,25 @@ export class RateLimitService {
       this.redis = undefined;
       if (this.config.rateLimitFailClosed) {
         this.logger.warn(
-          `redis unavailable for oidc rate limiting, entering fail-closed mode: ${error instanceof Error ? error.message : "unknown error"}`
+          `redis unavailable for oidc rate limiting, entering fail-closed mode: ${error instanceof Error ? error.message : "unknown error"}`,
         );
         this.mode = "fail-closed";
         this.memory.clear();
         return;
       }
       this.logger.warn(
-        `redis unavailable for oidc rate limiting, falling back to memory: ${error instanceof Error ? error.message : "unknown error"}`
+        `redis unavailable for oidc rate limiting, falling back to memory: ${error instanceof Error ? error.message : "unknown error"}`,
       );
       this.mode = "memory";
       this.startMemoryCleanup();
     }
   }
 
-  async consume(key: string, max: number, windowSeconds: number): Promise<RateLimitDecision> {
+  async consume(
+    key: string,
+    max: number,
+    windowSeconds: number,
+  ): Promise<RateLimitDecision> {
     if (this.mode === "redis" && this.redis) {
       try {
         const result = (await this.redis.eval(
@@ -85,17 +89,17 @@ export class RateLimitService {
           `,
           1,
           key,
-          windowSeconds
+          windowSeconds,
         )) as [number | string, number | string];
         const count = Number(result[0]);
         const ttl = Math.max(1, Number(result[1]));
         return {
           allowed: count <= max,
-          retryAfterSeconds: ttl
+          retryAfterSeconds: ttl,
         };
       } catch (error) {
         this.logger.warn(
-          `redis rate limiting unavailable during consume: ${error instanceof Error ? error.message : "unknown error"}`
+          `redis rate limiting unavailable during consume: ${error instanceof Error ? error.message : "unknown error"}`,
         );
         if (this.config.rateLimitFailClosed) {
           this.mode = "fail-closed";
@@ -119,19 +123,22 @@ export class RateLimitService {
       }
       this.memory.set(key, {
         count: 1,
-        expiresAt: now + windowSeconds * 1000
+        expiresAt: now + windowSeconds * 1000,
       });
       this.evictIfOverCapacity();
       return {
         allowed: true,
-        retryAfterSeconds: windowSeconds
+        retryAfterSeconds: windowSeconds,
       };
     }
     existing.count += 1;
     this.evictIfOverCapacity();
     return {
       allowed: existing.count <= max,
-      retryAfterSeconds: Math.max(1, Math.ceil((existing.expiresAt - now) / 1000))
+      retryAfterSeconds: Math.max(
+        1,
+        Math.ceil((existing.expiresAt - now) / 1000),
+      ),
     };
   }
 

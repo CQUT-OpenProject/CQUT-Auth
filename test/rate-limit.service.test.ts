@@ -9,12 +9,14 @@ function createConfig(overrides: Partial<OidcOpConfig> = {}): OidcOpConfig {
     rateLimitFailClosed: false,
     rateLimitMemoryMaxKeys: 2,
     rateLimitMemoryCleanupIntervalSeconds: 3600,
-    ...overrides
+    ...overrides,
   } as unknown as OidcOpConfig;
 }
 
 test("memory fallback evicts oldest key when capacity is exceeded on new insert", async () => {
-  const service = new RateLimitService(createConfig({ rateLimitMemoryMaxKeys: 2 }));
+  const service = new RateLimitService(
+    createConfig({ rateLimitMemoryMaxKeys: 2 }),
+  );
   await service.init();
 
   try {
@@ -33,7 +35,9 @@ test("memory fallback evicts oldest key when capacity is exceeded on new insert"
 });
 
 test("memory fallback keeps FIFO order even when an old key is hit again", async () => {
-  const service = new RateLimitService(createConfig({ rateLimitMemoryMaxKeys: 2 }));
+  const service = new RateLimitService(
+    createConfig({ rateLimitMemoryMaxKeys: 2 }),
+  );
   await service.init();
 
   try {
@@ -51,7 +55,9 @@ test("memory fallback keeps FIFO order even when an old key is hit again", async
 });
 
 test("expired counters and FIFO eviction can coexist without stale key retention", async () => {
-  const service = new RateLimitService(createConfig({ rateLimitMemoryMaxKeys: 1 }));
+  const service = new RateLimitService(
+    createConfig({ rateLimitMemoryMaxKeys: 1 }),
+  );
   await service.init();
 
   const originalNow = Date.now;

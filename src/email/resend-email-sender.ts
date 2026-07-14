@@ -18,12 +18,13 @@ export class ResendEmailSender implements EmailSender {
   async sendVerificationCode(input: SendVerificationCodeInput): Promise<void> {
     const ttlMinutes = Math.max(1, Math.ceil(input.expiresInSeconds / 60));
     const nowBucket = Math.floor(Date.now() / 60_000);
-    const { error } = await this.resend.emails.send({
-      from: this.from,
-      to: [input.to],
-      subject: "CQUT Auth 邮箱验证码",
-      text: `你的验证码是 ${input.code}，${ttlMinutes} 分钟内有效。若非本人操作，请忽略本邮件。`,
-      html: `<div style="margin:0;padding:24px;background:#f5f7fb;">
+    const { error } = await this.resend.emails.send(
+      {
+        from: this.from,
+        to: [input.to],
+        subject: "CQUT Auth 邮箱验证码",
+        text: `你的验证码是 ${input.code}，${ttlMinutes} 分钟内有效。若非本人操作，请忽略本邮件。`,
+        html: `<div style="margin:0;padding:24px;background:#f5f7fb;">
         <div style="max-width:560px;margin:0 auto;background:#ffffff;border:1px solid #e4e7ec;border-radius:12px;overflow:hidden;">
           <div style="padding:20px 24px;border-bottom:1px solid #eaecf0;">
             <h2 style="margin:0;color:#101828;font-size:22px;line-height:1.3;">CQUT Auth 邮箱验证码</h2>
@@ -38,10 +39,12 @@ export class ResendEmailSender implements EmailSender {
             <p style="margin:0;color:#667085;font-size:12px;line-height:1.6;">若非本人操作，请忽略此邮件。</p>
           </div>
         </div>
-      </div>`
-    }, {
-      idempotencyKey: `email-verify/${input.interactionUid}/${nowBucket}`
-    });
+      </div>`,
+      },
+      {
+        idempotencyKey: `email-verify/${input.interactionUid}/${nowBucket}`,
+      },
+    );
     if (error) {
       throw new Error(`resend email send failed: ${error.message}`);
     }

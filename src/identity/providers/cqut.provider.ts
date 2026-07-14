@@ -1,7 +1,11 @@
 import axios, { type AxiosInstance, type AxiosResponse } from "axios";
 import { wrapper } from "axios-cookiejar-support";
 import { CookieJar } from "tough-cookie";
-import type { CampusVerifierProvider, VerificationIdentity, VerifyCredentialsInput } from "../types.js";
+import type {
+  CampusVerifierProvider,
+  VerificationIdentity,
+  VerifyCredentialsInput,
+} from "../types.js";
 import { IdentityCoreError, RetryableProviderError } from "../errors.js";
 import { getSecretParam } from "./cqut.crypto.js";
 
@@ -19,12 +23,16 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
 
   constructor(private readonly options: CqutProviderOptions) {}
 
-  async verifyCredentials(input: VerifyCredentialsInput): Promise<VerificationIdentity> {
+  async verifyCredentials(
+    input: VerifyCredentialsInput,
+  ): Promise<VerificationIdentity> {
     const abortController = new AbortController();
     let timedOut = false;
     const timeoutHandle = setTimeout(() => {
       timedOut = true;
-      abortController.abort(new Error("campus verification exceeded total timeout"));
+      abortController.abort(
+        new Error("campus verification exceeded total timeout"),
+      );
     }, this.options.providerTotalTimeoutMs);
 
     try {
@@ -36,8 +44,8 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
           withCredentials: true,
           maxRedirects: 10,
           timeout: this.options.providerTimeoutMs,
-          validateStatus: () => true
-        })
+          validateStatus: () => true,
+        }),
       );
 
       const serviceUrl = "http://202.202.145.132:80/";
@@ -49,62 +57,87 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         name: input.account,
         pwd: getSecretParam(input.password),
         universityId: "100005",
-        verifyCode: null
+        verifyCode: null,
       };
       const delegatedHeaders = {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN",
         "User-Agent": "CQUT-Auth-Service/1.0",
-        Referer: serviceUrl
+        Referer: serviceUrl,
       };
       const delegated = await getCasLoginWithRetry(client, {
         url: `${uisBaseUrl}/center-auth-server/${casApplicationCode}/cas/login`,
         service: casServiceUrl,
         applicationCode: casApplicationCode,
-        headers: delegatedHeaders
+        headers: delegatedHeaders,
       });
 
       if (delegated.status >= 500) {
         throw new RetryableProviderError("delegated service is unavailable");
       }
-      const finalUrl = String(delegated.request?.res?.responseUrl ?? delegated.config.url ?? "");
-      const serviceWithDelegatedClientId = new URL(finalUrl).searchParams.get("service") ?? casServiceUrl;
+      const finalUrl = String(
+        delegated.request?.res?.responseUrl ?? delegated.config.url ?? "",
+      );
+      const serviceWithDelegatedClientId =
+        new URL(finalUrl).searchParams.get("service") ?? casServiceUrl;
       if (!serviceWithDelegatedClientId) {
-        throw new IdentityCoreError("verification_failed", "failed to obtain delegated service");
+        throw new IdentityCoreError(
+          "verification_failed",
+          "failed to obtain delegated service",
+        );
       }
-      const casLoginUrl = resolveCasLoginUrl(uisBaseUrl, finalUrl, casApplicationCode);
+      const casLoginUrl = resolveCasLoginUrl(
+        uisBaseUrl,
+        finalUrl,
+        casApplicationCode,
+      );
 
       // Execute credential verification against UIS, then continue CAS login with
       // the delegated service derived from the same UIS flow.
-      const loginResponse = await client.post(`${uisBaseUrl}/center-auth-server/sso/doLogin`, loginPayload, {
-        headers: {
-          "Content-Type": "application/json, application/json;charset=UTF-8",
-          Referer: finalUrl
-        }
-      });
+      const loginResponse = await client.post(
+        `${uisBaseUrl}/center-auth-server/sso/doLogin`,
+        loginPayload,
+        {
+          headers: {
+            "Content-Type": "application/json, application/json;charset=UTF-8",
+            Referer: finalUrl,
+          },
+        },
+      );
       if (loginResponse.status >= 500) {
         throw new RetryableProviderError("campus login service is unavailable");
       }
       if (loginResponse.status >= 400 || loginResponse.data?.code !== 200) {
-        throw new IdentityCoreError("verification_failed", "campus credentials rejected");
+        throw new IdentityCoreError(
+          "verification_failed",
+          "campus credentials rejected",
+        );
       }
 
       const casResponse = await getCasLoginWithRetry(client, {
         url: casLoginUrl,
         service: serviceWithDelegatedClientId,
-        headers: { Referer: finalUrl }
+        headers: { Referer: finalUrl },
       });
       if (casResponse.status >= 500) {
         throw new RetryableProviderError("campus cas service is unavailable");
       }
 
-      const uiCookies = jar.getCookiesSync(uisBaseUrl).map((cookie) => cookie.key);
+      const uiCookies = jar
+        .getCookiesSync(uisBaseUrl)
+        .map((cookie) => cookie.key);
       const hasTgc = uiCookies.includes("SOURCEID_TGC");
-      const postLoginUrl = String(casResponse.request?.res?.responseUrl ?? casResponse.config.url ?? "");
+      const postLoginUrl = String(
+        casResponse.request?.res?.responseUrl ?? casResponse.config.url ?? "",
+      );
       const redirectedBack = postLoginUrl.includes("ticket=");
       const portalSuccess = postLoginUrl.includes("/eportal/success.jsp");
       if (!hasTgc && !redirectedBack && !portalSuccess) {
-        throw new IdentityCoreError("verification_failed", "cas session was not established");
+        throw new IdentityCoreError(
+          "verification_failed",
+          "cas session was not established",
+        );
       }
 
       return {
@@ -112,7 +145,7 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         verified: true,
         studentStatus: "active",
         school: this.options.schoolCode,
-        identityHash: `cqut:${input.account}`
+        identityHash: `cqut:${input.account}`,
       };
     } catch (error) {
       if (error instanceof RetryableProviderError) {
@@ -123,16 +156,27 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
       }
       if (axios.isAxiosError(error)) {
         if (timedOut) {
-          throw new RetryableProviderError("campus verification exceeded total timeout");
+          throw new RetryableProviderError(
+            "campus verification exceeded total timeout",
+          );
         }
-        if (error.code === "ERR_CANCELED" || error.code === "ECONNABORTED" || !error.response) {
+        if (
+          error.code === "ERR_CANCELED" ||
+          error.code === "ECONNABORTED" ||
+          !error.response
+        ) {
           const target =
-            typeof error.config?.url === "string" && error.config.url.trim() ? error.config.url : "campus upstream";
+            typeof error.config?.url === "string" && error.config.url.trim()
+              ? error.config.url
+              : "campus upstream";
           const reason = error.code ? ` (${error.code})` : "";
-          throw new RetryableProviderError(`campus upstream request timed out: ${target}${reason}`);
+          throw new RetryableProviderError(
+            `campus upstream request timed out: ${target}${reason}`,
+          );
         }
       }
-      const message = error instanceof Error ? error.message : "unknown upstream failure";
+      const message =
+        error instanceof Error ? error.message : "unknown upstream failure";
       throw new IdentityCoreError("verification_failed", message);
     } finally {
       clearTimeout(timeoutHandle);
@@ -147,7 +191,7 @@ async function getCasLoginWithRetry(
     service: string;
     applicationCode?: string;
     headers: Record<string, string>;
-  }
+  },
 ): Promise<AxiosResponse> {
   let lastError: unknown;
   const params: Record<string, string> = { service: options.service };
@@ -159,12 +203,14 @@ async function getCasLoginWithRetry(
     try {
       const response = await client.get(options.url, {
         params,
-        headers: options.headers
+        headers: options.headers,
       });
       if (response.status < 500 || attempt === 2) {
         return response;
       }
-      lastError = new RetryableProviderError("campus cas login returned retryable status");
+      lastError = new RetryableProviderError(
+        "campus cas login returned retryable status",
+      );
     } catch (error) {
       lastError = error;
       if (attempt === 2 || !isRetryableAxiosNetworkError(error)) {
@@ -174,14 +220,20 @@ async function getCasLoginWithRetry(
     await sleep(250);
   }
 
-  throw lastError instanceof Error ? lastError : new RetryableProviderError("campus cas login failed");
+  throw lastError instanceof Error
+    ? lastError
+    : new RetryableProviderError("campus cas login failed");
 }
 
 function isRetryableAxiosNetworkError(error: unknown): boolean {
   if (!axios.isAxiosError(error)) {
     return false;
   }
-  return error.code === "ERR_CANCELED" || error.code === "ECONNABORTED" || !error.response;
+  return (
+    error.code === "ERR_CANCELED" ||
+    error.code === "ECONNABORTED" ||
+    !error.response
+  );
 }
 
 function sleep(ms: number): Promise<void> {
@@ -194,10 +246,16 @@ function normalizeBaseUrl(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function resolveCasLoginUrl(uisBaseUrl: string, finalUrl: string, fallbackApplicationCode: string): string {
+function resolveCasLoginUrl(
+  uisBaseUrl: string,
+  finalUrl: string,
+  fallbackApplicationCode: string,
+): string {
   try {
     const parsed = new URL(finalUrl);
-    const match = parsed.pathname.match(/^\/center-auth-server\/([^/]+)\/cas\/login$/);
+    const match = parsed.pathname.match(
+      /^\/center-auth-server\/([^/]+)\/cas\/login$/,
+    );
     if (match?.[1]) {
       return `${uisBaseUrl}/center-auth-server/${match[1]}/cas/login`;
     }

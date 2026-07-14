@@ -4,7 +4,13 @@ export const DEDUPE_SCOPE = "student.dedupe";
 export const SUPPORTED_SCOPES = ["student.verify", "student.dedupe"] as const;
 export type SupportedScope = (typeof SUPPORTED_SCOPES)[number];
 
-export const OIDC_SCOPES = ["openid", "profile", "email", "offline_access", "student"] as const;
+export const OIDC_SCOPES = [
+  "openid",
+  "profile",
+  "email",
+  "offline_access",
+  "student",
+] as const;
 export const DEFAULT_OIDC_SCOPES = ["openid", "profile"] as const;
 export type OidcScope = (typeof OIDC_SCOPES)[number];
 
@@ -14,15 +20,11 @@ export const OIDC_CLAIMS = [
   "name",
   "email",
   "email_verified",
-  "status"
+  "status",
 ] as const;
 export type OidcClaim = (typeof OIDC_CLAIMS)[number];
 
-export const STUDENT_STATUS = [
-  "active",
-  "not_student",
-  "unknown"
-] as const;
+export const STUDENT_STATUS = ["active", "not_student", "unknown"] as const;
 export type StudentStatus = (typeof STUDENT_STATUS)[number];
 
 export const API_ERRORS = [
@@ -31,7 +33,7 @@ export const API_ERRORS = [
   "invalid_scope",
   "rate_limited",
   "verification_failed",
-  "server_error"
+  "server_error",
 ] as const;
 export type ApiErrorCode = (typeof API_ERRORS)[number];
 

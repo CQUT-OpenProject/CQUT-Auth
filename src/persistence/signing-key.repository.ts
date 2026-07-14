@@ -1,5 +1,8 @@
 import type { Pool } from "pg";
-import type { OidcSigningKeyRecord, SigningKeyRepository } from "./contracts.js";
+import type {
+  OidcSigningKeyRecord,
+  SigningKeyRepository,
+} from "./contracts.js";
 import type { JwkCipherServiceImpl } from "./jwk-cipher.service.js";
 
 export class SigningKeyRepositoryImpl implements SigningKeyRepository {
@@ -7,10 +10,12 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
 
   constructor(
     private readonly poolProvider: () => Pool | undefined,
-    private readonly jwkCipherService: JwkCipherServiceImpl
+    private readonly jwkCipherService: JwkCipherServiceImpl,
   ) {}
 
-  async upsertSigningKey(key: OidcSigningKeyRecord): Promise<OidcSigningKeyRecord> {
+  async upsertSigningKey(
+    key: OidcSigningKeyRecord,
+  ): Promise<OidcSigningKeyRecord> {
     const pool = this.poolProvider();
     if (!pool) {
       this.signingKeys.set(key.kid, key);
@@ -48,20 +53,23 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
         key.status,
         key.createdAt,
         key.activatedAt ?? null,
-        key.retiredAt ?? null
-      ]
+        key.retiredAt ?? null,
+      ],
     );
     return key;
   }
 
-  async listSigningKeys(statuses: Array<OidcSigningKeyRecord["status"]> = ["active", "retiring"]) {
+  async listSigningKeys(
+    statuses: Array<OidcSigningKeyRecord["status"]> = ["active", "retiring"],
+  ) {
     const pool = this.poolProvider();
     if (!pool) {
       return [...this.signingKeys.values()]
         .filter((item) => statuses.includes(item.status))
         .sort(
           (left, right) =>
-            left.status.localeCompare(right.status) || right.createdAt.localeCompare(left.createdAt)
+            left.status.localeCompare(right.status) ||
+            right.createdAt.localeCompare(left.createdAt),
         );
     }
     const result = await pool.query(
@@ -70,7 +78,7 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
       where status = any($1::text[])
       order by case when status = 'active' then 0 else 1 end, created_at desc
       `,
-      [statuses]
+      [statuses],
     );
     return result.rows.map((row: Record<string, unknown>) => ({
       kid: String(row["kid"]),
@@ -80,21 +88,31 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
       privateJwkCiphertext: String(row["private_jwk_ciphertext"]),
       status: row["status"] as OidcSigningKeyRecord["status"],
       createdAt: (row["created_at"] as Date).toISOString(),
-      activatedAt: row["activated_at"] ? (row["activated_at"] as Date).toISOString() : undefined,
-      retiredAt: row["retired_at"] ? (row["retired_at"] as Date).toISOString() : undefined
+      activatedAt: row["activated_at"]
+        ? (row["activated_at"] as Date).toISOString()
+        : undefined,
+      retiredAt: row["retired_at"]
+        ? (row["retired_at"] as Date).toISOString()
+        : undefined,
     }));
   }
 
-  async loadPrivateSigningJwks(statuses: Array<OidcSigningKeyRecord["status"]> = ["active", "retiring"]) {
+  async loadPrivateSigningJwks(
+    statuses: Array<OidcSigningKeyRecord["status"]> = ["active", "retiring"],
+  ) {
     const keys = await this.listSigningKeys(statuses);
     const decryptedKeys = await Promise.all(
       keys.map(async (key) => ({
-        ...(await this.jwkCipherService.decryptPrivateJwk(key.privateJwkCiphertext)),
+        ...(await this.jwkCipherService.decryptPrivateJwk(
+          key.privateJwkCiphertext,
+        )),
         use: key.use,
         alg: key.alg,
-        kid: key.kid
-      }))
+        kid: key.kid,
+      })),
     );
-    return decryptedKeys as Array<JsonWebKey & { kid: string; alg: string; use: string }>;
+    return decryptedKeys as Array<
+      JsonWebKey & { kid: string; alg: string; use: string }
+    >;
   }
 }
