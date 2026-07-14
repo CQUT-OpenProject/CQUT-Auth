@@ -5,10 +5,8 @@ import type {
   AuthenticatedPrincipal,
   InteractiveAuthenticatorService,
 } from "../identity/index.js";
-import {
-  ClientManagementError,
-  ClientManagementService,
-} from "../clients/client-management.service.js";
+import { ClientManagementService } from "../clients/client-management.service.js";
+import { ClientManagementError } from "../management/management-error.js";
 import type { OidcPersistence } from "../persistence/contracts.js";
 import {
   RateLimitService,

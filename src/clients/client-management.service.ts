@@ -21,14 +21,11 @@ import { ClientManagementError } from "../management/management-error.js";
 import {
   ProjectAccessService,
   type ProjectAction,
+  type ProjectActor,
   type ProjectWriteAuthorization,
 } from "../projects/project-access.js";
 
-export type ClientActor = {
-  subjectId: string;
-  isAdmin: boolean;
-  sourceIp?: string;
-};
+export type ClientActor = ProjectActor;
 
 export type PublicClientRevision = {
   revisionId: number;
@@ -67,8 +64,6 @@ export type PublicClientSecret = {
   revokedAt: string | null;
   version: number;
 };
-
-export { ClientManagementError } from "../management/management-error.js";
 
 type ServiceDependencies = {
   now?: () => Date;
