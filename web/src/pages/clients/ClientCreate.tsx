@@ -94,7 +94,7 @@ export const ClientCreate: React.FC = () => {
   const handleFinish = async () => {
     setLoading(true);
     try {
-      const values = form.getFieldsValue();
+      const values = form.getFieldsValue(true);
 
       // Filter empty URIs
       const cleanRedirectUris = (values.redirectUris || []).filter(
@@ -121,7 +121,21 @@ export const ClientCreate: React.FC = () => {
         },
       );
 
-      message.success("客户端草稿已成功创建！");
+      const draft = res.client.proposedRevision;
+      if (!draft) throw new Error("创建的客户端缺少草稿配置");
+
+      await request(
+        `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(res.client.clientId)}/revision/submit`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            revisionId: draft.revisionId,
+            revisionVersion: draft.version,
+          }),
+        },
+      );
+
+      message.success("客户端已创建并提交审核！");
 
       if (res.clientSecret) {
         // Trigger one-time secret display
@@ -147,7 +161,7 @@ export const ClientCreate: React.FC = () => {
     );
   };
 
-  const formValues = form.getFieldsValue();
+  const formValues = form.getFieldsValue(true);
 
   return (
     <Card
@@ -422,7 +436,7 @@ export const ClientCreate: React.FC = () => {
             <Title level={5} style={{ marginBottom: "16px" }}>
               请确认以下客户端配置：
             </Title>
-            <List bordered style={{ background: "#fafafa" }}>
+            <List bordered>
               <List.Item>
                 <Space direction="vertical" size={2}>
                   <Text type="secondary">项目 ID</Text>

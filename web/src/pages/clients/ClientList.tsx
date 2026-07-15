@@ -29,17 +29,16 @@ export const ClientList: React.FC = () => {
 
   const projectId = activeProject?.projectId;
 
-  const { data, isLoading } = useList<Client>({
+  const { query, result } = useList<Client>({
     resource: "clients",
-    config: {
-      meta: { projectId },
-    },
+    meta: { projectId },
     queryOptions: {
       enabled: !!projectId,
     },
   });
 
-  const clients = data?.data ?? [];
+  const clients = result.data;
+  const isLoading = query.isLoading;
 
   // Filter logic on client-side
   const filteredClients = useMemo(() => {

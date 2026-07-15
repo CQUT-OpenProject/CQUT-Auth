@@ -32,6 +32,7 @@ import {
   PoweroffOutlined,
   CopyOutlined,
   DeleteOutlined,
+  PlusOutlined,
 } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
 import { useOne, useUpdate } from "@refinedev/core";
@@ -66,6 +67,7 @@ export const ClientDetail: React.FC = () => {
     const path = location.pathname;
     if (path.endsWith("/configuration")) return "configuration";
     if (path.endsWith("/secrets")) return "secrets";
+    if (path.endsWith("/safety")) return "safety";
     if (path.endsWith("/audit")) return "audit";
     return "overview";
   };
@@ -77,18 +79,15 @@ export const ClientDetail: React.FC = () => {
   };
 
   // Fetch client details using Refine useOne hook
-  const { data, isLoading, refetch } = useOne<Client>({
+  const { query, result: client } = useOne<Client>({
     resource: "clients",
     id: clientId,
-    config: {
-      meta: { projectId },
-    },
+    meta: { projectId },
     queryOptions: {
       enabled: !!projectId && !!clientId,
     },
   });
-
-  const client = data?.data;
+  const { isLoading, refetch } = query;
 
   // Forms
   const [metaForm] = Form.useForm();
@@ -925,7 +924,7 @@ export const ClientDetail: React.FC = () => {
                             style={{ marginLeft: "12px", fontSize: "13px" }}
                           >
                             轮换生成新 Secret 后，原旧 Secret
-                            将在此时间内保持可用（平滑过渡）。
+                            将在此时间内保持可用。
                           </Text>
                         </div>
                         <Button

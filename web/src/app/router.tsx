@@ -69,6 +69,10 @@ export const AppRouter: React.FC = () => {
           element={<ClientDetail />}
         />
         <Route
+          path="/projects/:projectId/clients/:clientId/safety"
+          element={<ClientDetail />}
+        />
+        <Route
           path="/projects/:projectId/clients/:clientId/audit"
           element={<ClientDetail />}
         />
