@@ -1,7 +1,9 @@
 import { createOidcApp } from "./app.js";
 
 async function bootstrap() {
-  const { app, state } = await createOidcApp();
+  const { app, state } = await createOidcApp(undefined, {
+    requestRestart: () => process.kill(process.pid, "SIGTERM"),
+  });
   console.warn(
     "[oidc-op] Managed OIDC profile active: only controlled, allowlisted clients are supported; this deployment is not a general-purpose open ecosystem OP.",
   );

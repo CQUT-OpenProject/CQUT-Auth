@@ -33,7 +33,7 @@ async function clientsConfig() {
 
 async function createApp(
   overrides: NodeJS.ProcessEnv = {},
-  dependencies: { emailSender?: EmailSender } = {},
+  dependencies: { emailSender?: EmailSender; requestRestart?: () => void } = {},
 ) {
   return createOidcApp(
     {
@@ -1025,6 +1025,41 @@ test("email settings API ignores env secrets and can test saved delivery setting
       audits.body.auditLogs.map((audit: { action: string }) => audit.action),
       ["runtime_policy.verified", "runtime_policy.updated"],
     );
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
+test("runtime policy restart is admin-only and runs after the response", async () => {
+  let restartRequests = 0;
+  const { app, state } = await createApp(
+    {},
+    {
+      requestRestart: () => {
+        restartRequests += 1;
+      },
+    },
+  );
+  await seedAdmin(state);
+  try {
+    const outsider = request.agent(app);
+    const outsiderLogin = await login(outsider, "restart-outsider");
+    const denied = await outsider
+      .post("/api/management/settings/runtime-policy/restart")
+      .set("X-CSRF-Token", outsiderLogin.body.csrfToken);
+    assert.equal(denied.status, 403);
+    assert.equal(restartRequests, 0);
+
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    const accepted = await admin
+      .post("/api/management/settings/runtime-policy/restart")
+      .set("X-CSRF-Token", signedIn.body.csrfToken);
+    assert.equal(accepted.status, 202);
+    assert.deepEqual(accepted.body, { restarting: true });
+    assert.equal(restartRequests, 1);
   } finally {
     await state.closeOidcServices();
     await state.rateLimitService.close();

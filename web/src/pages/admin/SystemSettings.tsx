@@ -12,8 +12,14 @@ import {
   Spin,
   Switch,
   Typography,
+  Modal,
 } from "antd";
-import { SaveOutlined, SendOutlined, SettingOutlined } from "@ant-design/icons";
+import {
+  ReloadOutlined,
+  SaveOutlined,
+  SendOutlined,
+  SettingOutlined,
+} from "@ant-design/icons";
 import { request } from "../../api/client";
 import type { EmailProviderKind, RuntimePolicyView } from "../../api/types";
 
@@ -87,6 +93,7 @@ export const SystemSettings: React.FC = () => {
   const [view, setView] = useState<RuntimePolicyView>();
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [restarting, setRestarting] = useState(false);
   const provider = Form.useWatch(["email", "provider"], form) as
     | EmailProviderKind
     | undefined;
@@ -152,6 +159,25 @@ export const SystemSettings: React.FC = () => {
     }
   };
 
+  const restart = () => {
+    Modal.confirm({
+      title: "确认重启服务？",
+      content: "服务会短暂不可用，保存的系统设置将在重启后生效。",
+      okText: "重启",
+      cancelText: "取消",
+      okButtonProps: { danger: true },
+      onOk: async () => {
+        setRestarting(true);
+        try {
+          await request("/settings/runtime-policy/restart", { method: "POST" });
+        } catch (reason) {
+          setRestarting(false);
+          setError(reason instanceof Error ? reason.message : "重启失败");
+        }
+      },
+    });
+  };
+
   if (!view && !error) return <Spin />;
   return (
     <Card
@@ -175,7 +201,7 @@ export const SystemSettings: React.FC = () => {
         <Alert
           type="info"
           showIcon
-          message="所有业务策略保存后统一在下次服务启动时生效；密钥只加密存储且不会回显。"
+          message="所有配置保存后，重启生效；密钥只加密存储且不会回显。"
         />
         <Form form={form} layout="vertical" onFinish={save}>
           <Collapse
@@ -337,15 +363,25 @@ export const SystemSettings: React.FC = () => {
               },
             ]}
           />
-          <Button
-            type="primary"
-            htmlType="submit"
-            icon={<SaveOutlined />}
-            loading={saving}
-            style={{ marginTop: 16 }}
-          >
-            保存系统设置
-          </Button>
+          <Space style={{ marginTop: 16 }}>
+            <Button
+              type="primary"
+              htmlType="submit"
+              icon={<SaveOutlined />}
+              loading={saving}
+            >
+              保存系统设置
+            </Button>
+            <Button
+              danger
+              icon={<ReloadOutlined />}
+              loading={restarting}
+              disabled={!view?.restartRequired}
+              onClick={restart}
+            >
+              重启服务
+            </Button>
+          </Space>
         </Form>
       </Space>
     </Card>

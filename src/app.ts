@@ -28,6 +28,7 @@ type AppState = {
 type AppDependencies = {
   emailSender?: EmailSender;
   runtimePolicyOverrides?: Partial<PolicyValues>;
+  requestRestart?: () => void;
 };
 
 function errorHandler(
@@ -187,6 +188,7 @@ export async function createOidcApp(
       store,
       rateLimitService,
       invalidateClientOrigins,
+      dependencies.requestRestart,
     ),
   );
   const managementAssets = resolve(process.cwd(), "dist/management");

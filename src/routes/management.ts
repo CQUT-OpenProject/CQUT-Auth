@@ -41,6 +41,7 @@ export function createManagementRouter(
   store: OidcPersistence,
   rateLimitService: RateLimitService,
   onClientsChanged: () => void,
+  onRestartRequested?: () => void,
 ): Router {
   const router = express.Router();
   const jsonParser = express.json({ limit: "64kb", strict: true });
@@ -748,6 +749,24 @@ export function createManagementRouter(
           services.emailSender,
         );
         response.json({ settings });
+      });
+    },
+  );
+
+  router.post(
+    "/settings/runtime-policy/restart",
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        requireAdmin(auth.actor);
+        if (!onRestartRequested) {
+          throw new ClientManagementError(
+            503,
+            "restart_unavailable",
+            "service restart is not available in this deployment",
+          );
+        }
+        response.status(202).json({ restarting: true });
+        response.once("finish", onRestartRequested);
       });
     },
   );
