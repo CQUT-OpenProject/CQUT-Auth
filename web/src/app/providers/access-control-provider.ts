@@ -34,7 +34,7 @@ export const accessControlProvider: AccessControlProvider = {
     if (
       resource === "adminReviews" ||
       resource === "adminProjects" ||
-      resource === "emailSettings"
+      resource === "systemSettings"
     ) {
       return { can: !!currentUser?.isAdmin };
     }

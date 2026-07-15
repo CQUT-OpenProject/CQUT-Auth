@@ -24,7 +24,7 @@ export const resources: ResourceProps[] = [
     list: "/admin/reviews",
   },
   {
-    name: "emailSettings",
-    list: "/admin/settings/email",
+    name: "systemSettings",
+    list: "/admin/settings/system",
   },
 ];

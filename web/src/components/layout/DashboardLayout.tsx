@@ -20,7 +20,7 @@ import {
   DesktopOutlined,
   AuditOutlined,
   SafetyCertificateOutlined,
-  MailOutlined,
+  SettingOutlined,
   LogoutOutlined,
   SunOutlined,
   MoonOutlined,
@@ -157,10 +157,10 @@ export const DashboardLayout: React.FC = () => {
             onClick: () => navigate("/admin/reviews"),
           },
           {
-            key: "email-settings",
-            icon: <MailOutlined />,
-            label: "邮件设置",
-            onClick: () => navigate("/admin/settings/email"),
+            key: "system-settings",
+            icon: <SettingOutlined />,
+            label: "系统设置",
+            onClick: () => navigate("/admin/settings/system"),
           },
         ],
       });

@@ -138,3 +138,12 @@ export type EmailSettingsTestInput = {
   expectedVersion: number;
   recipient: string;
 };
+
+export type RuntimePolicyView = {
+  policy: Record<string, number | boolean>;
+  email: EmailSettingsView;
+  version: number;
+  loadedVersion: number;
+  restartRequired: boolean;
+  updatedAt: string | null;
+};
