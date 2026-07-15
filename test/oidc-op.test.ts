@@ -1391,7 +1391,12 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
     .get("/userinfo")
     .set("Authorization", `Bearer ${token.body.access_token as string}`);
   assert.equal(userinfo.status, 200);
-  assert.equal(userinfo.body.sub, userinfo.body.sub);
+  const principal = await state.store.findPrincipalBySubjectId(
+    userinfo.body.sub as string,
+  );
+  assert.ok(principal);
+  assert.equal(principal.schoolUid, TEST_LOGIN_ACCOUNT);
+  assert.equal(userinfo.body.name, `User-${TEST_LOGIN_ACCOUNT}`);
   assert.equal(userinfo.body.email, "demo@example.com");
   assert.equal(userinfo.body.email_verified, true);
   assert.equal(userinfo.body.status, "active");

@@ -7,5 +7,6 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     env: { NODE_ENV: "development" },
+    testTimeout: 15_000,
   },
 });

@@ -731,8 +731,7 @@ export async function createOidcServices(
           };
           if (grantedScopes.has("profile")) {
             claims["preferred_username"] = principal.preferredUsername;
-            claims["name"] =
-              principal.displayName ?? `CQUT User ${principal.schoolUid}`;
+            claims["name"] = `User-${principal.schoolUid}`;
           }
           if (
             grantedScopes.has("email") &&

@@ -37,7 +37,7 @@ export class InteractiveAuthenticatorService {
     const profile = await this.subjectProfileService.ensureProfile({
       subjectId: linkedIdentity.subjectId,
       preferredUsername: linkedIdentity.schoolUid,
-      displayName: `CQUT User ${linkedIdentity.schoolUid}`,
+      displayName: `User-${linkedIdentity.schoolUid}`,
     });
     const subject = await this.store.findSubject(linkedIdentity.subjectId);
     if (!subject || subject.status !== "active") {

@@ -431,7 +431,7 @@ test("creates the selected web client type", async () => {
 
   fireEvent.click(await screen.findByRole("button", { name: "我已安全保存" }));
   expect(await screen.findByText("Active Web")).toBeTruthy();
-}, 10_000);
+});
 
 test("hides the system project and exposes its clients to admins", async () => {
   mockApi({
