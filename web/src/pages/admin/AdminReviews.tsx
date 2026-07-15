@@ -8,7 +8,9 @@ import {
   Input,
   Typography,
   Alert,
+  Descriptions,
   Empty,
+  Tag,
   message,
 } from "antd";
 import {
@@ -18,11 +20,13 @@ import {
 } from "@ant-design/icons";
 import { request } from "../../api/client";
 import { RevisionDiff } from "../../components/revision/RevisionDiff";
+import { useProject } from "../../contexts/project-context";
 import type { Client } from "../../api/types";
 
 const { Text, Title } = Typography;
 
 export const AdminReviews: React.FC = () => {
+  const { projects } = useProject();
   const [pendingClients, setPendingClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -88,10 +92,20 @@ export const AdminReviews: React.FC = () => {
 
   const columns = [
     {
-      title: "项目 ID",
+      title: "项目",
       dataIndex: "projectId",
       key: "projectId",
-      render: (text: string) => <Text strong>{text}</Text>,
+      render: (projectId: string) => (
+        <Space direction="vertical" size={0}>
+          <Text strong>
+            {projects.find((project) => project.projectId === projectId)
+              ?.name ?? projectId}
+          </Text>
+          <Text code style={{ fontSize: "11px" }}>
+            {projectId}
+          </Text>
+        </Space>
+      ),
     },
     {
       title: "客户端",
@@ -229,8 +243,16 @@ export const AdminReviews: React.FC = () => {
           >
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
               <Descriptions bordered column={2} size="small">
-                <Descriptions.Item label="项目 ID">
-                  {selectedClient.projectId}
+                <Descriptions.Item label="项目">
+                  <Space direction="vertical" size={0}>
+                    <Text>
+                      {projects.find(
+                        (project) =>
+                          project.projectId === selectedClient.projectId,
+                      )?.name ?? selectedClient.projectId}
+                    </Text>
+                    <Text code>{selectedClient.projectId}</Text>
+                  </Space>
                 </Descriptions.Item>
                 <Descriptions.Item label="客户端 ID">
                   <Text code>{selectedClient.clientId}</Text>
@@ -242,6 +264,11 @@ export const AdminReviews: React.FC = () => {
                   <Tag color="purple">
                     {selectedClient.clientType.toUpperCase()}
                   </Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="申请描述" span={2}>
+                  {selectedClient.description || (
+                    <Text type="secondary">—</Text>
+                  )}
                 </Descriptions.Item>
               </Descriptions>
               <RevisionDiff
