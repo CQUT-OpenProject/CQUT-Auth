@@ -69,6 +69,7 @@
     "react-router": "^7.18.1",
     "react-router-dom": "^7.18.1",
     "resend": "^6.10.0",
+    "saxes": "^6.0.0",
     "tough-cookie": "^5.1.2"
   },
   "devDependencies": {

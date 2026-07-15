@@ -74,6 +74,9 @@ importers:
       resend:
         specifier: ^6.10.0
         version: 6.12.2
+      saxes:
+        specifier: ^6.0.0
+        version: 6.0.0
       tough-cookie:
         specifier: ^5.1.2
         version: 5.1.2
