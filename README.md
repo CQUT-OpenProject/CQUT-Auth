@@ -1,270 +1,298 @@
 ![仓库封面](./.github/assets/repository-cover.svg)
 
-> [!NOTE]
-> 本项目大部分代码、测试和文档均由智能体编写。维护者仅对体感功能进行简单测试，对数据安全与代码质量不作任何保障，但我们会尽最大努力修复问题。
-
 <div align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat" alt="License: MIT"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-24+-green.svg?style=flat" alt="Node.js 24+"></a>
   <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-10+-orange.svg?style=flat" alt="pnpm 10+"></a>
 </div>
 
-## ✨ 特性 (Features)
+> [!NOTE]
+> CQUT Auth 是为受控客户端提供登录服务的 OpenID Connect Provider。它通过重庆理工大学 UIS / CAS 验证学校账号，将验证结果关联到本地 Subject，再通过 Authorization Code + PKCE 向已审核的客户端签发令牌。
+> 
+> 项目还提供客户端管理后台，可管理项目成员和 OIDC 客户端，配置 Redirect URI、Scope 与 Client Secret，并处理审核和运行策略。
 
-- **🏫 无缝对接校园认证**：将学校 UIS / CAS 登录链路安全包装为标准 OIDC 登录入口。
-- **🔐 标准协议支持**：完整支持 Authorization Code + PKCE 流程，签发高可靠 ID / Access Token。
-- **🎛️ 受控客户端管理**：客户端由 PostgreSQL 持久化，通过登录保护的管理台创建、审核、编辑和停用。
-- **🔐 凭据生命周期**：Web Client Secret 支持双 Secret 宽限轮换、指定撤销与客户端级紧急撤权。
-- **🛡️ 生产级安全防护**：内置交互页 CSRF 校验、端点及登录限流、Refresh Token Rotation、Artifact 自动清理。
-- **📧 邮箱验证引擎**：原生内置 Resend 邮件服务支持，保障用户的实名绑定链路。
-- **📦 现代化技术栈**：搭配 PostgreSQL 持久化与 Redis 高缓存，基于 Node.js 24 无缝构建。
+> [!CAUTION]
+> 本项目会在登录期间接收学校账号和密码，并将其用于请求 UIS；凭据不会写入数据库。部署者仍需自行完成安全评审、日志审计、网络隔离、密钥管理和隐私合规。请勿将未经审计的实例直接用于生产环境。
 
-## 🏗️ 原理与架构 (Architecture)
+## 能力与边界
 
-CQUT Auth 不存储学校的账号密码，亦不强行替代业务站的原始用户系统。它在 OIDC 协议和学校登录链路间建立了一座信任代理桥梁：业务站发起标准登录请求，随后用户在受控沙箱向学校系统进行身份验证；验证通过后，服务将对应凭据映射为本地 Subject，向业务终端下放 Token。
+- OIDC Authorization Code 流程，强制 PKCE；支持 Web 和 SPA 客户端。
+- `openid`、`profile`、`email`、`student`、`offline_access` Scope。
+- UIS / CAS 登录、Service Ticket 校验和学校身份关联。
+- 使用 PostgreSQL 保存 Subject、客户端、授权、签名密钥、管理会话和审计记录。
+- 使用 Redis 限流；生产环境中限流服务不可用时会拒绝请求。
+- Web 客户端 Secret 仅展示一次，以 scrypt 摘要保存，并支持宽限期轮换和指定撤销。
+- 支持客户端 Revision 审核、项目成员权限管理和管理员紧急处置。
+- 支持邮箱验证；邮件、时效、限流和配额策略可在管理后台调整。
+- 支持 Refresh Token 轮换、客户端授权 Generation 和过期 Artifact 清理。
 
-整个流程由四个逻辑核心层组成：
+当前不支持动态客户端注册、Client Credentials、Device Flow、Introspection、标准 Revocation Endpoint 或 Implicit Flow。所有客户端均由管理后台或首次部署配置创建并审核。
 
-1. **入口层**：外部 HTTPS 代理（如 Nginx）处理 TLS 连接与业务卸载。
-2. **协议层**：实现核心的 OIDC 通信逻辑端点 (`/auth`, `/token`, `/userinfo`, `/jwks`, `/session/end`)。
-3. **身份层**：负责下发鉴权表单，转接 CQUT UIS / CAS 的交互，并完成邮件、会话等上下文映射。
-4. **存储层**：利用 PostgreSQL 沉淀稳定数据，依赖 Redis 提供高频瞬态防护能力（限流与会话隔离）。
+`student` Scope 返回的 `status=active` 只表示学校账号已通过 UIS / CAS 验证且本地 Subject 可用，不代表当前在读或具有有效学籍。依赖学籍状态的业务不应使用该字段作出决定。
+
+## 架构
 
 ```mermaid
-sequenceDiagram
-    autonumber
-    participant User as 用户浏览器
-    participant RP as 业务站 / OIDC Client
-    participant OP as CQUT Auth
-    participant UIS as CQUT UIS / CAS
-    participant DB as PostgreSQL
-    participant Cache as Redis
-
-    User->>RP: 访问需要登录的页面
-    RP->>User: 跳转到 /auth，携带 client_id、redirect_uri、scope、PKCE
-    User->>OP: 打开 OIDC 授权交互页
-    OP->>DB: 校验客户端、回调地址与 OIDC 参数
-    OP->>Cache: 写入交互状态、CSRF 与限流状态
-    User->>OP: 提交学校账号、密码与 CSRF token
-    OP->>UIS: 使用学校登录链路验证账号密码
-    UIS-->>OP: 返回登录结果与学校身份
-    OP->>DB: 绑定或更新本地用户，写入授权码
-    OP-->>User: 302 跳回业务站 redirect_uri?code=...
-    User->>RP: 携带授权码回到业务站
-    RP->>OP: POST /token，提交授权码、client_secret、code_verifier
-    OP->>DB: 校验授权码、客户端密钥、PKCE 并生成 token
-    OP-->>RP: 返回 ID Token、Access Token 与可选 Refresh Token
-    RP->>OP: GET /userinfo，使用 Access Token 获取用户资料
-    OP-->>RP: 返回受 scope 与邮箱验证状态约束的 claims
+flowchart LR
+    User["用户浏览器"] --> Proxy["HTTPS 反向代理"]
+    Proxy --> OP["CQUT Auth"]
+    OP --> UIS["CQUT UIS / CAS"]
+    OP --> PG["PostgreSQL"]
+    OP --> Redis["Redis"]
+    OP --> Mail["SMTP / Resend"]
+    RP["OIDC Client"] --> Proxy
 ```
 
-## 🚀 快速开始 (Getting Started)
+生产环境中，CQUT Auth 应部署在可信反向代理之后。应用只监听内部 HTTP；代理负责终止 TLS、覆盖转发头，并将请求转发到容器。PostgreSQL 保存业务数据和 OIDC Artifact，Redis 负责跨实例限流，邮件通道则在管理后台配置。
 
-### 前置依赖 (Prerequisites)
+主要目录：
 
-- [Node.js](https://nodejs.org/) v24+
-- [pnpm](https://pnpm.io/) v10+
-- [Docker](https://www.docker.com/) 20.10+ & [Compose](https://docs.docker.com/compose/) v2+
+| 路径               | 内容                                               |
+| ------------------ | -------------------------------------------------- |
+| `src/oidc/`        | OIDC Provider、Adapter、客户端引导和授权上下文。   |
+| `src/identity/`    | UIS Provider、身份关联和用户资料。                 |
+| `src/persistence/` | PostgreSQL Repository、Artifact 加密、限流和清理。 |
+| `src/routes/`      | OIDC 交互页和管理 API。                            |
+| `src/projects/`    | 项目、成员、客户端和审核业务规则。                 |
+| `web/`             | React 管理后台。                                   |
+| `deploy/`          | 环境模板和 Docker Compose 配置。                   |
+| `scripts/`         | 环境、数据库和初始化脚本。                         |
 
-### 一键启动
+## 环境要求
 
-1. **获取代码并安装依赖**
+- Node.js 24 或更高版本
+- pnpm 10 或更高版本
+- Docker Engine 与 Docker Compose v2
+- 可访问 `uis.cqut.edu.cn`
+- 生产环境需要可用的 HTTPS 域名和反向代理
 
-   ```bash
-   pnpm install
-   ```
+## 本地启动
 
-2. **本地测试环境 (HTTP)**
-
-   ```bash
-   # 初始化测试环境，自动配置内置 demo 客户端
-   pnpm init-env --force --profile test
-
-   # 启动后端中间件集群
-   docker compose -f deploy/docker-compose.yml up -d --build
-
-   # 等待启动并检测健康状态
-   curl http://127.0.0.1:3003/health/ready
-   curl http://127.0.0.1:3003/.well-known/openid-configuration
-   ```
-
-   _注意：使用 `--force` 将抹除先前的加密轮数并覆写预置信息。如若数据库中保留了早期密码可能会发生鉴权拒绝，推荐执行 `docker compose -f deploy/docker-compose.yml down -v` 彻底洗卷。_
-
-3. **本地开发联调网络 (HTTPS)**
-   适用于由宿主机或网关代理终止 TLS 的场景：
-
-   ```bash
-   pnpm init-env --force --profile local --issuer https://verify.local
-   docker compose -f deploy/docker-compose.yml up -d --build
-   ```
-
-## 🛠️ 部署指南 (Deployment)
-
-推荐的拓扑是由您自己控制的反向代理暴露对外 HTTPS 入口，通过 Compose 打包发布服务集群。
+以下配置用于本地功能测试，不应作为生产配置：
 
 ```bash
-# 生成供正式使用的 env 安全模板
-pnpm init-env --force --profile production --issuer https://auth.example.com
+pnpm install
+pnpm init-env --profile test
+pnpm docker:up
+```
 
-# 以后台常驻唤起
+`init-env` 会生成：
+
+- `deploy/.env`：包含随机数据库密码、加密密钥、Cookie 密钥和 CSRF 密钥；
+- `deploy/oidc-clients.json`：包含一个演示客户端及其 scrypt Secret 摘要。
+
+命令会在终端输出一次演示客户端明文 Secret。请立即保存；配置文件和数据库中均无法恢复该明文。
+
+默认服务地址：
+
+| 地址                                                     | 用途                               |
+| -------------------------------------------------------- | ---------------------------------- |
+| `http://127.0.0.1:3003/manage`                           | 客户端管理后台。                   |
+| `http://127.0.0.1:3003/.well-known/openid-configuration` | OIDC Discovery。                   |
+| `http://127.0.0.1:3003/health/live`                      | 进程存活检查。                     |
+| `http://127.0.0.1:3003/health/ready`                     | PostgreSQL、Redis 和邮件状态检查。 |
+
+检查服务状态：
+
+```bash
+curl --fail http://127.0.0.1:3003/health/live
+curl --fail http://127.0.0.1:3003/.well-known/openid-configuration
+curl http://127.0.0.1:3003/health/ready
+```
+
+邮箱验证默认启用。在管理员完成邮件通道配置前，`/health/ready` 会返回 `503 degraded` 和 `email: unconfigured`；这不妨碍打开管理后台完成首次配置。
+
+停止服务：
+
+```bash
+pnpm docker:down
+```
+
+如果目标文件已存在，`init-env` 会拒绝覆盖。只有明确需要重新生成密钥和演示客户端时才使用 `--force`；覆盖后，旧数据中的密文和 Cookie 可能无法继续使用。
+
+## 生产部署
+
+### 1. 生成部署配置
+
+```bash
+pnpm install --frozen-lockfile
+pnpm init-env --profile production --issuer https://auth.example.com
+```
+
+检查 `deploy/.env`，至少确认：
+
+- `OIDC_ISSUER` 与外部 HTTPS 地址完全一致；
+- `OIDC_COOKIE_SECURE=true`；
+- `TRUST_PROXY_HOPS=1`；
+- `TRUSTED_PROXY_CIDRS` 只包含实际反向代理来源；
+- PostgreSQL 密码和各组安全密钥已妥善保存；
+- `CQUT_UIS_BASE_URL`、`CQUT_CAS_APPLICATION_CODE` 和 `CQUT_CAS_SERVICE_URL` 符合当前 UIS 配置。
+
+`init-env` 还会生成演示客户端。请在首次启动前检查 `deploy/oidc-clients.json` 的 Redirect URI 和 Scope；不需要引导客户端时，可以将 `clients` 改为空数组。
+
+在生产模式下，缺少 PostgreSQL 或 Redis、关闭邮箱验证或 Artifact 清理、未启用限流的 fail-closed 策略、使用内存存储，或代理配置不完整，都会导致应用拒绝启动。
+
+### 2. 初始化签名密钥并启动
+
+全新数据库必须先创建一把 OIDC 签名密钥。容器镜像不包含开发期的 `tsx` 和源码，因此首次容器部署可临时设置：
+
+```dotenv
+OIDC_AUTO_SEED_SIGNING_KEY=true
+```
+
+启动生产服务：
+
+```bash
 docker compose -f deploy/docker-compose.prod.yml up -d --build
 ```
 
-**🚨 生产上线前检查清单：**
+确认 `/health/live` 和 Discovery 正常后，将 `OIDC_AUTO_SEED_SIGNING_KEY` 改回 `false` 并重启。后续签名密钥由数据库管理，不需要每次启动重新生成。此时 `/health/ready` 仍可能因为邮件尚未配置而返回 `503`。
 
-- [ ] `OIDC_ISSUER` 必须与外场可达的 HTTPS 域名完全对齐。
-- [ ] `OIDC_COOKIE_SECURE=true`、`TRUST_PROXY_HOPS=1` 与 `TRUSTED_PROXY_CIDRS` 配置完毕，反向代理必须覆盖 `X-Forwarded-For`。
-- [ ] 项目中涉及的各套秘钥组（Cookie / 加密 / Redis 等）均已更改为高熵值。
-- [ ] 已在管理台「系统设置」中配置并测试邮件通道，随后重启服务使配置生效。
-- [ ] 如需预置客户端，已写入 `deploy/oidc-clients.json`；缺失或空文件允许从零客户端启动。
-- [ ] 至少一名管理员的 Subject ID 已写入 `OIDC_ADMIN_SUBJECT_IDS`。
-- [ ] 初次启动可通过设定 `OIDC_AUTO_SEED_SIGNING_KEY=true` （或命令执行）完成签名私钥分发。
-- [ ] 确保 `APP_ENV=production` 环境下正确连接到了非易失形态的 PostgreSQL 与 Redis 实例。
+### 3. 配置反向代理
 
-## 🔌 接入文档 (Integration)
+生产 Compose 默认只把应用绑定到宿主机 `127.0.0.1:3003`。反向代理应：
 
-### 基本安全要求
+- 对外提供 HTTPS；
+- 将 Host 和协议转发给应用；
+- 覆盖而不是透传客户端提供的 `X-Forwarded-For`；
+- 使应用看到的直连来源位于 `TRUSTED_PROXY_CIDRS`；
+- 不直接暴露 PostgreSQL 和 Redis。
 
-- 当前环境下拒绝 Implicit 以及部分混合模式，强校验 **Authorization Code + PKCE (`S256`)** 协议流。
-- 正式环境下回调及回溯域必须通过 `https://` 约束，严防劫持。
+更换域名后不能只修改代理配置；必须同步更新 `OIDC_ISSUER`，并重新检查所有客户端 Redirect URI。
 
-### 客户端初始化与管理
+### 4. 建立管理员
 
-数据库是客户端配置的唯一运行时数据源。`oidc-clients.json` 只在 `oidc_clients` 表为空时进行一次性、事务化导入；导入的 Bootstrap Client 固定属于 `system` 项目，该项目不接受成员且仅管理员可见和管理。
+1. 打开 `/manage`，使用学校账号登录；
+2. 在管理后台复制当前 Subject ID；
+3. 将该值加入 `OIDC_ADMIN_SUBJECT_IDS`，多个值用逗号分隔；
+4. 重启服务并重新登录。
 
-打开 `/manage`，使用校园统一身份认证账号登录即可创建项目；创建者自动成为 owner，并可通过已经存在的 Subject ID 添加成员。第一版不提供邮件邀请。
+管理员可以审核客户端 Revision、管理全局运行策略、配置邮件通道并执行紧急处置。运行策略写入 PostgreSQL 后，需要重启服务才会生效。
 
-1. 普通登录 `/manage`，在页面顶部复制自己的 `Subject ID`；
-2. 将该值加入 `OIDC_ADMIN_SUBJECT_IDS`（多个值以逗号分隔）；
-3. 重启服务，再次登录后即可看到全局项目和“待审核”。
+完成邮件通道配置和测试后，确认 `/health/ready` 返回 `200 ready`，再将实例加入反向代理或负载均衡器的生产流量。
 
-项目使用 `projects` 和 `project_members` 保存，角色为 `owner`、`maintainer`、`viewer`。客户端通过非空 `project_id` 归属项目，`created_by_subject_id` 仅用于审计。项目元数据与成员变更共享 `projects.version` 乐观锁；Repository 在同一事务内锁定项目、校验版本及 owner 数量，因此并发请求也不能删除或降级最后一名 owner。添加成员时会在项目事务内锁定并复核 Subject 仍为 active。
+## OIDC 接入
 
-所有客户端写操作都会在实际写事务中再次读取项目状态和当前成员角色，并统一按“先锁项目、再锁客户端”的顺序线性化鉴权。成员删除或项目归档一旦先提交，已经完成 Service 前置检查但尚未获得事务锁的客户端创建、修改、Revision、Secret 或撤销请求也会失败且不写审计；成员关系不缓存到管理会话。
+### 端点
 
-| 操作                           | owner | maintainer | viewer |        管理员        |
-| :----------------------------- | :---: | :--------: | :----: | :------------------: |
-| 查看项目、成员、客户端和审计   |   ✓   |     ✓      |   ✓    |         全局         |
-| 修改项目、管理成员、转移所有权 |   ✓   |            |        |      作为成员时      |
-| 创建/修改客户端及提交 Revision |   ✓   |     ✓      |        | 系统项目或作为成员时 |
-| 轮换 Secret、撤销授权          |   ✓   |     ✓      |        |       紧急处置       |
-| 撤销指定 Secret、紧急停用      |   ✓   |            |        |         全局         |
-| 批准/拒绝 Revision             |       |            |        |          ✓           |
+| 端点                                    | 用途                     |
+| --------------------------------------- | ------------------------ |
+| `GET /.well-known/openid-configuration` | Discovery。              |
+| `GET /auth`                             | Authorization Endpoint。 |
+| `POST /token`                           | Token Endpoint。         |
+| `GET /userinfo`                         | UserInfo Endpoint。      |
+| `GET /jwks`                             | 签名公钥。               |
+| `GET /session/end`                      | RP-Initiated Logout。    |
 
-非成员访问项目及其客户端、Revision、Secret、撤销或审计资源统一得到 `404`；已能查看项目但角色不足时得到 `403`。归档项目只读且不影响现有 OIDC 客户端运行，仅管理员可继续审核或紧急处置。
+### Scope 与 Claim
 
-API 或管理台创建的客户端先进入客户端草稿，并生成 Draft Revision；所有者确认后显式提交审核。Web 客户端的 `client_id` 与高熵 `client_secret` 由服务端生成，Secret 仅在创建响应中显示一次；SPA 是公开客户端，不生成 Secret。客户端类型创建后不可修改，Web/SPA 类型变更必须新建客户端。
+| Scope            | Claim / 行为                                                     |
+| ---------------- | ---------------------------------------------------------------- |
+| `openid`         | `sub`。所有客户端 Revision 必须包含。                            |
+| `profile`        | `preferred_username`、`name`。当前 `name` 为系统生成的占位名称。 |
+| `email`          | 仅在邮箱已验证时返回 `email` 和 `email_verified=true`。          |
+| `student`        | 返回 `status`；该字段不代表当前学籍。                            |
+| `offline_access` | 在客户端允许 Refresh Token 时请求离线访问。                      |
 
-Web Client Secret 独立保存在 `oidc_client_secrets`，只有 `active` 和尚未到期的 `retiring` Secret 可用于客户端认证。轮换时新 Secret 仅显示一次；旧 Secret 默认保留 24 小时宽限期，可在 0–7 天内配置。一个客户端同时最多有两个可用 Secret，已撤销或过期 Secret 不可恢复。部署期 `oidc-clients.json` 仍可提供受信任的 scrypt bootstrap digest，但管理 API 不接受明文或摘要输入。
+Web 客户端使用 `client_secret_basic`。SPA 是公开客户端，不生成 Client Secret；默认不向公开客户端签发 Refresh Token。所有客户端均使用 Authorization Code + PKCE `S256`，Redirect URI 必须与已审核配置精确匹配。
 
-Secret 轮换在 scrypt 计算前执行版本与数量预检，并同时按主体、客户端和来源 IP 限流；PostgreSQL 使用 `now()` 计算创建时间、宽限期和冷却时间。OIDC 认证只查询 active 或尚未到期的 retiring 摘要。管理台按页展示 Secret 历史，数据库仅保留最近 100 条已撤销或已到期的历史元数据，完整操作轨迹仍保留在不含摘要的审计日志中。
+### 客户端生命周期
 
-每个客户端具有单调递增的授权 Generation。Authorization Code、Access Token、Refresh Token 和 Grant 保存签发请求捕获的 Generation；客户端级撤销或紧急停用会在删除现有 Artifact 的同一事务中递增 Generation。Artifact 每次读取都会核对客户端状态和 Generation，因此撤销提交后才落库的并发 Token 也不可使用，已停用客户端的 Artifact 始终无效。
+客户端由项目成员在 `/manage` 创建：
 
-客户端生命周期（`draft`、`active`、`disabled`）与 Revision 审核状态（`draft`、`pending`、`approved`、`rejected`、`cancelled`）相互独立。Active 客户端修改 Redirect URI、Logout URI 或 Scope 时会创建 Pending Revision，审核期间 OIDC 仍读取旧的 Active Revision；批准后原子切换，拒绝不会影响线上配置。Pending Revision 必须先撤回才能编辑，拒绝原因必填且会展示给所有者。停用立即生效且不能恢复，并会原子取消开放的 Draft/Pending Revision、释放待审配额。
+1. 创建项目并维护 owner、maintainer、viewer 成员；
+2. 创建 Web 或 SPA 客户端；
+3. 编辑 Redirect URI、Logout URI 和 Scope；
+4. 提交 Revision；
+5. 等待管理员批准后进入可用状态。
 
-每个 Subject 默认最多创建 5 个 active 项目，项目创建同时按 Subject（默认每小时 3 次）和来源 IP（默认每小时 10 次）限流，并使用 Subject Advisory Lock 防止并发绕过。普通项目默认最多拥有 10 个非停用客户端和 5 个 Pending Revision；同一项目创建者名下的所有项目还共享 30 个非停用客户端和 15 个 Pending Revision 的第二层上限。客户端创建继续按操作主体（默认每小时 5 次）和来源 IP（默认每小时 20 次）限流。管理员豁免分别由显式配置控制。
-
-邮件、OIDC/验证码时效、业务限流以及项目与客户端配额统一在管理台「系统设置」中维护。设置以加密形式保存到数据库并记录审计日志；保存不会热更新当前进程，重启服务后生效。首次部署未配置邮件通道时服务会以 degraded 状态启动，便于管理员进入面板完成初始化。
+修改已启用客户端的安全相关配置时，系统会生成新的 Revision；审核期间，客户端继续使用上一份已批准的配置。Web Client Secret 只在创建或轮换响应中显示一次，数据库仅保存 scrypt 摘要。停用客户端或撤销授权后，对应的 Artifact 会立即失效。
 
 <details>
-<summary><code>oidc-clients.json</code> 范例</summary>
+<summary>UIS / CAS 认证实现与字段简易分析</summary>
 
-```json
-{
-  "clients": [
-    {
-      "clientId": "demo-site",
-      "displayName": "Demo Site",
-      "description": "首次部署演示客户端",
-      "clientSecretDigest": "scrypt$N=16384,r=8,p=1,keylen=32$<base64url-salt>$<base64url-digest>",
-      "grantTypes": ["authorization_code", "refresh_token"],
-      "scopeWhitelist": ["openid", "profile", "email", "student"],
-      "redirectUris": ["https://demo.example.com/callback"],
-      "postLogoutRedirectUris": ["https://demo.example.com/logout-complete"],
-      "autoConsent": false
-    }
-  ]
-}
-```
+登录流程由服务端完成，不依赖浏览器保存学校会话：
 
-    </details>
+1. 请求 UIS CAS 登录地址，解析实际 `service`；
+2. 使用 UIS 登录页的 RSA 规则加密密码，提交 `/center-auth-server/sso/doLogin`；
+3. 再次请求 CAS 登录地址并停止在 `302`；
+4. 从 `Location` 提取一次性 `ST-*` Service Ticket；
+5. 使用签发 Ticket 时完全相同的 `service` 调用 `/center-auth-server/cas/serviceValidate`；
+6. 使用带命名空间的 XML 解析器验证 `authenticationSuccess`，拒绝 DOCTYPE、超限响应、重复结果和冲突标识；
+7. 比较 `user`、`uid`、`user_code` 与登录账号，确认身份一致后建立本地 Subject。
 
-`offline_access` 是 Web 客户端的显式 opt-in scope，不在默认 `scopeWhitelist` 内。SPA 固定使用 Authorization Code + PKCE，不允许 refresh token 或 `offline_access`。所有 Revision 必须包含 `openid`。Native、M2M 和包含通配符或 fragment 的 Redirect URI 均不接受。
+UIS 实测还会返回 `user_name`、`user_user_type`、`universityId` 和 `authServerToken`。本系统只使用用户标识，不保存任何真实姓名、数字用户类型或内部令牌。单一学生样本中 `user_user_type=3` 与办事大厅的 `STUDENT` 类型对应，但该结果不足以证明完整类型映射。
 
-`student` scope 只增加 `status` claim。当前 `status=active` 表示该账号已通过学校 UIS/CAS 认证且可在本 OP 中使用，不代表“当前在读学生”身份；RP 不应据此推断学籍状态。
+`serviceValidate?format=JSON` 实测只改变响应头，响应体仍为 XML；接入实现不能依赖该参数进行 JSON 解析。
 
-### OIDC 核心端点映射表
+</details>
 
-| 功能区        | 端点 URI                                | 操作详述                                                                                |
-| :------------ | :-------------------------------------- | :-------------------------------------------------------------------------------------- |
-| **Discovery** | `GET /.well-known/openid-configuration` | 获取服务支持的签名算法与节点映射表。                                                    |
-| **Authorize** | `GET /auth`                             | 重定向登入，允许附带客户端白名单内的 `openid profile email student offline_access` 域。 |
-| **Token**     | `POST /token`                           | basic auth/form 模式签发/转结令牌；Public Client 默认不签发 Refresh Token。             |
-| **UserInfo**  | `GET /userinfo`                         | 校验 Access 以查询 User 字段。注意 `邮箱` 相关数据仅过审可返回。                        |
-| **Logout**    | `GET /session/end`                      | 注销全域登录状态（应附 `id_token_hint`及回溯）。                                        |
-| **JWKS**      | `GET /jwks`                             | 提供用于客户端对端强验证的 RSA-256 (RS256) 公钥串。                                     |
+## 配置说明
 
-### 客户端管理 API
+`deploy/.env.example` 是部署期配置模板。以下变量决定应用能否安全启动：
 
-管理 API 全部位于 `/api/management`，使用独立的 HttpOnly 数据库会话；所有修改请求还必须携带管理上下文返回的 `X-CSRF-Token`。
+| 变量                              | 说明                                                       |
+| --------------------------------- | ---------------------------------------------------------- |
+| `APP_ENV`                         | `production`、`development` 或 `test`。                    |
+| `OIDC_ISSUER`                     | 对外 Issuer；非测试环境必须使用 HTTPS。                    |
+| `DATABASE_URL`                    | 应用使用的 PostgreSQL URL，由 Compose 根据数据库变量组装。 |
+| `REDIS_URL`                       | Redis URL；生产环境必需。                                  |
+| `OIDC_KEY_ENCRYPTION_SECRET`      | 数据库签名私钥加密密钥。                                   |
+| `OIDC_ARTIFACT_ENCRYPTION_SECRET` | OIDC Artifact 载荷加密密钥，必须与前者不同。               |
+| `OIDC_COOKIE_KEYS`                | Cookie 签名密钥列表，可按顺序轮换。                        |
+| `OIDC_CSRF_SIGNING_SECRET`        | CSRF Token 签名密钥。                                      |
+| `TRUST_PROXY_HOPS`                | 生产环境固定为一层可信代理。                               |
+| `TRUSTED_PROXY_CIDRS`             | 允许提供转发 IP 的代理来源 CIDR。                          |
+| `OIDC_ADMIN_SUBJECT_IDS`          | 管理员 Subject ID 白名单。                                 |
+| `OIDC_AUTO_SEED_SIGNING_KEY`      | 是否在无签名密钥时自动初始化，生产常态应为 `false`。       |
+| `CQUT_UIS_BASE_URL`               | UIS 基础地址。                                             |
+| `CQUT_CAS_APPLICATION_CODE`       | CAS 应用代码。                                             |
+| `CQUT_CAS_SERVICE_URL`            | CAS Ticket 绑定的 Service URL。                            |
 
-| 路由                                                                                       | 说明                                                |
-| :----------------------------------------------------------------------------------------- | :-------------------------------------------------- |
-| `GET /auth/context`                                                                        | 获取登录状态、Subject ID、管理员标记和 CSRF token。 |
-| `POST /auth/login` / `POST /auth/logout`                                                   | 建立或撤销管理会话。                                |
-| `GET/POST /projects`                                                                       | 列出可见项目或创建项目并成为 owner。                |
-| `GET/PATCH /projects/:projectId`                                                           | 查看、修改或按项目版本归档项目。                    |
-| `GET/POST /projects/:projectId/members`                                                    | 查看成员或通过已有 Subject ID 添加成员。            |
-| `PATCH/DELETE /projects/:projectId/members/:subjectId`                                     | 按项目版本变更角色或删除成员。                      |
-| `POST /projects/:projectId/ownership/transfer`                                             | 原子转移 owner，并将来源 owner 降为 maintainer。    |
-| `GET /projects/:projectId/audit-logs`                                                      | 分页读取项目及其客户端审计。                        |
-| `/projects/:projectId/clients[/:clientId]`                                                 | 项目内客户端列表、创建、查看和元数据修改。          |
-| `.../revision`、`.../revision/submit`、`.../revision/withdraw`                             | 保存、提交或撤回 Revision。                         |
-| `.../secrets/rotate` / `.../secrets/:secretId/revoke`                                      | 轮换或撤销 Secret。                                 |
-| `.../authorizations/revoke` / `.../disable`                                                | 撤销授权或紧急停用客户端。                          |
-| `GET /admin/reviews`                                                                       | 管理员获取全局 Pending Revision。                   |
-| `POST /admin/projects/:projectId/clients/:clientId/revisions/:revisionId/{approve,reject}` | 管理员批准或拒绝 Revision。                         |
+邮件发送参数、Token 和会话时效、验证码策略、业务限流及项目配额都在管理后台的“系统设置”中维护。启动时会忽略对应的旧环境变量，不应再用它们配置这些项目。
 
-客户端响应只返回 Secret 标识、状态和时间，不返回摘要。创建 Web 客户端时的 `clientSecret` 及轮换响应中的 `secret.value` 只存在于各自的单次 `201` 响应，不可再次查询。`project_audit_logs` 只记录字段名、角色/状态变化和资源标识，不保存 Secret、摘要或配置值；所有修改仍要求管理 CSRF token 和相应乐观锁版本。
+`deploy/oidc-clients.json` 只在客户端表为空时执行一次引导导入。数据库已有客户端后，修改该文件不会更新现有记录。
 
-## 🧑‍💻 常用指令 (Scripts)
+## 开发
+
+常用命令：
 
 ```bash
-# 进入调试/开发状态
-pnpm dev
-# 执行核心套件检查
-pnpm test
-pnpm lint
-pnpm build
-
-# 服务数据辅助操作
-pnpm seed:key      # 为 OIDC 补种 RSA 签名池
-pnpm seed:client   # 仅在客户端表为空时导入 JSON；不会覆盖已有记录
+pnpm dev            # 监听服务端和管理后台构建
+pnpm test           # 运行服务端与前端测试
+pnpm test:server    # 仅运行 Node.js / tsx 测试
+pnpm test:ui        # 仅运行 Vitest 前端测试
+pnpm lint           # 检查环境变量来源和 TypeScript 类型
+pnpm build          # 构建服务端与管理后台到 dist/
+pnpm format         # 使用 Prettier 格式化仓库
 ```
 
-第四轮改造验收结果：`pnpm lint`、`pnpm build` 均通过；配置真实 PostgreSQL 后，服务端测试 `170/170`、管理 UI 测试 `8/8` 通过，数据库并发套件中的 17 项子测试全部执行且无跳过。
+指定服务端测试：
 
-## 🛡️ 能力边界 (Limitations)
+```bash
+pnpm exec tsx --test test/crypto.test.ts
+```
 
-本项目主诉为**微型内聚的单一 Provider**，不考虑全量 OIDC 范式覆盖。
+`pnpm dev` 从 `deploy/.env` 读取配置。需要 PostgreSQL 和 Redis 时，可直接使用开发 Compose；容器会挂载当前工作区并运行监听构建。
 
-**已内置的功能：**
+提交前至少运行：
 
-- Discovery、JWKS、UserInfo
-- 严密安全标准的 Code + PKCE
-- Refresh Token 旋转与回收
-- 服务端发起的 (RP-Initiated) 会话截断
+```bash
+pnpm lint
+pnpm test
+pnpm build
+```
 
-**暂无预期的功能（规划外）：**
+## 安全说明
 
-- 动态应用注册 (Dynamic Registration) 与回收销毁验证
-- 设备层授权流 (Device Auth Flow)
-- 隐式流与杂凑流 (Implicit / Hybrid OIDC)
-- 复杂的 Pairwise ID 等隐私隔离模型
-- Native、M2M、域名验证、使用统计和复杂组织模型
-- Secret 重置、双 Secret 轮换或已停用客户端恢复
+- 不记录账号密码、CAS Ticket、门户 Ticket 或 `authServerToken`。
+- 生产环境必须启用 HTTPS 和安全 Cookie，校验可信代理，并在 Redis 限流服务不可用时拒绝请求。
+- 各组加密密钥、Cookie 密钥和 CSRF 密钥必须独立生成并妥善备份。
+- 不要把 `deploy/.env`、明文 Client Secret 或私钥提交到仓库。
+- 管理 API 使用独立 HttpOnly 会话和 CSRF Token；反向代理不应缓存相关响应。
+- Client Secret 明文只出现一次；轮换前应确认使用方已经准备切换。
+- 定期备份 PostgreSQL，并验证签名密钥和加密密钥能够恢复。
 
-## 📄 许可证 (License)
+## 许可证
 
-本项目基于 [MIT License](LICENSE) 通用协议授权。
+[MIT](./LICENSE)
