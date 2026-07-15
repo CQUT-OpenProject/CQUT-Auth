@@ -917,6 +917,40 @@ test("interaction page sets HttpOnly csrf nonce cookie with SameSite Lax", async
   await state.store.close();
 });
 
+test("interactive login follows the shared brand and accessibility rules", async () => {
+  const { app, state } = await createTestApp();
+  const agent = request.agent(app);
+  const { loginPage } = await openLoginInteraction(agent, "login-brand-rules");
+
+  assert.match(loginPage.text, /src="\/logo-auth-color\.svg"/);
+  assert.match(loginPage.text, /src="\/logo-auth-mono-light\.svg"/);
+  assert.match(loginPage.text, /<label for="login-account">账号<\/label>/);
+  assert.match(loginPage.text, /<label for="login-password">密码<\/label>/);
+  assert.match(loginPage.text, /本服务由 CQUT-OpenProject 提供/);
+  assert.match(
+    loginPage.text,
+    /\* 「CQUT-OpenProject」是由学生及贡献者维护的开源社区，亦不代表学校官方或任何机构/,
+  );
+  assert.match(loginPage.text, /data-password-toggle/);
+  assert.match(loginPage.text, /aria-label="显示密码" aria-pressed="false"/);
+  assert.match(loginPage.text, /class="password-icon-hidden"/);
+  assert.match(loginPage.text, /class="password-icon-visible"/);
+  assert.match(
+    loginPage.text,
+    /\.password-toggle svg\.password-icon-visible \{ display: none; \}/,
+  );
+  assert.match(
+    loginPage.text,
+    /:root \.password-control > button\.password-toggle \{[\s\S]*?background: transparent;[\s\S]*?border: 0;/,
+  );
+  assert.doesNotMatch(
+    loginPage.text,
+    /重庆理工大学统一身份认证 · OpenID Connect/,
+  );
+
+  await state.store.close();
+});
+
 test("csrf rejects tampered token", async () => {
   const { app, state } = await createTestApp();
   const agent = request.agent(app);

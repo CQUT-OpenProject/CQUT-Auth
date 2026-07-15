@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 export default defineConfig({
   root: resolve(import.meta.dirname),
   base: "/manage/",
+  publicDir: resolve(import.meta.dirname, "src/assets"),
   build: {
     outDir: resolve(import.meta.dirname, "../dist/management"),
     emptyOutDir: true,

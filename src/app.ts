@@ -198,6 +198,12 @@ export async function createOidcApp(
   app.get("/manage/favicon.svg", (_request, response) => {
     response.sendFile(resolve(managementAssets, "favicon.svg"));
   });
+  app.get("/logo-auth-color.svg", (_request, response) => {
+    response.sendFile(resolve(managementAssets, "logo-auth-color.svg"));
+  });
+  app.get("/logo-auth-mono-light.svg", (_request, response) => {
+    response.sendFile(resolve(managementAssets, "logo-auth-mono-light.svg"));
+  });
   app.use(
     "/manage/assets",
     express.static(resolve(managementAssets, "assets"), {

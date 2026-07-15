@@ -170,16 +170,6 @@ function getScriptNonce(response: Response) {
   return typeof nonce === "string" ? nonce : "";
 }
 
-const BRAND_MARK_SVG = `<svg class="brand-mark" viewBox="10 12 110 108" aria-hidden="true" focusable="false">
-  <g fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M56 24a21 21 0 1 0 0 32"/>
-    <circle cx="91" cy="40" r="21"/>
-    <path d="M21 76v18a18 18 0 0 0 36 0V76"/>
-    <path d="M76 76h34M93 76v36"/>
-  </g>
-  <circle cx="110" cy="59" r="5.5" fill="var(--accent)"/>
-</svg>`;
-
 function renderInteractionPageStyles(): string {
   return `
         :root {
@@ -522,6 +512,214 @@ function renderInteractionPageStyles(): string {
             background-color: rgba(126, 168, 199, 0.08);
             border-color: var(--ink-soft);
           }
+        }
+
+        /* CQUT-OSP design-system overrides. */
+        :root {
+          color-scheme: light dark;
+          --ink: #0b1f33;
+          --ink-soft: #526577;
+          --paper: #f7fafc;
+          --card: #ffffff;
+          --line: #d7e2ea;
+          --line-strong: #92a8b8;
+          --brand-2: #055088;
+          --accent: #6adfa3;
+          --danger: #a43e2e;
+          --danger-bg: #faeee9;
+          --ok: #1e7a53;
+          --ok-bg: #eaf5ec;
+          --info: #0b4a72;
+          --info-bg: #ecf3f2;
+        }
+        html { min-width: 320px; }
+        body {
+          padding: 0;
+          align-items: stretch;
+          justify-content: flex-start;
+          background: var(--paper);
+          background-image: none;
+        }
+        .page-header { padding: 24px; }
+        .brand-logo {
+          display: block;
+          width: min(256px, 100%);
+          height: auto;
+        }
+        .brand-logo-dark { display: none; }
+        .page-shell {
+          flex: 1;
+          display: grid;
+          place-items: center;
+          padding: 32px 16px 64px;
+        }
+        .container {
+          max-width: 400px;
+          padding: 32px;
+          border: 1px solid var(--line);
+          border-radius: 12px;
+          box-shadow: none;
+          animation: none;
+        }
+        .container::before { display: none; }
+        main { animation: none; }
+        h1 {
+          margin: 0 0 8px;
+          font-family: var(--sans);
+          font-size: 1.75rem;
+          font-weight: 800;
+          line-height: 1.25;
+          letter-spacing: 0;
+          text-align: left;
+        }
+        .hint {
+          margin: 0 0 24px;
+          font-size: 0.9375rem;
+          line-height: 1.65;
+          text-align: left;
+        }
+        .independence-note {
+          margin: 24px 0 0;
+          padding-top: 16px;
+          border-top: 1px solid var(--line);
+          color: var(--ink-soft);
+          font-size: 0.8125rem;
+          line-height: 1.65;
+        }
+        form { gap: 16px; }
+        form + form { margin-top: 16px; }
+        .field { display: grid; gap: 8px; }
+        .password-control { position: relative; }
+        label {
+          color: var(--ink);
+          font-size: 0.875rem;
+          font-weight: 600;
+        }
+        input {
+          min-height: 44px;
+          padding: 8px 12px;
+          background: var(--card);
+          border: 1px solid var(--line-strong);
+          border-radius: 8px;
+          transition: border-color 150ms ease;
+        }
+        .password-control input { padding-right: 44px; }
+        button {
+          min-height: 44px;
+          padding: 8px 16px;
+          background: #055088;
+          border-color: #055088;
+          color: #ffffff;
+          border-radius: 8px;
+          letter-spacing: 0;
+          transition: background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
+        }
+        input:focus, input:focus-visible, button:focus-visible {
+          background: var(--card);
+          outline: 3px solid var(--accent);
+          outline-offset: 2px;
+          box-shadow: none;
+        }
+        button:hover {
+          background: #073f6a;
+          border-color: #073f6a;
+          box-shadow: none;
+        }
+        .error, .success, .pending {
+          padding: 12px;
+          border-radius: 6px;
+          line-height: 1.65;
+        }
+        @media (max-width: 480px) {
+          .page-header { padding: 16px; }
+          .brand-logo { width: min(224px, 100%); }
+          .page-shell { padding: 24px 16px 48px; align-items: start; }
+          .container { padding: 24px; }
+        }
+        @media (prefers-color-scheme: dark) {
+          :root:not([data-theme="light"]) {
+            --ink: #f7fafc;
+            --ink-soft: #b7c6d1;
+            --paper: #0b1f33;
+            --card: #12283d;
+            --line: #355069;
+            --line-strong: #72899b;
+            --brand-2: #9fc1f9;
+            --danger: #ffb4a6;
+            --danger-bg: #3d2325;
+            --ok: #8ee2b7;
+            --ok-bg: #17392c;
+            --info: #9fc1f9;
+            --info-bg: #17334c;
+          }
+          :root:not([data-theme="light"]) .brand-logo-light { display: none; }
+          :root:not([data-theme="light"]) .brand-logo-dark { display: block; }
+          :root:not([data-theme="light"]) button {
+            background: #9fc1f9;
+            border-color: #9fc1f9;
+            color: #0b1f33;
+          }
+          :root:not([data-theme="light"]) button:hover {
+            background: #b7d1fb;
+            border-color: #b7d1fb;
+          }
+        }
+        :root[data-theme="dark"] {
+          --ink: #f7fafc;
+          --ink-soft: #b7c6d1;
+          --paper: #0b1f33;
+          --card: #12283d;
+          --line: #355069;
+          --line-strong: #72899b;
+          --brand-2: #9fc1f9;
+          --danger: #ffb4a6;
+          --danger-bg: #3d2325;
+          --ok: #8ee2b7;
+          --ok-bg: #17392c;
+          --info: #9fc1f9;
+          --info-bg: #17334c;
+        }
+        :root[data-theme="dark"] .brand-logo-light { display: none; }
+        :root[data-theme="dark"] .brand-logo-dark { display: block; }
+        :root[data-theme="dark"] button {
+          background: #9fc1f9;
+          border-color: #9fc1f9;
+          color: #0b1f33;
+        }
+        :root[data-theme="dark"] button:hover {
+          background: #b7d1fb;
+          border-color: #b7d1fb;
+        }
+        :root .password-control > button.password-toggle {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          min-height: 36px;
+          width: 36px;
+          padding: 8px;
+          background: transparent;
+          border: 0;
+          border-radius: 0;
+          color: var(--brand-2);
+          box-shadow: none;
+        }
+        :root .password-control > button.password-toggle:hover {
+          background: transparent;
+          color: var(--brand-2);
+          box-shadow: none;
+        }
+        .password-toggle svg {
+          display: block;
+          width: 18px;
+          height: 18px;
+          fill: currentColor;
+        }
+        .password-toggle svg.password-icon-visible { display: none; }
+        .password-toggle[aria-pressed="true"] .password-icon-hidden { display: none; }
+        .password-toggle[aria-pressed="true"] .password-icon-visible { display: block; }
+        .independence-disclaimer {
+          display: block;
+          margin-top: 4px;
         }`;
 }
 
@@ -541,20 +739,15 @@ export function renderBrandedPage(title: string, body: string) {
       </style>
     </head>
     <body>
-      <div class="container">
-        <header class="brand">
-          ${BRAND_MARK_SVG}
-          <div>
-            <div class="brand-name">CQUT&#8209;Auth</div>
-            <div class="brand-sub">校园统一身份认证</div>
-          </div>
-        </header>
-        <hr class="rule">
-        <main>
-        ${body}
+      <header class="page-header">
+        <img class="brand-logo brand-logo-light" src="/logo-auth-color.svg" alt="CQUT Auth 统一身份认证服务">
+        <img class="brand-logo brand-logo-dark" src="/logo-auth-mono-light.svg" alt="CQUT Auth 统一身份认证服务">
+      </header>
+      <div class="page-shell">
+        <main class="container">
+          ${body}
         </main>
       </div>
-      <footer class="page-foot">重庆理工大学统一身份认证 · OpenID Connect</footer>
     </body>
   </html>`;
 }
@@ -570,28 +763,57 @@ function loginView(
     "CQUT-Auth",
     `
     <h1>登录</h1>
-    <p class="hint">请使用知行理工账号登录。</p>
+    <p class="hint">使用知行理工账号登录。密码仅用于本次认证，不会被保存。</p>
     ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
     <form class="login-form" method="post" action="/interaction/${encodeURIComponent(uid)}/login" data-login-form>
       <input type="hidden" name="csrf" value="${escapeHtml(csrf)}">
-      <input type="text" name="account" placeholder="账号" autocomplete="username" required>
-      <input type="password" name="password" placeholder="密码" autocomplete="current-password" required>
+      <div class="field">
+        <label for="login-account">账号</label>
+        <input id="login-account" type="text" name="account" placeholder="学号/工号" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="login-password">密码</label>
+        <div class="password-control">
+          <input id="login-password" type="password" name="password" autocomplete="current-password" required>
+          <button class="password-toggle" type="button" data-password-toggle aria-controls="login-password" aria-label="显示密码" aria-pressed="false">
+            <svg class="password-icon-hidden" viewBox="64 64 896 896" aria-hidden="true" focusable="false">
+              <path d="M942.2 486.2Q889.47 375.11 816.7 305l-50.88 50.88C807.31 395.53 843.45 447.4 874.7 512 791.5 684.2 673.4 766 512 766q-72.67 0-133.87-22.38L323 798.75Q408 838 512 838q288.3 0 430.2-300.3a60.29 60.29 0 000-51.5zm-63.57-320.64L836 122.88a8 8 0 00-11.32 0L715.31 232.2Q624.86 186 512 186q-288.3 0-430.2 300.3a60.3 60.3 0 000 51.5q56.69 119.4 136.5 191.41L112.48 835a8 8 0 000 11.31L155.17 889a8 8 0 0011.31 0l712.15-712.12a8 8 0 000-11.32zM149.3 512C232.6 339.8 350.7 258 512 258c54.54 0 104.13 9.36 149.12 28.39l-70.3 70.3a176 176 0 00-238.13 238.13l-83.42 83.42C223.1 637.49 183.3 582.28 149.3 512zm246.7 0a112.11 112.11 0 01146.2-106.69L401.31 546.2A112 112 0 01396 512z"/>
+              <path d="M508 624c-3.46 0-6.87-.16-10.25-.47l-52.82 52.82a176.09 176.09 0 00227.42-227.42l-52.82 52.82c.31 3.38.47 6.79.47 10.25a111.94 111.94 0 01-112 112z"/>
+            </svg>
+            <svg class="password-icon-visible" viewBox="64 64 896 896" aria-hidden="true" focusable="false">
+              <path d="M942.2 486.2C847.4 286.5 704.1 186 512 186c-192.2 0-335.4 100.5-430.2 300.3a60.3 60.3 0 000 51.5C176.6 737.5 319.9 838 512 838c192.2 0 335.4-100.5 430.2-300.3 7.7-16.2 7.7-35 0-51.5zM512 766c-161.3 0-279.4-81.8-362.7-254C232.6 339.8 350.7 258 512 258c161.3 0 279.4 81.8 362.7 254C791.5 684.2 673.4 766 512 766zm-4-430c-97.2 0-176 78.8-176 176s78.8 176 176 176 176-78.8 176-176-78.8-176-176zm0 288c-61.9 0-112-50.1-112-112s50.1-112 112-112 112 50.1 112 112-50.1 112-112 112z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
       <p class="pending" role="status" aria-live="polite">
         <strong>正在登录</strong>
         正在连接学校统一身份认证，请稍候。
       </p>
       <button type="submit" data-login-submit>
-        <span class="button-label">登录</span>
+        <span class="button-label">登录账号</span>
         <span class="button-loading">登录中...</span>
       </button>
     </form>
+    <p class="independence-note">本服务由 CQUT-OpenProject 提供<span class="independence-disclaimer">* 「CQUT-OpenProject」是由学生及贡献者维护的开源社区，亦不代表学校官方或任何机构</span></p>
     <script nonce="${escapeHtml(scriptNonce)}">
       (() => {
         const form = document.querySelector("[data-login-form]");
         const submit = document.querySelector("[data-login-submit]");
+        const password = document.querySelector("#login-password");
+        const passwordToggle = document.querySelector("[data-password-toggle]");
         if (!form || !submit) {
           return;
         }
+        passwordToggle?.addEventListener("click", () => {
+          if (!(password instanceof HTMLInputElement)) {
+            return;
+          }
+          const visible = password.type === "text";
+          password.type = visible ? "password" : "text";
+          passwordToggle.setAttribute("aria-label", visible ? "显示密码" : "隐藏密码");
+          passwordToggle.setAttribute("aria-pressed", String(!visible));
+        });
         let submitted = false;
         form.addEventListener("submit", (event) => {
           if (submitted) {
@@ -605,6 +827,7 @@ function loginView(
           form.dataset.submitting = "true";
           form.setAttribute("aria-busy", "true");
           submit.setAttribute("disabled", "disabled");
+          passwordToggle?.setAttribute("disabled", "disabled");
           for (const field of form.querySelectorAll('input[name="account"], input[name="password"]')) {
             field.setAttribute("readonly", "readonly");
           }
@@ -636,8 +859,8 @@ function profileEmailView(
   },
 ) {
   const hint = options.verificationEnabled
-    ? "请输入用于 OpenID Connect 声明的邮箱地址，系统会发送验证码进行校验。"
-    : "请输入用于 OpenID Connect 声明的邮箱地址，系统会以“未验证”状态保存。";
+    ? "请输入您的邮箱地址，系统会发送验证码进行校验。"
+    : "请输入您的邮箱地址，系统会以“未验证”状态保存。";
   return renderPage(
     "补充邮箱",
     `
