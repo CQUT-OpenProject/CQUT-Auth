@@ -206,12 +206,28 @@ function mockApi(
         };
       } else if (path.endsWith("/clients") && method === "POST") {
         responseBody = {
-          client: client({ clientId: "new-client" }),
+          client: client({
+            clientId: "new-client",
+            lifecycleStatus: "draft",
+            activeRevision: null,
+            proposedRevision: {
+              revisionId: 2,
+              revisionNumber: 1,
+              status: "draft",
+              version: 1,
+              redirectUris: body?.redirectUris ?? [],
+              postLogoutRedirectUris: body?.postLogoutRedirectUris ?? [],
+              scopeWhitelist: body?.scopeWhitelist ?? ["openid"],
+              rejectionReason: null,
+            },
+          }),
           clientSecret:
             body?.clientType === "web"
               ? "new-client-secret-plaintext"
               : undefined,
         };
+      } else if (path.endsWith("/revision/submit") && method === "POST") {
+        responseBody = {};
       } else if (path.includes("/clients/") && method === "GET") {
         responseBody = {
           client: (options.clients ?? [client()])[0],
@@ -312,6 +328,110 @@ test("shows project list and handles switching", async () => {
   expect((await screen.findAllByText("Project One")).length).toBeGreaterThan(0);
   expect(await screen.findByText("Project Two")).toBeTruthy();
 });
+
+test("shows clients returned by the current project list", async () => {
+  mockApi();
+  window.history.pushState({}, "", "/manage/projects/project_one/clients");
+  render(<App />);
+
+  expect(await screen.findByText("Active Web")).toBeTruthy();
+});
+
+test("keeps the client danger zone open", async () => {
+  mockApi();
+  window.history.pushState(
+    {},
+    "",
+    "/manage/projects/project_one/clients/active-web/overview",
+  );
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("tab", { name: "安全操作 (Danger Zone)" }),
+  );
+
+  expect(await screen.findByText("危险操作区")).toBeTruthy();
+  expect(window.location.pathname).toBe(
+    "/manage/projects/project_one/clients/active-web/safety",
+  );
+});
+
+test("opens the OIDC configuration editor", async () => {
+  mockApi();
+  window.history.pushState(
+    {},
+    "",
+    "/manage/projects/project_one/clients/active-web/configuration",
+  );
+  render(<App />);
+
+  fireEvent.click(
+    await screen.findByRole("button", { name: "修改 OIDC 配置" }),
+  );
+
+  expect(await screen.findByText("编辑 OIDC 变更配置")).toBeTruthy();
+  expect(
+    screen.getByRole("button", { name: /添加 Redirect URI/ }),
+  ).toBeTruthy();
+});
+
+test("shows project names and descriptions in pending reviews", async () => {
+  mockApi({ isAdmin: true });
+  window.history.pushState({}, "", "/manage/admin/reviews");
+  render(<App />);
+
+  expect(
+    await screen.findByRole("columnheader", { name: "项目" }),
+  ).toBeTruthy();
+  expect((await screen.findAllByText("Project One")).length).toBeGreaterThan(0);
+
+  fireEvent.click(screen.getByRole("button", { name: "对比并审核" }));
+
+  expect(await screen.findByText("申请描述")).toBeTruthy();
+  expect(screen.getByText("Production client")).toBeTruthy();
+});
+
+test("creates the selected web client type", async () => {
+  const calls = mockApi();
+  window.history.pushState({}, "", "/manage/projects/project_one/clients/new");
+  render(<App />);
+
+  fireEvent.change(await screen.findByLabelText("显示名称"), {
+    target: { value: "Web Client" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+
+  fireEvent.click(await screen.findByRole("radio", { name: /^Web/ }));
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+
+  fireEvent.change(
+    await screen.findByPlaceholderText("https://example.com/callback"),
+    { target: { value: "https://client.example.com/callback" } },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "下一步" }));
+  fireEvent.click(await screen.findByRole("button", { name: "下一步" }));
+
+  expect(await screen.findByText("Web (保密客户端)")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "创建并提交草稿" }));
+
+  await waitFor(() => {
+    expect(
+      calls.find(
+        (call) => call.path.endsWith("/clients") && call.method === "POST",
+      )?.body.clientType,
+    ).toBe("web");
+  });
+
+  expect(
+    calls.find(
+      (call) =>
+        call.path.endsWith("/revision/submit") && call.method === "POST",
+    )?.body,
+  ).toEqual({ revisionId: 2, revisionVersion: 1 });
+
+  fireEvent.click(await screen.findByRole("button", { name: "我已安全保存" }));
+  expect(await screen.findByText("Active Web")).toBeTruthy();
+}, 10_000);
 
 test("hides the system project and exposes its clients to admins", async () => {
   mockApi({
