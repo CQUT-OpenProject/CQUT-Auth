@@ -8,11 +8,15 @@
 
 > [!NOTE]
 > CQUT Auth 是为受控客户端提供登录服务的 OpenID Connect Provider。它通过重庆理工大学 UIS / CAS 验证学校账号，将验证结果关联到本地 Subject，再通过 Authorization Code + PKCE 向已审核的客户端签发令牌。
-> 
+>
 > 项目还提供客户端管理后台，可管理项目成员和 OIDC 客户端，配置 Redirect URI、Scope 与 Client Secret，并处理审核和运行策略。
 
 > [!CAUTION]
 > 本项目会在登录期间接收学校账号和密码，并将其用于请求 UIS；凭据不会写入数据库。部署者仍需自行完成安全评审、日志审计、网络隔离、密钥管理和隐私合规。请勿将未经审计的实例直接用于生产环境。
+
+## 特别感谢
+
+[「CQUT校园网登录脚本」](https://github.com/coldriver-chen/cqut-net-login)公开的重要信息，作为本项目的基座。本项目在其基础上进行了进一步的逆向分析与改进。
 
 ## 能力与边界
 
