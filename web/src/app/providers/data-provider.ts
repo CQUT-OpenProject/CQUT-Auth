@@ -1,5 +1,6 @@
 import type { DataProvider } from "@refinedev/core";
 import { request } from "../../api/client";
+import type { EmailSettingsView } from "../../api/types";
 
 export const dataProvider: DataProvider = {
   getList: async ({ resource, meta, filters, pagination }) => {
@@ -84,6 +85,15 @@ export const dataProvider: DataProvider = {
       );
       return {
         data: res.client,
+      };
+    }
+
+    if (resource === "emailSettings") {
+      const res = await request<{ settings: EmailSettingsView }>(
+        "/settings/email",
+      );
+      return {
+        data: { ...res.settings, id: "email" },
       };
     }
 
@@ -182,6 +192,19 @@ export const dataProvider: DataProvider = {
       };
     }
 
+    if (resource === "emailSettings") {
+      const res = await request<{ settings: EmailSettingsView }>(
+        "/settings/email",
+        {
+          method: "PUT",
+          body: JSON.stringify(variables),
+        },
+      );
+      return {
+        data: { ...res.settings, id: "email" },
+      };
+    }
+
     throw new Error(`Unhandled resource update: ${resource}`);
   },
 
@@ -207,5 +230,18 @@ export const dataProvider: DataProvider = {
 
   getApiUrl: () => {
     return "/api/management";
+  },
+
+  custom: async ({ url, method, payload }) => {
+    if (url === "/settings/email/test" && method === "post") {
+      const res = await request<{ settings: EmailSettingsView }>(url, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      return {
+        data: { ...res.settings, id: "email" },
+      };
+    }
+    throw new Error(`Unhandled custom request: ${method.toUpperCase()} ${url}`);
   },
 };

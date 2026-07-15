@@ -90,3 +90,51 @@ export type AuditLog = {
   details: Record<string, any>;
   createdAt: string;
 };
+
+export type EmailProviderKind = "resend" | "smtp" | "disabled";
+
+export type EmailSettingsView = {
+  id?: "email";
+  provider: EmailProviderKind;
+  resend: {
+    from: string;
+    apiKeyConfigured: boolean;
+  };
+  smtp: {
+    host: string;
+    port: number | null;
+    secure: boolean;
+    user: string;
+    from: string;
+    passwordConfigured: boolean;
+  };
+  version: number;
+  source: "database" | "environment" | "default";
+  verification: {
+    status: "verified" | "unverified" | "not_applicable";
+    verifiedAt: string | null;
+  };
+  updatedAt: string | null;
+};
+
+export type EmailSettingsUpdate = {
+  expectedVersion: number;
+  provider: EmailProviderKind;
+  resend: {
+    from: string;
+    apiKey: string;
+  };
+  smtp: {
+    host: string;
+    port: number | null;
+    secure: boolean;
+    user: string;
+    from: string;
+    password: string;
+  };
+};
+
+export type EmailSettingsTestInput = {
+  expectedVersion: number;
+  recipient: string;
+};
