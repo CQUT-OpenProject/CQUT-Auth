@@ -238,6 +238,24 @@ create table if not exists app_settings (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists app_settings_audit_logs (
+  id bigserial primary key,
+  setting_key text not null,
+  actor_subject_id text,
+  action text not null,
+  changed_fields jsonb not null default '[]'::jsonb,
+  previous_values jsonb not null default '{}'::jsonb,
+  new_values jsonb not null default '{}'::jsonb,
+  secrets_replaced jsonb not null default '{}'::jsonb,
+  previous_version integer not null check (previous_version >= 0),
+  new_version integer not null check (new_version > 0),
+  source_ip text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_app_settings_audit_key_created
+on app_settings_audit_logs (setting_key, id desc);
+
 create extension if not exists pg_cron;
 
 do $$

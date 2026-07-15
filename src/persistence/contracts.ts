@@ -472,13 +472,45 @@ export interface AppSettingRecord {
   updatedAt: string;
 }
 
+export type AppSettingAuditAction =
+  | "email_settings.updated"
+  | "email_settings.verified";
+
+export interface AppSettingAuditRecord {
+  id: number;
+  settingKey: string;
+  actorSubjectId: string | null;
+  action: AppSettingAuditAction;
+  changedFields: string[];
+  previousValues: Record<string, unknown>;
+  newValues: Record<string, unknown>;
+  secretsReplaced: Record<string, boolean>;
+  previousVersion: number;
+  newVersion: number;
+  sourceIp?: string | undefined;
+  createdAt: string;
+}
+
+export type AppSettingMutationResult =
+  | { status: "updated"; record: AppSettingRecord }
+  | { status: "version_conflict" };
+
 export interface AppSettingsRepository {
   getAppSetting(key: string): Promise<AppSettingRecord | null>;
-  upsertAppSetting(input: {
+  saveAppSetting(input: {
     key: string;
     valueCiphertext: string;
+    expectedVersion: number;
     updatedAt: string;
-  }): Promise<AppSettingRecord>;
+    audit: Omit<
+      AppSettingAuditRecord,
+      "id" | "settingKey" | "previousVersion" | "newVersion"
+    >;
+  }): Promise<AppSettingMutationResult>;
+  listAppSettingAuditLogs(
+    key: string,
+    limit: number,
+  ): Promise<AppSettingAuditRecord[]>;
 }
 
 export interface PersistenceRuntime {

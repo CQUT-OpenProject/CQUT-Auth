@@ -18,6 +18,7 @@ import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
 import type { EmailSettingsService } from "../email/email-settings.service.js";
+import type { EmailSender } from "../email/email-sender.js";
 import {
   clearManagementSessionCookie,
   ensureManagementNonce,
@@ -31,6 +32,7 @@ import {
 type ManagementRouterServices = {
   interactiveAuthenticator: InteractiveAuthenticatorService;
   emailSettingsService: EmailSettingsService;
+  emailSender: EmailSender;
 };
 
 export function createManagementRouter(
@@ -665,13 +667,46 @@ export function createManagementRouter(
     });
   });
 
+  router.get(
+    "/settings/email/audit-logs",
+    async (request, response, next) => {
+      await withActor(request, response, next, async (auth) => {
+        requireAdmin(auth.actor);
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(request.query["limit"] ?? 50) || 50),
+        );
+        response.json({ auditLogs: await emailSettings.listAuditLogs(limit) });
+      });
+    },
+  );
+
   router.put(
     "/settings/email",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         requireAdmin(auth.actor);
-        const settings = await emailSettings.update(request.body ?? {});
+        const settings = await emailSettings.update(
+          request.body ?? {},
+          auth.actor,
+        );
+        response.json({ settings });
+      });
+    },
+  );
+
+  router.post(
+    "/settings/email/test",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        requireAdmin(auth.actor);
+        const settings = await emailSettings.sendTest(
+          request.body ?? {},
+          auth.actor,
+          services.emailSender,
+        );
         response.json({ settings });
       });
     },

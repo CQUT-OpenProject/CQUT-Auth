@@ -24,7 +24,10 @@ export type EmailSettings = {
   provider: EmailProviderKind;
   resend: ResendEmailSettings;
   smtp: SmtpEmailSettings;
+  lastVerifiedAt?: string | undefined;
 };
+
+export type EmailSettingsSource = "database" | "environment" | "default";
 
 export type EmailSettingsView = {
   provider: EmailProviderKind;
@@ -39,6 +42,12 @@ export type EmailSettingsView = {
     user: string;
     from: string;
     passwordConfigured: boolean;
+  };
+  version: number;
+  source: EmailSettingsSource;
+  verification: {
+    status: "verified" | "unverified" | "not_applicable";
+    verifiedAt: string | null;
   };
   updatedAt: string | null;
 };

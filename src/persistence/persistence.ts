@@ -29,6 +29,7 @@ import type {
   OidcSigningKeyRecord,
   PendingInteractionLogin,
   AppSettingRecord,
+  AppSettingsRepository,
 } from "./contracts.js";
 import type { ProjectWriteAuthorization } from "../projects/project-access.js";
 import { IdentityRepositoryImpl } from "./identity.repository.js";
@@ -685,12 +686,14 @@ export class OidcPersistenceImpl implements OidcPersistence {
     return this.appSettingsRepository.getAppSetting(key);
   }
 
-  async upsertAppSetting(input: {
-    key: string;
-    valueCiphertext: string;
-    updatedAt: string;
-  }): Promise<AppSettingRecord> {
-    return this.appSettingsRepository.upsertAppSetting(input);
+  async saveAppSetting(
+    input: Parameters<AppSettingsRepository["saveAppSetting"]>[0],
+  ) {
+    return this.appSettingsRepository.saveAppSetting(input);
+  }
+
+  async listAppSettingAuditLogs(key: string, limit: number) {
+    return this.appSettingsRepository.listAppSettingAuditLogs(key, limit);
   }
 
   private async ensureSchema() {
@@ -957,6 +960,26 @@ export class OidcPersistenceImpl implements OidcPersistence {
         created_at timestamptz not null default now(),
         updated_at timestamptz not null default now()
       );
+    `);
+    await this.pool.query(`
+      create table if not exists app_settings_audit_logs (
+        id bigserial primary key,
+        setting_key text not null,
+        actor_subject_id text,
+        action text not null,
+        changed_fields jsonb not null default '[]'::jsonb,
+        previous_values jsonb not null default '{}'::jsonb,
+        new_values jsonb not null default '{}'::jsonb,
+        secrets_replaced jsonb not null default '{}'::jsonb,
+        previous_version integer not null check (previous_version >= 0),
+        new_version integer not null check (new_version > 0),
+        source_ip text,
+        created_at timestamptz not null default now()
+      );
+    `);
+    await this.pool.query(`
+      create index if not exists idx_app_settings_audit_key_created
+      on app_settings_audit_logs (setting_key, id desc);
     `);
   }
 

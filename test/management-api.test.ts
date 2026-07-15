@@ -6,6 +6,7 @@ import test from "node:test";
 import request from "supertest";
 import { createOidcApp } from "../src/app.js";
 import { createClientSecretDigest } from "../src/crypto.js";
+import type { EmailSender } from "../src/email/email-sender.js";
 
 async function clientsConfig() {
   const path = join(
@@ -29,19 +30,25 @@ async function clientsConfig() {
   return path;
 }
 
-async function createApp(overrides: NodeJS.ProcessEnv = {}) {
-  return createOidcApp({
-    APP_ENV: "test",
-    AUTH_PROVIDER: "mock",
-    OIDC_COOKIE_SECURE: "false",
-    OIDC_ISSUER: "http://127.0.0.1:3003",
-    OIDC_KEY_ENCRYPTION_SECRET: "test-management-key",
-    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-management-artifact",
-    OIDC_CLIENTS_CONFIG_PATH: await clientsConfig(),
-    OIDC_ADMIN_SUBJECT_IDS: "subj_admin",
-    OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS: "0",
-    ...overrides,
-  });
+async function createApp(
+  overrides: NodeJS.ProcessEnv = {},
+  dependencies: { emailSender?: EmailSender } = {},
+) {
+  return createOidcApp(
+    {
+      APP_ENV: "test",
+      AUTH_PROVIDER: "mock",
+      OIDC_COOKIE_SECURE: "false",
+      OIDC_ISSUER: "http://127.0.0.1:3003",
+      OIDC_KEY_ENCRYPTION_SECRET: "test-management-key",
+      OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-management-artifact",
+      OIDC_CLIENTS_CONFIG_PATH: await clientsConfig(),
+      OIDC_ADMIN_SUBJECT_IDS: "subj_admin",
+      OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS: "0",
+      ...overrides,
+    },
+    dependencies,
+  );
 }
 
 async function seedAdmin(
@@ -818,12 +825,15 @@ test("email settings API is admin-only and never echoes secrets", async () => {
     assert.equal(initial.status, 200);
     assert.equal(initial.body.settings.provider, "disabled");
     assert.equal(initial.body.settings.resend.apiKeyConfigured, false);
+    assert.equal(initial.body.settings.version, 0);
+    assert.equal(initial.body.settings.source, "default");
 
     // Save a Resend key.
     const saved = await admin
       .put("/api/management/settings/email")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
+        expectedVersion: initial.body.settings.version,
         provider: "resend",
         resend: {
           apiKey: "re_super_secret_value",
@@ -833,6 +843,8 @@ test("email settings API is admin-only and never echoes secrets", async () => {
     assert.equal(saved.status, 200);
     assert.equal(saved.body.settings.provider, "resend");
     assert.equal(saved.body.settings.resend.apiKeyConfigured, true);
+    assert.equal(saved.body.settings.version, 1);
+    assert.equal(saved.body.settings.verification.status, "unverified");
     // The plaintext secret must never be echoed back to the client.
     assert.equal(
       JSON.stringify(saved.body).includes("re_super_secret_value"),
@@ -852,18 +864,51 @@ test("email settings API is admin-only and never echoes secrets", async () => {
       .put("/api/management/settings/email")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
+        expectedVersion: saved.body.settings.version,
         provider: "resend",
         resend: { apiKey: "", from: "changed@example.edu.cn" },
       });
     assert.equal(kept.status, 200);
     assert.equal(kept.body.settings.resend.from, "changed@example.edu.cn");
     assert.equal(kept.body.settings.resend.apiKeyConfigured, true);
+    assert.equal(kept.body.settings.version, 2);
+
+    const stale = await admin
+      .put("/api/management/settings/email")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        expectedVersion: saved.body.settings.version,
+        provider: "disabled",
+      });
+    assert.equal(stale.status, 409);
+    assert.equal(stale.body.error, "version_conflict");
+
+    const audits = await admin.get(
+      "/api/management/settings/email/audit-logs",
+    );
+    assert.equal(audits.status, 200);
+    assert.equal(audits.body.auditLogs.length, 2);
+    assert.equal(audits.body.auditLogs[1].actorSubjectId, "subj_admin");
+    assert.equal(audits.body.auditLogs[1].previousVersion, 0);
+    assert.equal(audits.body.auditLogs[1].newVersion, 1);
+    assert.equal(
+      audits.body.auditLogs[1].secretsReplaced.resendApiKey,
+      true,
+    );
+    assert.equal(
+      JSON.stringify(audits.body).includes("re_super_secret_value"),
+      false,
+    );
 
     // Invalid provider selection is rejected with a field error.
     const invalid = await admin
       .put("/api/management/settings/email")
       .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ provider: "smtp", smtp: { port: 465 } });
+      .send({
+        expectedVersion: kept.body.settings.version,
+        provider: "smtp",
+        smtp: { port: 465 },
+      });
     assert.equal(invalid.status, 400);
 
     // Non-admins cannot read or write email settings.
@@ -878,9 +923,72 @@ test("email settings API is admin-only and never echoes secrets", async () => {
         await outsider
           .put("/api/management/settings/email")
           .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
-          .send({ provider: "disabled" })
+          .send({ expectedVersion: 0, provider: "disabled" })
       ).status,
       403,
+    );
+  } finally {
+    await state.closeOidcServices();
+    await state.rateLimitService.close();
+    await state.store.close();
+  }
+});
+
+test("email settings API inherits env secrets on first save and can test delivery", async () => {
+  const sent: Array<{ to: string; code: string }> = [];
+  const { app, state } = await createApp(
+    {
+      RESEND_API_KEY: "re_env_secret_key",
+      OIDC_EMAIL_FROM: "noreply@example.edu.cn",
+    },
+    {
+      emailSender: {
+        async sendVerificationCode(input) {
+          sent.push({ to: input.to, code: input.code });
+        },
+      },
+    },
+  );
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    const initial = await admin.get("/api/management/settings/email");
+    assert.equal(initial.body.settings.source, "environment");
+    assert.equal(initial.body.settings.resend.apiKeyConfigured, true);
+
+    const saved = await admin
+      .put("/api/management/settings/email")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        expectedVersion: 0,
+        provider: "resend",
+        resend: { apiKey: "", from: "changed@example.edu.cn" },
+      });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.body.settings.resend.apiKeyConfigured, true);
+    assert.equal(saved.body.settings.source, "database");
+
+    const tested = await admin
+      .post("/api/management/settings/email/test")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({
+        expectedVersion: saved.body.settings.version,
+        recipient: "Admin@Example.edu.cn",
+      });
+    assert.equal(tested.status, 200);
+    assert.equal(tested.body.settings.verification.status, "verified");
+    assert.equal(tested.body.settings.version, 2);
+    assert.deepEqual(sent, [
+      { to: "admin@example.edu.cn", code: "000000" },
+    ]);
+
+    const audits = await admin.get(
+      "/api/management/settings/email/audit-logs",
+    );
+    assert.deepEqual(
+      audits.body.auditLogs.map((audit: { action: string }) => audit.action),
+      ["email_settings.verified", "email_settings.updated"],
     );
   } finally {
     await state.closeOidcServices();
