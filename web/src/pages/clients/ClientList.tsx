@@ -148,6 +148,7 @@ export const ClientList: React.FC = () => {
       title="OIDC 客户端"
       extra={
         canWriteClient &&
+        activeProject.projectId !== "system" &&
         !isArchived && (
           <Button
             type="primary"

@@ -2,6 +2,14 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import type { Project } from "../api/types";
 import { request } from "../api/client";
 import { setActiveProjectForAccessControl } from "../app/providers/access-control-provider";
+import { useLocation } from "react-router-dom";
+
+const SYSTEM_PROJECT_ID = "system";
+
+function projectIdFromPath(pathname: string) {
+  const match = pathname.match(/^\/projects\/([^/]+)/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
 
 interface ProjectContextType {
   projects: Project[];
@@ -19,32 +27,29 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProject, setActiveProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+  const location = useLocation();
+
+  const activate = (project: Project | null) => {
+    setActiveProject(project);
+    setActiveProjectForAccessControl(project);
+  };
 
   const refreshProjects = async () => {
     setLoading(true);
     try {
       const data = await request<{ projects: Project[] }>("/projects");
       setProjects(data.projects);
-
-      // Auto-select or refresh active project
-      if (activeProject) {
-        const updated = data.projects.find(
-          (p) => p.projectId === activeProject.projectId,
-        );
-        if (updated) {
-          setActiveProject(updated);
-          setActiveProjectForAccessControl(updated);
-        } else if (data.projects.length > 0) {
-          setActiveProject(data.projects[0]!);
-          setActiveProjectForAccessControl(data.projects[0]!);
-        } else {
-          setActiveProject(null);
-          setActiveProjectForAccessControl(null);
-        }
-      } else if (data.projects.length > 0) {
-        setActiveProject(data.projects[0]!);
-        setActiveProjectForAccessControl(data.projects[0]!);
-      }
+      const routeProjectId = projectIdFromPath(location.pathname);
+      activate(
+        data.projects.find((project) => project.projectId === routeProjectId) ??
+          data.projects.find(
+            (project) => project.projectId === activeProject?.projectId,
+          ) ??
+          data.projects.find(
+            (project) => project.projectId !== SYSTEM_PROJECT_ID,
+          ) ??
+          null,
+      );
     } catch (error) {
       console.error("Failed to fetch projects:", error);
     } finally {
@@ -54,13 +59,19 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const selectProject = (projectId: string) => {
     const project = projects.find((p) => p.projectId === projectId) ?? null;
-    setActiveProject(project);
-    setActiveProjectForAccessControl(project);
+    activate(project);
   };
 
   useEffect(() => {
     refreshProjects();
   }, []);
+
+  useEffect(() => {
+    const routeProjectId = projectIdFromPath(location.pathname);
+    if (!routeProjectId || routeProjectId === activeProject?.projectId) return;
+    const project = projects.find((item) => item.projectId === routeProjectId);
+    if (project) activate(project);
+  }, [location.pathname, projects]);
 
   return (
     <ProjectContext.Provider

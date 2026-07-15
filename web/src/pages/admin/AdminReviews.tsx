@@ -167,7 +167,7 @@ export const AdminReviews: React.FC = () => {
   ];
 
   return (
-    <Card title="全局待审核客户端配置">
+    <Card title="待审核客户端配置">
       <Space direction="vertical" style={{ width: "100%" }} size="large">
         <Table
           dataSource={pendingClients}

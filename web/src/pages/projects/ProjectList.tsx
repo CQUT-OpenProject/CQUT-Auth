@@ -28,6 +28,9 @@ export const ProjectList: React.FC = () => {
   const [createVisible, setCreateVisible] = useState(false);
   const [form] = Form.useForm();
   const navigate = useNavigate();
+  const visibleProjects = projects.filter(
+    (project) => project.projectId !== "system",
+  );
 
   const handleCreate = async (values: any) => {
     try {
@@ -107,7 +110,7 @@ export const ProjectList: React.FC = () => {
 
   return (
     <Card
-      title="项目列表"
+      title="我的项目"
       extra={
         <Button
           type="primary"
@@ -119,7 +122,7 @@ export const ProjectList: React.FC = () => {
       }
     >
       <Table
-        dataSource={projects}
+        dataSource={visibleProjects}
         columns={columns}
         rowKey="projectId"
         loading={loading}

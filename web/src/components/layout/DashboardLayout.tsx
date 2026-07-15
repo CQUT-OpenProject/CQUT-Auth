@@ -47,6 +47,9 @@ export const DashboardLayout: React.FC = () => {
 
   const [collapsed, setCollapsed] = useState(false);
   const [mobileVisible, setMobileVisible] = useState(false);
+  const visibleProjects = projects.filter(
+    (project) => project.projectId !== "system",
+  );
 
   const handleProjectSelect = (value: string) => {
     selectProject(value);
@@ -61,17 +64,20 @@ export const DashboardLayout: React.FC = () => {
 
     if (paths.includes("projects")) {
       breadcrumbItems.push({
-        title: "项目列表",
+        title: "我的项目",
         key: "projects",
         onClick: () => navigate("/projects"),
       });
       if (activeProject) {
+        const isSystemProject = activeProject.projectId === "system";
         breadcrumbItems.push({
-          title: activeProject.name,
+          title: isSystemProject ? "系统客户端" : activeProject.name,
           key: activeProject.projectId,
           onClick: () =>
             navigate(
-              `/projects/${encodeURIComponent(activeProject.projectId)}/overview`,
+              isSystemProject
+                ? "/projects/system/clients"
+                : `/projects/${encodeURIComponent(activeProject.projectId)}/overview`,
             ),
         });
       }
@@ -93,56 +99,72 @@ export const DashboardLayout: React.FC = () => {
       {
         key: "projects-list",
         icon: <ProjectOutlined />,
-        label: "项目列表",
+        label: "我的项目",
         onClick: () => navigate("/projects"),
       },
     ];
 
-    if (activeProject) {
-      items.push({
-        key: "project-group",
-        label: `${activeProject.name} (当前)`,
-        type: "group",
-        children: [
-          {
-            key: "overview",
-            icon: <DesktopOutlined />,
-            label: "项目概览",
-            onClick: () =>
-              navigate(
-                `/projects/${encodeURIComponent(activeProject.projectId)}/overview`,
-              ),
-          },
-          {
-            key: "clients",
-            icon: <DesktopOutlined />,
-            label: "OIDC 客户端",
-            onClick: () =>
-              navigate(
-                `/projects/${encodeURIComponent(activeProject.projectId)}/clients`,
-              ),
-          },
-          {
-            key: "members",
-            icon: <TeamOutlined />,
-            label: "成员管理",
-            onClick: () =>
-              navigate(
-                `/projects/${encodeURIComponent(activeProject.projectId)}/members`,
-              ),
-          },
-          {
-            key: "audit",
-            icon: <AuditOutlined />,
-            label: "审计日志",
-            onClick: () =>
-              navigate(
-                `/projects/${encodeURIComponent(activeProject.projectId)}/audit`,
-              ),
-          },
-        ],
-      });
-    }
+    const isSystemProject = activeProject?.projectId === "system";
+    items.push({
+      key: "project-group",
+      label: `当前项目【${isSystemProject ? "系统客户端" : (activeProject?.name ?? "未选择")}】`,
+      type: "group",
+      children: isSystemProject
+        ? [
+            {
+              key: "current-system-overview",
+              icon: <DesktopOutlined />,
+              label: "项目概览",
+              onClick: () => navigate("/projects/system/overview"),
+            },
+            {
+              key: "current-system-audit",
+              icon: <AuditOutlined />,
+              label: "审计日志",
+              onClick: () => navigate("/projects/system/audit"),
+            },
+          ]
+        : activeProject
+          ? [
+              {
+                key: "overview",
+                icon: <DesktopOutlined />,
+                label: "项目概览",
+                onClick: () =>
+                  navigate(
+                    `/projects/${encodeURIComponent(activeProject.projectId)}/overview`,
+                  ),
+              },
+              {
+                key: "clients",
+                icon: <DesktopOutlined />,
+                label: "OIDC 客户端",
+                onClick: () =>
+                  navigate(
+                    `/projects/${encodeURIComponent(activeProject.projectId)}/clients`,
+                  ),
+              },
+              {
+                key: "members",
+                icon: <TeamOutlined />,
+                label: "成员管理",
+                onClick: () =>
+                  navigate(
+                    `/projects/${encodeURIComponent(activeProject.projectId)}/members`,
+                  ),
+              },
+              {
+                key: "audit",
+                icon: <AuditOutlined />,
+                label: "审计日志",
+                onClick: () =>
+                  navigate(
+                    `/projects/${encodeURIComponent(activeProject.projectId)}/audit`,
+                  ),
+              },
+            ]
+          : [],
+    });
 
     if (identity?.isAdmin) {
       items.push({
@@ -153,8 +175,17 @@ export const DashboardLayout: React.FC = () => {
           {
             key: "reviews",
             icon: <SafetyCertificateOutlined />,
-            label: "全局待审核",
+            label: "待审核配置",
             onClick: () => navigate("/admin/reviews"),
+          },
+          {
+            key: "system-clients",
+            icon: <DesktopOutlined />,
+            label: "系统客户端",
+            onClick: () => {
+              selectProject("system");
+              navigate("/projects/system/overview");
+            },
           },
           {
             key: "system-settings",
@@ -220,6 +251,9 @@ export const DashboardLayout: React.FC = () => {
             alignItems: "center",
             justifyContent: "space-between",
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
+            position: "sticky",
+            top: 0,
+            zIndex: 1,
           }}
         >
           <Space>
@@ -234,14 +268,18 @@ export const DashboardLayout: React.FC = () => {
                 }
               }}
             />
-            {projects.length > 0 && (
+            {visibleProjects.length > 0 && (
               <Select
-                value={activeProject?.projectId}
+                value={
+                  activeProject?.projectId === "system"
+                    ? undefined
+                    : activeProject?.projectId
+                }
                 onChange={handleProjectSelect}
                 style={{ width: 200 }}
                 placeholder="切换项目"
               >
-                {projects.map((p) => (
+                {visibleProjects.map((p) => (
                   <Select.Option key={p.projectId} value={p.projectId}>
                     {p.name}
                   </Select.Option>

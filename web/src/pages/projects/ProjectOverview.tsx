@@ -90,7 +90,9 @@ export const ProjectOverview: React.FC = () => {
     });
   };
 
-  const canManage = activeProject.capabilities.includes("manage_project");
+  const canManage =
+    activeProject.projectId !== "system" &&
+    activeProject.capabilities.includes("manage_project");
   const isArchived = activeProject.status === "archived";
 
   return (

@@ -34,6 +34,10 @@ export const AppRouter: React.FC = () => {
         <Route index element={<Navigate to="/projects" replace />} />
         <Route path="/projects" element={<ProjectList />} />
         <Route
+          path="/projects/system/members"
+          element={<Navigate to="/projects/system/clients" replace />}
+        />
+        <Route
           path="/projects/:projectId/overview"
           element={<ProjectOverview />}
         />
@@ -42,6 +46,10 @@ export const AppRouter: React.FC = () => {
           element={<MemberManager />}
         />
         <Route path="/projects/:projectId/clients" element={<ClientList />} />
+        <Route
+          path="/projects/system/clients/new"
+          element={<Navigate to="/projects/system/clients" replace />}
+        />
         <Route
           path="/projects/:projectId/clients/new"
           element={<ClientCreate />}

@@ -307,8 +307,35 @@ test("shows project list and handles switching", async () => {
   render(<App />);
 
   // Should render active project Sider details
-  expect(await screen.findByText("Project One (当前)")).toBeTruthy();
+  expect(await screen.findByText("当前项目【Project One】")).toBeTruthy();
   // Should render projects table with unique link roles
   expect((await screen.findAllByText("Project One")).length).toBeGreaterThan(0);
   expect(await screen.findByText("Project Two")).toBeTruthy();
+});
+
+test("hides the system project and exposes its clients to admins", async () => {
+  mockApi({
+    isAdmin: true,
+    projects: [
+      project({ projectId: "system", name: "System", role: null }),
+      project({ projectId: "p1", name: "Project One" }),
+    ],
+  });
+  window.history.pushState({}, "", "/manage/projects");
+  render(<App />);
+
+  expect(await screen.findByText("系统客户端")).toBeTruthy();
+  expect(screen.queryByText("[系统项目]")).toBeNull();
+  expect(screen.queryByRole("link", { name: "System" })).toBeNull();
+
+  fireEvent.click(screen.getByText("系统客户端"));
+  await waitFor(() => {
+    expect(window.location.pathname).toBe("/manage/projects/system/overview");
+  });
+  expect(screen.getByText("当前项目【系统客户端】")).toBeTruthy();
+  expect(screen.getAllByText("项目概览").length).toBeGreaterThan(0);
+  expect(screen.getByText("审计日志")).toBeTruthy();
+  expect(screen.queryByText("OIDC 客户端")).toBeNull();
+  expect(screen.queryByText("当前项目【Project One】")).toBeNull();
+  expect(screen.queryByRole("button", { name: "创建客户端" })).toBeNull();
 });
