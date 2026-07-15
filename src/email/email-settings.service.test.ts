@@ -92,11 +92,14 @@ test("first update inherits the env-configured Resend key", async () => {
     emailFrom: "noreply@example.edu.cn",
   });
 
-  const view = await service.update({
-    expectedVersion: 0,
-    provider: "resend",
-    resend: { apiKey: "", from: "changed@example.edu.cn" },
-  }, ACTOR);
+  const view = await service.update(
+    {
+      expectedVersion: 0,
+      provider: "resend",
+      resend: { apiKey: "", from: "changed@example.edu.cn" },
+    },
+    ACTOR,
+  );
 
   assert.equal(view.resend.apiKeyConfigured, true);
   const effective = await service.loadEffective();
@@ -107,11 +110,14 @@ test("first update inherits the env-configured Resend key", async () => {
 test("email settings persist an encrypted Resend key and redact it from the view", async () => {
   const store = new FakeSettingsStore();
   const service = new EmailSettingsService(store, SECRET);
-  const view = await service.update({
-    expectedVersion: 0,
-    provider: "resend",
-    resend: { apiKey: "re_live_1234567890", from: "noreply@example.edu.cn" },
-  }, ACTOR);
+  const view = await service.update(
+    {
+      expectedVersion: 0,
+      provider: "resend",
+      resend: { apiKey: "re_live_1234567890", from: "noreply@example.edu.cn" },
+    },
+    ACTOR,
+  );
   assert.equal(view.provider, "resend");
   assert.equal(view.resend.apiKeyConfigured, true);
   assert.equal(JSON.stringify(view).includes("re_live_1234567890"), false);
@@ -128,16 +134,22 @@ test("email settings persist an encrypted Resend key and redact it from the view
 test("email settings keep the stored secret when the update leaves it blank", async () => {
   const store = new FakeSettingsStore();
   const service = new EmailSettingsService(store, SECRET);
-  await service.update({
-    expectedVersion: 0,
-    provider: "resend",
-    resend: { apiKey: "re_original_key", from: "a@example.edu.cn" },
-  }, ACTOR);
-  await service.update({
-    expectedVersion: 1,
-    provider: "resend",
-    resend: { apiKey: "", from: "changed@example.edu.cn" },
-  }, ACTOR);
+  await service.update(
+    {
+      expectedVersion: 0,
+      provider: "resend",
+      resend: { apiKey: "re_original_key", from: "a@example.edu.cn" },
+    },
+    ACTOR,
+  );
+  await service.update(
+    {
+      expectedVersion: 1,
+      provider: "resend",
+      resend: { apiKey: "", from: "changed@example.edu.cn" },
+    },
+    ACTOR,
+  );
   const effective = await service.loadEffective();
   assert.equal(effective.resend.apiKey, "re_original_key");
   assert.equal(effective.resend.from, "changed@example.edu.cn");
@@ -170,18 +182,21 @@ test("email settings validate required SMTP fields and switch provider", async (
       ),
     /SMTP host is required/,
   );
-  const view = await service.update({
-    expectedVersion: 0,
-    provider: "smtp",
-    smtp: {
-      host: "smtp.example.edu.cn",
-      port: 465,
-      secure: true,
-      user: "mailer",
-      password: "smtp-secret",
-      from: "noreply@example.edu.cn",
+  const view = await service.update(
+    {
+      expectedVersion: 0,
+      provider: "smtp",
+      smtp: {
+        host: "smtp.example.edu.cn",
+        port: 465,
+        secure: true,
+        user: "mailer",
+        password: "smtp-secret",
+        from: "noreply@example.edu.cn",
+      },
     },
-  }, ACTOR);
+    ACTOR,
+  );
   assert.equal(view.provider, "smtp");
   assert.equal(view.smtp.host, "smtp.example.edu.cn");
   assert.equal(view.smtp.port, 465);
@@ -271,12 +286,7 @@ test("email settings reject stale versions and audit updates without secrets", a
 test("test email records the last successful verification", async () => {
   const store = new FakeSettingsStore();
   const now = new Date("2026-07-14T12:00:00.000Z");
-  const service = new EmailSettingsService(
-    store,
-    SECRET,
-    {},
-    () => now,
-  );
+  const service = new EmailSettingsService(store, SECRET, {}, () => now);
   await service.update(
     {
       expectedVersion: 0,

@@ -169,6 +169,12 @@ export async function createOidcApp(
     ),
   );
   const managementAssets = resolve(process.cwd(), "dist/management");
+  app.get("/favicon.svg", (_request, response) => {
+    response.sendFile(resolve(managementAssets, "favicon.svg"));
+  });
+  app.get("/manage/favicon.svg", (_request, response) => {
+    response.sendFile(resolve(managementAssets, "favicon.svg"));
+  });
   app.use(
     "/manage/assets",
     express.static(resolve(managementAssets, "assets"), {

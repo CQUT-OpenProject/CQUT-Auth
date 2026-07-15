@@ -1,5 +1,8 @@
 import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
-import { IdentityCoreError, RetryableProviderError } from "../identity/errors.js";
+import {
+  IdentityCoreError,
+  RetryableProviderError,
+} from "../identity/errors.js";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
 import {
@@ -533,6 +536,7 @@ export function renderBrandedPage(title: string, body: string) {
       <meta charset="utf-8">
       <title>${escapeHtml(title)}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
+      <link rel="icon" type="image/svg+xml" href="/favicon.svg">
       <style>${renderInteractionPageStyles()}
       </style>
     </head>
@@ -550,7 +554,7 @@ export function renderBrandedPage(title: string, body: string) {
         ${body}
         </main>
       </div>
-      <footer class="page-foot">重庆理工大学开源计划 · OpenID Connect</footer>
+      <footer class="page-foot">重庆理工大学统一身份认证 · OpenID Connect</footer>
     </body>
   </html>`;
 }
@@ -1261,7 +1265,9 @@ export function createInteractionRouter(
       if (loginDetails.prompt.name !== "login" || loginDetails.uid !== uid) {
         response
           .status(400)
-          .send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+          .send(
+            renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"),
+          );
         return;
       }
       const account =
@@ -1403,7 +1409,9 @@ export function createInteractionRouter(
       if (details.prompt.name !== "login" || details.uid !== uid) {
         response
           .status(400)
-          .send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+          .send(
+            renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"),
+          );
         return;
       }
       const pending = await store.getInteractionLogin(uid);
@@ -1455,7 +1463,9 @@ export function createInteractionRouter(
       if (details.prompt.name !== "login" || details.uid !== uid) {
         response
           .status(400)
-          .send(renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"));
+          .send(
+            renderPage("不支持的交互类型", "<p>当前交互类型暂不支持。</p>"),
+          );
         return;
       }
       if (

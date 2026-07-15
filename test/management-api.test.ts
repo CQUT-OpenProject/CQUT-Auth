@@ -883,18 +883,13 @@ test("email settings API is admin-only and never echoes secrets", async () => {
     assert.equal(stale.status, 409);
     assert.equal(stale.body.error, "version_conflict");
 
-    const audits = await admin.get(
-      "/api/management/settings/email/audit-logs",
-    );
+    const audits = await admin.get("/api/management/settings/email/audit-logs");
     assert.equal(audits.status, 200);
     assert.equal(audits.body.auditLogs.length, 2);
     assert.equal(audits.body.auditLogs[1].actorSubjectId, "subj_admin");
     assert.equal(audits.body.auditLogs[1].previousVersion, 0);
     assert.equal(audits.body.auditLogs[1].newVersion, 1);
-    assert.equal(
-      audits.body.auditLogs[1].secretsReplaced.resendApiKey,
-      true,
-    );
+    assert.equal(audits.body.auditLogs[1].secretsReplaced.resendApiKey, true);
     assert.equal(
       JSON.stringify(audits.body).includes("re_super_secret_value"),
       false,
@@ -979,13 +974,9 @@ test("email settings API inherits env secrets on first save and can test deliver
     assert.equal(tested.status, 200);
     assert.equal(tested.body.settings.verification.status, "verified");
     assert.equal(tested.body.settings.version, 2);
-    assert.deepEqual(sent, [
-      { to: "admin@example.edu.cn", code: "000000" },
-    ]);
+    assert.deepEqual(sent, [{ to: "admin@example.edu.cn", code: "000000" }]);
 
-    const audits = await admin.get(
-      "/api/management/settings/email/audit-logs",
-    );
+    const audits = await admin.get("/api/management/settings/email/audit-logs");
     assert.deepEqual(
       audits.body.auditLogs.map((audit: { action: string }) => audit.action),
       ["email_settings.verified", "email_settings.updated"],

@@ -80,7 +80,10 @@ export class EmailSettingsService {
     );
   }
 
-  async update(raw: unknown, actor: EmailSettingsActor): Promise<EmailSettingsView> {
+  async update(
+    raw: unknown,
+    actor: EmailSettingsActor,
+  ): Promise<EmailSettingsView> {
     const input = requireObject(raw);
     const stored = await this.loadStored();
     const current = stored?.settings ?? this.envDerivedSettings();
@@ -101,21 +104,16 @@ export class EmailSettingsService {
         optionalObject(input["smtp"], "smtp")["password"],
       ),
     };
-    const record = await this.save(
-      merged,
-      expectedVersion,
-      updatedAt,
-      {
-        actorSubjectId: actor.subjectId,
-        action: "email_settings.updated",
-        changedFields: changedFields(current, merged, secretsReplaced),
-        previousValues: auditValues(current),
-        newValues: auditValues(merged),
-        secretsReplaced,
-        ...(actor.sourceIp ? { sourceIp: actor.sourceIp } : {}),
-        createdAt: updatedAt,
-      },
-    );
+    const record = await this.save(merged, expectedVersion, updatedAt, {
+      actorSubjectId: actor.subjectId,
+      action: "email_settings.updated",
+      changedFields: changedFields(current, merged, secretsReplaced),
+      previousValues: auditValues(current),
+      newValues: auditValues(merged),
+      secretsReplaced,
+      ...(actor.sourceIp ? { sourceIp: actor.sourceIp } : {}),
+      createdAt: updatedAt,
+    });
     return toView(merged, record.updatedAt, record.version, "database");
   }
 
@@ -151,24 +149,19 @@ export class EmailSettingsService {
 
     const verifiedAt = this.now().toISOString();
     const verified = { ...settings, lastVerifiedAt: verifiedAt };
-    const record = await this.save(
-      verified,
-      expectedVersion,
-      verifiedAt,
-      {
-        actorSubjectId: actor.subjectId,
-        action: "email_settings.verified",
-        changedFields: ["verification"],
-        previousValues: auditValues(settings),
-        newValues: auditValues(verified),
-        secretsReplaced: {
-          resendApiKey: false,
-          smtpPassword: false,
-        },
-        ...(actor.sourceIp ? { sourceIp: actor.sourceIp } : {}),
-        createdAt: verifiedAt,
+    const record = await this.save(verified, expectedVersion, verifiedAt, {
+      actorSubjectId: actor.subjectId,
+      action: "email_settings.verified",
+      changedFields: ["verification"],
+      previousValues: auditValues(settings),
+      newValues: auditValues(verified),
+      secretsReplaced: {
+        resendApiKey: false,
+        smtpPassword: false,
       },
-    );
+      ...(actor.sourceIp ? { sourceIp: actor.sourceIp } : {}),
+      createdAt: verifiedAt,
+    });
     return toView(verified, record.updatedAt, record.version, "database");
   }
 
@@ -272,32 +265,20 @@ function mergeSettings(
       ),
     },
     smtp: {
-      host: optionalString(
-        smtpInput["host"],
-        current.smtp.host,
-        "smtp.host",
-      ),
+      host: optionalString(smtpInput["host"], current.smtp.host, "smtp.host"),
       port: optionalPort(smtpInput["port"], current.smtp.port),
       secure: optionalBoolean(
         smtpInput["secure"],
         current.smtp.secure,
         "smtp.secure",
       ),
-      user: optionalString(
-        smtpInput["user"],
-        current.smtp.user,
-        "smtp.user",
-      ),
+      user: optionalString(smtpInput["user"], current.smtp.user, "smtp.user"),
       password: keepSecret(
         smtpInput["password"],
         current.smtp.password,
         "smtp.password",
       ),
-      from: optionalString(
-        smtpInput["from"],
-        current.smtp.from,
-        "smtp.from",
-      ),
+      from: optionalString(smtpInput["from"], current.smtp.from, "smtp.from"),
     },
   };
   return deliverySettingsEqual(current, merged) && current.lastVerifiedAt
@@ -482,7 +463,10 @@ function requireObject(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function optionalObject(value: unknown, field: string): Record<string, unknown> {
+function optionalObject(
+  value: unknown,
+  field: string,
+): Record<string, unknown> {
   if (value === undefined || value === null) {
     return {};
   }

@@ -1,2 +1,5 @@
 minimumReleaseAge: 10080
+minimumReleaseAgeExclude:
+  - typescript
+  - "@typescript/*"
 trustPolicy: no-downgrade

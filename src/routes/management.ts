@@ -667,34 +667,27 @@ export function createManagementRouter(
     });
   });
 
-  router.get(
-    "/settings/email/audit-logs",
-    async (request, response, next) => {
-      await withActor(request, response, next, async (auth) => {
-        requireAdmin(auth.actor);
-        const limit = Math.min(
-          100,
-          Math.max(1, Number(request.query["limit"] ?? 50) || 50),
-        );
-        response.json({ auditLogs: await emailSettings.listAuditLogs(limit) });
-      });
-    },
-  );
+  router.get("/settings/email/audit-logs", async (request, response, next) => {
+    await withActor(request, response, next, async (auth) => {
+      requireAdmin(auth.actor);
+      const limit = Math.min(
+        100,
+        Math.max(1, Number(request.query["limit"] ?? 50) || 50),
+      );
+      response.json({ auditLogs: await emailSettings.listAuditLogs(limit) });
+    });
+  });
 
-  router.put(
-    "/settings/email",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        requireAdmin(auth.actor);
-        const settings = await emailSettings.update(
-          request.body ?? {},
-          auth.actor,
-        );
-        response.json({ settings });
-      });
-    },
-  );
+  router.put("/settings/email", jsonParser, async (request, response, next) => {
+    await withMutation(request, response, next, async (auth) => {
+      requireAdmin(auth.actor);
+      const settings = await emailSettings.update(
+        request.body ?? {},
+        auth.actor,
+      );
+      response.json({ settings });
+    });
+  });
 
   router.post(
     "/settings/email/test",

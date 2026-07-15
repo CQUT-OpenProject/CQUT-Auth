@@ -352,7 +352,10 @@ export const EmailSettings: React.FC = () => {
                   { type: "email", message: "请输入有效的邮箱地址" },
                 ]}
               >
-                <Input autoComplete="email" placeholder="admin@example.edu.cn" />
+                <Input
+                  autoComplete="email"
+                  placeholder="admin@example.edu.cn"
+                />
               </Form.Item>
             )}
 

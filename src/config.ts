@@ -696,7 +696,10 @@ export function readOidcOpConfig(
   const refreshTokenTtlSeconds = Number(
     env["OIDC_REFRESH_TTL_SECONDS"] ?? 60 * 60 * 24 * 30,
   );
-  if (!Number.isInteger(refreshTokenTtlSeconds) || refreshTokenTtlSeconds <= 0) {
+  if (
+    !Number.isInteger(refreshTokenTtlSeconds) ||
+    refreshTokenTtlSeconds <= 0
+  ) {
     throw new Error("OIDC_REFRESH_TTL_SECONDS must be a positive integer");
   }
   // The Grant anchors consent and outlives individual refresh tokens; under

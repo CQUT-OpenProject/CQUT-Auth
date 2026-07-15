@@ -1936,8 +1936,7 @@ test("interactive login treats upstream outages as retryable 503 without consumi
   // credential failures, later attempts would return 429, not 503.
   const attempts = 8;
   for (let index = 0; index < attempts; index += 1) {
-    const page =
-      index === 0 ? loginPage : await agent.get(interactionLocation);
+    const page = index === 0 ? loginPage : await agent.get(interactionLocation);
     const csrf = extractCsrf(page.text);
     const login = await agent
       .post(`${interactionLocation}/login`)
