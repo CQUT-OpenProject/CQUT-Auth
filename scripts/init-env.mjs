@@ -48,7 +48,6 @@ const profileReplacements = {
     OIDC_APP_PORT: "3003",
     OIDC_AUTO_SEED_SIGNING_KEY: "false",
     OIDC_EMAIL_VERIFICATION_ENABLED: "true",
-    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>",
   },
   local: {
     APP_ENV: "development",
@@ -58,7 +57,6 @@ const profileReplacements = {
     OIDC_APP_PORT: "3003",
     OIDC_AUTO_SEED_SIGNING_KEY: "true",
     OIDC_EMAIL_VERIFICATION_ENABLED: "true",
-    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>",
   },
   test: {
     APP_ENV: "test",
@@ -68,7 +66,6 @@ const profileReplacements = {
     OIDC_APP_PORT: "3003",
     OIDC_AUTO_SEED_SIGNING_KEY: "true",
     OIDC_EMAIL_VERIFICATION_ENABLED: "true",
-    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>",
   },
 };
 
