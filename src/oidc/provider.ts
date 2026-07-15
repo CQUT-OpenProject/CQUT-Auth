@@ -27,14 +27,14 @@ import { randomId, parseScope, escapeHtml } from "../utils.js";
 import { initializeOidcClientsFromConfig } from "./client-config.js";
 import type { EmailSender } from "../email/email-sender.js";
 import { RuntimeEmailSender } from "../email/runtime-email-sender.js";
-import { EmailSettingsService } from "../email/email-settings.service.js";
+import type { RuntimePolicyService } from "../runtime-policy.js";
 
 export type OidcServices = {
   provider: any;
   interactiveAuthenticator: InteractiveAuthenticatorService;
   subjectProfileService: SubjectProfileService;
   emailSender: EmailSender;
-  emailSettingsService: EmailSettingsService;
+  emailSettingsService: RuntimePolicyService;
   close(): Promise<void>;
 };
 
@@ -563,6 +563,7 @@ export async function createOidcServices(
   store: OidcPersistence,
   rateLimitService: RateLimitService,
   providedEmailSender?: EmailSender,
+  runtimePolicyService?: RuntimePolicyService,
 ): Promise<OidcServices> {
   await initializeOidcClientsFromConfig(store, config);
   await ensureSigningKey(store, config);
@@ -590,11 +591,10 @@ export async function createOidcServices(
   );
   const identityLinkService = new IdentityLinkService(store);
   const subjectProfileService = new SubjectProfileService(store);
-  const emailSettingsService = new EmailSettingsService(
-    store,
-    config.keyEncryptionSecret,
-    { resendApiKey: config.resendApiKey, emailFrom: config.emailFrom },
-  );
+  if (!runtimePolicyService) {
+    throw new Error("runtime policy service is required");
+  }
+  const emailSettingsService = runtimePolicyService;
   const emailSender =
     providedEmailSender ?? new RuntimeEmailSender(emailSettingsService);
   const interactiveAuthenticator = new InteractiveAuthenticatorService(

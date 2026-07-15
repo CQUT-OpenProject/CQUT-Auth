@@ -7,6 +7,7 @@ import request from "supertest";
 import { createOidcApp } from "../src/app.js";
 import { createClientSecretDigest } from "../src/crypto.js";
 import type { EmailSender } from "../src/email/email-sender.js";
+import type { PolicyValues } from "../src/runtime-policy.js";
 
 async function clientsConfig() {
   const path = join(
@@ -47,8 +48,48 @@ async function createApp(
       OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS: "0",
       ...overrides,
     },
-    dependencies,
+    { ...dependencies, runtimePolicyOverrides: testPolicyOverrides(overrides) },
   );
+}
+
+function testPolicyOverrides(env: NodeJS.ProcessEnv): Partial<PolicyValues> {
+  const names: Record<string, keyof PolicyValues> = {
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX:
+      "clientSecretRotateRateLimitSubjectMax",
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX:
+      "clientSecretRotateRateLimitClientMax",
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_IP_MAX:
+      "clientSecretRotateRateLimitIpMax",
+    OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_WINDOW_SECONDS:
+      "clientSecretRotateRateLimitWindowSeconds",
+    OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS:
+      "clientSecretRotateMinimumIntervalSeconds",
+    OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX:
+      "managementClientCreateRateLimitSubjectMax",
+    OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX:
+      "managementClientCreateRateLimitIpMax",
+    OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT:
+      "managementProjectQuotaAdminExempt",
+    OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT:
+      "managementProjectMaxActivePerSubject",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX:
+      "managementProjectCreateRateLimitSubjectMax",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX:
+      "managementProjectCreateRateLimitIpMax",
+  };
+  const result: Partial<PolicyValues> = {
+    clientSecretRotateMinimumIntervalSeconds: 0,
+  };
+  for (const [name, key] of Object.entries(names)) {
+    const value = env[name];
+    if (value !== undefined) {
+      (result as Record<string, unknown>)[key] =
+        value === "true" || value === "false"
+          ? value === "true"
+          : Number(value);
+    }
+  }
+  return result;
 }
 
 async function seedAdmin(
@@ -929,7 +970,7 @@ test("email settings API is admin-only and never echoes secrets", async () => {
   }
 });
 
-test("email settings API inherits env secrets on first save and can test delivery", async () => {
+test("email settings API ignores env secrets and can test saved delivery settings", async () => {
   const sent: Array<{ to: string; code: string }> = [];
   const { app, state } = await createApp(
     {
@@ -949,8 +990,8 @@ test("email settings API inherits env secrets on first save and can test deliver
     const admin = request.agent(app);
     const signedIn = await login(admin, "admin-account");
     const initial = await admin.get("/api/management/settings/email");
-    assert.equal(initial.body.settings.source, "environment");
-    assert.equal(initial.body.settings.resend.apiKeyConfigured, true);
+    assert.equal(initial.body.settings.source, "default");
+    assert.equal(initial.body.settings.resend.apiKeyConfigured, false);
 
     const saved = await admin
       .put("/api/management/settings/email")
@@ -958,7 +999,10 @@ test("email settings API inherits env secrets on first save and can test deliver
       .send({
         expectedVersion: 0,
         provider: "resend",
-        resend: { apiKey: "", from: "changed@example.edu.cn" },
+        resend: {
+          apiKey: "re_saved_secret_key",
+          from: "changed@example.edu.cn",
+        },
       });
     assert.equal(saved.status, 200);
     assert.equal(saved.body.settings.resend.apiKeyConfigured, true);
@@ -979,7 +1023,7 @@ test("email settings API inherits env secrets on first save and can test deliver
     const audits = await admin.get("/api/management/settings/email/audit-logs");
     assert.deepEqual(
       audits.body.auditLogs.map((audit: { action: string }) => audit.action),
-      ["email_settings.verified", "email_settings.updated"],
+      ["runtime_policy.verified", "runtime_policy.updated"],
     );
   } finally {
     await state.closeOidcServices();

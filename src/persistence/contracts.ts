@@ -474,7 +474,10 @@ export interface AppSettingRecord {
 
 export type AppSettingAuditAction =
   | "email_settings.updated"
-  | "email_settings.verified";
+  | "email_settings.verified"
+  | "runtime_policy.updated"
+  | "runtime_policy.verified"
+  | "runtime_policy.migrated";
 
 export interface AppSettingAuditRecord {
   id: number;

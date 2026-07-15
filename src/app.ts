@@ -3,6 +3,11 @@ import { resolve } from "node:path";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import { readOidcOpConfig, type OidcOpConfig } from "./config.js";
+import {
+  defaultRuntimePolicy,
+  RuntimePolicyService,
+} from "./runtime-policy.js";
+import type { PolicyValues } from "./runtime-policy.js";
 import { createOidcServices } from "./oidc/provider.js";
 import { RateLimitService } from "./persistence/rate-limit.service.js";
 import type { OidcPersistence } from "./persistence/contracts.js";
@@ -22,6 +27,7 @@ type AppState = {
 
 type AppDependencies = {
   emailSender?: EmailSender;
+  runtimePolicyOverrides?: Partial<PolicyValues>;
 };
 
 function errorHandler(
@@ -108,6 +114,14 @@ export async function createOidcApp(
   }
   const store = new OidcPersistenceImpl(config);
   await store.init();
+  const policyDefaults = defaultRuntimePolicy(config);
+  Object.assign(policyDefaults.policy, dependencies.runtimePolicyOverrides);
+  const runtimePolicy = new RuntimePolicyService(
+    store,
+    config.keyEncryptionSecret,
+    policyDefaults,
+  );
+  await runtimePolicy.initialize(config);
   const rateLimitService = new RateLimitService(config);
   await rateLimitService.init();
   const services = await createOidcServices(
@@ -115,6 +129,7 @@ export async function createOidcApp(
     store,
     rateLimitService,
     dependencies.emailSender,
+    runtimePolicy,
   );
 
   const app = express();
@@ -146,16 +161,22 @@ export async function createOidcApp(
   app.get("/health/ready", async (_request, response) => {
     const databaseReady = await store.checkReadiness();
     const redisReady = await rateLimitService.checkReadiness();
-    response.status(databaseReady && redisReady ? 200 : 503).json({
-      status: databaseReady && redisReady ? "ready" : "degraded",
-      issuer: config.issuer,
-      database: store.hasDatabase() ? "postgres" : "memory",
-      redis: config.redisUrl
-        ? redisReady
-          ? "ready"
-          : "unavailable"
-        : "optional",
-    });
+    const emailReady =
+      !config.emailVerificationEnabled || runtimePolicy.isEmailConfigured();
+    response
+      .status(databaseReady && redisReady && emailReady ? 200 : 503)
+      .json({
+        status:
+          databaseReady && redisReady && emailReady ? "ready" : "degraded",
+        issuer: config.issuer,
+        database: store.hasDatabase() ? "postgres" : "memory",
+        redis: config.redisUrl
+          ? redisReady
+            ? "ready"
+            : "unavailable"
+          : "optional",
+        email: emailReady ? "ready" : "unconfigured",
+      });
   });
 
   app.use(

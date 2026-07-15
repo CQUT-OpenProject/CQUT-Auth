@@ -37,13 +37,13 @@ export class RuntimeEmailSender implements EmailSender {
     if (this.cached?.signature === signature) {
       return this.cached.sender;
     }
-    const sender = buildSender(settings);
+    const sender = buildEmailSender(settings);
     this.cached = { signature, sender };
     return sender;
   }
 }
 
-function buildSender(settings: EmailSettings): EmailSender {
+export function buildEmailSender(settings: EmailSettings): EmailSender {
   if (settings.provider === "resend") {
     if (settings.resend.apiKey && settings.resend.from) {
       return new ResendEmailSender({

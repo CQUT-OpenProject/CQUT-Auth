@@ -17,7 +17,7 @@ import { RetryableProviderError } from "../identity/errors.js";
 import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
-import type { EmailSettingsService } from "../email/email-settings.service.js";
+import type { RuntimePolicyService } from "../runtime-policy.js";
 import type { EmailSender } from "../email/email-sender.js";
 import {
   clearManagementSessionCookie,
@@ -31,7 +31,7 @@ import {
 
 type ManagementRouterServices = {
   interactiveAuthenticator: InteractiveAuthenticatorService;
-  emailSettingsService: EmailSettingsService;
+  emailSettingsService: RuntimePolicyService;
   emailSender: EmailSender;
 };
 
@@ -335,6 +335,46 @@ export function createManagementRouter(
             request.body,
           ),
         });
+      });
+    },
+  );
+
+  // Compatibility aliases for clients deployed before the unified settings page.
+  router.get("/settings/email", async (request, response, next) => {
+    await withActor(request, response, next, async (auth) => {
+      requireAdmin(auth.actor);
+      response.json({ settings: (await emailSettings.getView()).email });
+    });
+  });
+  router.put("/settings/email", jsonParser, async (request, response, next) => {
+    await withMutation(request, response, next, async (auth) => {
+      requireAdmin(auth.actor);
+      const current = await emailSettings.getView();
+      const updated = await emailSettings.update(
+        { ...request.body, policy: current.policy, email: request.body },
+        auth.actor,
+      );
+      response.json({ settings: updated.email });
+    });
+  });
+  router.get("/settings/email/audit-logs", async (request, response, next) => {
+    await withActor(request, response, next, async (auth) => {
+      requireAdmin(auth.actor);
+      response.json({ auditLogs: await emailSettings.listAuditLogs(50) });
+    });
+  });
+  router.post(
+    "/settings/email/test",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        requireAdmin(auth.actor);
+        const updated = await emailSettings.sendTest(
+          request.body ?? {},
+          auth.actor,
+          services.emailSender,
+        );
+        response.json({ settings: updated.email });
       });
     },
   );
@@ -660,37 +700,44 @@ export function createManagementRouter(
     });
   });
 
-  router.get("/settings/email", async (request, response, next) => {
+  router.get("/settings/runtime-policy", async (request, response, next) => {
     await withActor(request, response, next, async (auth) => {
       requireAdmin(auth.actor);
       response.json({ settings: await emailSettings.getView() });
     });
   });
 
-  router.get("/settings/email/audit-logs", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      requireAdmin(auth.actor);
-      const limit = Math.min(
-        100,
-        Math.max(1, Number(request.query["limit"] ?? 50) || 50),
-      );
-      response.json({ auditLogs: await emailSettings.listAuditLogs(limit) });
-    });
-  });
+  router.get(
+    "/settings/runtime-policy/audit-logs",
+    async (request, response, next) => {
+      await withActor(request, response, next, async (auth) => {
+        requireAdmin(auth.actor);
+        const limit = Math.min(
+          100,
+          Math.max(1, Number(request.query["limit"] ?? 50) || 50),
+        );
+        response.json({ auditLogs: await emailSettings.listAuditLogs(limit) });
+      });
+    },
+  );
 
-  router.put("/settings/email", jsonParser, async (request, response, next) => {
-    await withMutation(request, response, next, async (auth) => {
-      requireAdmin(auth.actor);
-      const settings = await emailSettings.update(
-        request.body ?? {},
-        auth.actor,
-      );
-      response.json({ settings });
-    });
-  });
+  router.put(
+    "/settings/runtime-policy",
+    jsonParser,
+    async (request, response, next) => {
+      await withMutation(request, response, next, async (auth) => {
+        requireAdmin(auth.actor);
+        const settings = await emailSettings.update(
+          request.body ?? {},
+          auth.actor,
+        );
+        response.json({ settings });
+      });
+    },
+  );
 
   router.post(
-    "/settings/email/test",
+    "/settings/runtime-policy/email/test",
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
