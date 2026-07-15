@@ -5,3 +5,23 @@ body,
   padding: 0;
   height: 100%;
 }
+
+.dashboard-page-scroll {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+.dashboard-page-scroll::-webkit-scrollbar {
+  width: 12px;
+}
+
+.dashboard-page-scroll::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+.dashboard-page-scroll::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+  border: 3px solid var(--scrollbar-track);
+  border-radius: 6px;
+}

@@ -1,5 +1,5 @@
 import React from "react";
-import { Card, Row, Col, Typography, Empty } from "antd";
+import { Card, Row, Col, Typography, Empty, theme } from "antd";
 import type { ClientRevision } from "../../api/types";
 
 const { Text } = Typography;
@@ -13,9 +13,19 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
   active,
   proposed,
 }) => {
+  const { token } = theme.useToken();
+
   if (!active && !proposed) {
     return <Empty description="暂无配置版本" />;
   }
+
+  const panelStyle: React.CSSProperties = {
+    border: `1px solid ${token.colorBorderSecondary}`,
+    borderRadius: token.borderRadius,
+    padding: "8px 12px",
+    background: token.colorFillAlter,
+    minHeight: "80px",
+  };
 
   const renderFieldDiff = (
     field: "redirectUris" | "postLogoutRedirectUris" | "scopeWhitelist",
@@ -38,15 +48,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
         </Text>
         <Row gutter={16}>
           <Col span={12}>
-            <div
-              style={{
-                border: "1px solid #f0f0f0",
-                borderRadius: "4px",
-                padding: "8px 12px",
-                background: "#fafafa",
-                minHeight: "80px",
-              }}
-            >
+            <div style={panelStyle}>
               <Text
                 type="secondary"
                 style={{
@@ -74,15 +76,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
             </div>
           </Col>
           <Col span={12}>
-            <div
-              style={{
-                border: "1px solid #f0f0f0",
-                borderRadius: "4px",
-                padding: "8px 12px",
-                background: "#fafafa",
-                minHeight: "80px",
-              }}
-            >
+            <div style={panelStyle}>
               <Text
                 type="secondary"
                 style={{
@@ -108,7 +102,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
                       key={item}
                       style={{
                         fontFamily: "monospace",
-                        color: "rgba(0, 0, 0, 0.85)",
+                        color: token.colorText,
                         margin: "2px 0",
                       }}
                     >
@@ -120,9 +114,9 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
                       key={item}
                       style={{
                         fontFamily: "monospace",
-                        color: "#52c41a",
+                        color: token.colorSuccessText,
                         margin: "2px 0",
-                        background: "#f6ffed",
+                        background: token.colorSuccessBg,
                         padding: "0 4px",
                       }}
                     >
@@ -134,9 +128,9 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
                       key={item}
                       style={{
                         fontFamily: "monospace",
-                        color: "#ff4d4f",
+                        color: token.colorErrorText,
                         margin: "2px 0",
-                        background: "#fff2f0",
+                        background: token.colorErrorBg,
                         padding: "0 4px",
                         textDecoration: "line-through",
                       }}

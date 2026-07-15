@@ -211,7 +211,7 @@ export const DashboardLayout: React.FC = () => {
   );
 
   return (
-    <Layout style={{ minHeight: "100vh" }}>
+    <Layout style={{ height: "100vh", overflow: "hidden" }}>
       {/* Desktop Sider */}
       <Sider
         breakpoint="lg"
@@ -242,7 +242,7 @@ export const DashboardLayout: React.FC = () => {
         {menuElement}
       </Sider>
 
-      <Layout>
+      <Layout style={{ height: "100vh", minHeight: 0 }}>
         <Header
           style={{
             background: token.colorBgContainer,
@@ -251,9 +251,6 @@ export const DashboardLayout: React.FC = () => {
             alignItems: "center",
             justifyContent: "space-between",
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
-            position: "sticky",
-            top: 0,
-            zIndex: 1,
           }}
         >
           <Space>
@@ -341,18 +338,31 @@ export const DashboardLayout: React.FC = () => {
           {menuElement}
         </Drawer>
 
-        <Content style={{ margin: "24px 24px 0", overflow: "initial" }}>
-          <div style={{ marginBottom: "16px" }}>
-            <Breadcrumb
-              items={getBreadcrumbs().map((b) => ({
-                title: <a onClick={b.onClick}>{b.title}</a>,
-              }))}
-            />
-          </div>
-          <div style={{ minHeight: 360 }}>
-            <Outlet />
-          </div>
-        </Content>
+        <div
+          className="dashboard-page-scroll"
+          style={
+            {
+              flex: 1,
+              minHeight: 0,
+              overflow: "auto",
+              "--scrollbar-thumb": token.colorBorder,
+              "--scrollbar-track": token.colorBgLayout,
+            } as React.CSSProperties
+          }
+        >
+          <Content style={{ margin: "24px 24px 0" }}>
+            <div style={{ marginBottom: "16px" }}>
+              <Breadcrumb
+                items={getBreadcrumbs().map((b) => ({
+                  title: <a onClick={b.onClick}>{b.title}</a>,
+                }))}
+              />
+            </div>
+            <div style={{ minHeight: 360 }}>
+              <Outlet />
+            </div>
+          </Content>
+        </div>
       </Layout>
     </Layout>
   );
