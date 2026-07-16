@@ -43,12 +43,11 @@ export const ClientCreate: React.FC = () => {
   // One time secret states
   const [secretVal, setSecretVal] = useState<string | null>(null);
   const [createdClientId, setCreatedClientId] = useState<string | null>(null);
+  const clientType = Form.useWatch("clientType", form) || "web";
 
   if (!activeProject) {
     return <Card loading title="项目信息正在加载" />;
   }
-
-  const clientType = Form.useWatch("clientType", form) || "web";
 
   const next = async () => {
     try {
@@ -167,7 +166,11 @@ export const ClientCreate: React.FC = () => {
     <Card
       title={
         <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} />
+          <Button
+            aria-label="返回客户端列表"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate(-1)}
+          />
           <Title level={4} style={{ margin: 0 }}>
             创建客户端
           </Title>
@@ -321,6 +324,7 @@ export const ClientCreate: React.FC = () => {
                         </Form.Item>
                         {fields.length > 1 ? (
                           <Button
+                            aria-label="删除 Redirect URI"
                             type="text"
                             danger
                             icon={<DeleteOutlined />}
@@ -380,6 +384,7 @@ export const ClientCreate: React.FC = () => {
                           />
                         </Form.Item>
                         <Button
+                          aria-label="删除 Logout URI"
                           type="text"
                           danger
                           icon={<DeleteOutlined />}

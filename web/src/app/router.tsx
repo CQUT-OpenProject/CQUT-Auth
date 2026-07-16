@@ -13,6 +13,7 @@ import { AdminReviews } from "../pages/admin/AdminReviews";
 import { SystemSettings } from "../pages/admin/SystemSettings";
 import { Authenticated, CanAccess } from "@refinedev/core";
 import { Alert, Card } from "antd";
+import { ProjectProvider } from "../contexts/project-context";
 
 export const AppRouter: React.FC = () => {
   return (
@@ -27,7 +28,9 @@ export const AppRouter: React.FC = () => {
             key="authenticated-routes"
             fallback={<Navigate to="/login" replace />}
           >
-            <DashboardLayout />
+            <ProjectProvider>
+              <DashboardLayout />
+            </ProjectProvider>
           </Authenticated>
         }
       >

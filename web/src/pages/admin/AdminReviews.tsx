@@ -199,6 +199,7 @@ export const AdminReviews: React.FC = () => {
           dataSource={pendingClients}
           columns={columns}
           rowKey="clientId"
+          scroll={{ x: "max-content" }}
           loading={loading}
           scroll={{ x: isMobile ? 800 : undefined }}
           pagination={{ pageSize: isMobile ? 5 : 10 }}

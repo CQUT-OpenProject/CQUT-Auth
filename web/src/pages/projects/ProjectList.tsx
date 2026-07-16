@@ -134,7 +134,7 @@ export const ProjectList: React.FC = () => {
         rowKey="projectId"
         loading={loading}
         pagination={{ pageSize: isMobile ? 5 : 10 }}
-        scroll={{ x: isMobile ? 600 : undefined }}
+        scroll={{ x: isMobile ? "max-content" : undefined }}
       />
 
       <Modal

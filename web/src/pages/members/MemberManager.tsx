@@ -265,6 +265,7 @@ export const MemberManager: React.FC = () => {
           dataSource={members}
           columns={columns}
           rowKey="subjectId"
+          scroll={{ x: "max-content" }}
           loading={loading}
           pagination={false}
         />

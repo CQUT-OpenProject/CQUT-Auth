@@ -654,6 +654,7 @@ export const ClientDetail: React.FC = () => {
                                       </Form.Item>
                                       {fields.length > 1 && (
                                         <Button
+                                          aria-label="删除 Redirect URI"
                                           type="text"
                                           danger
                                           icon={<DeleteOutlined />}
@@ -713,6 +714,7 @@ export const ClientDetail: React.FC = () => {
                                         />
                                       </Form.Item>
                                       <Button
+                                        aria-label="删除 Logout URI"
                                         type="text"
                                         danger
                                         icon={<DeleteOutlined />}
@@ -864,6 +866,7 @@ export const ClientDetail: React.FC = () => {
                 <Table
                   dataSource={client.secrets}
                   rowKey="secretId"
+                  scroll={{ x: "max-content" }}
                   pagination={{ pageSize: 5 }}
                   scroll={{ x: isMobile ? 800 : undefined }}
                   columns={[
@@ -1053,6 +1056,7 @@ export const ClientDetail: React.FC = () => {
                   dataSource={audits}
                   rowKey="id"
                   loading={auditsLoading}
+                  scroll={{ x: "max-content" }}
                   pagination={false}
                   scroll={{ x: isMobile ? 900 : undefined }}
                   columns={[

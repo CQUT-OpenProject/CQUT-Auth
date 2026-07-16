@@ -188,7 +188,7 @@ export const DashboardLayout: React.FC = () => {
             label: "系统客户端",
             onClick: () => {
               selectProject("system");
-              navigate("/projects/system/overview");
+              navigate("/projects/system/clients");
             },
           },
           {
@@ -222,7 +222,9 @@ export const DashboardLayout: React.FC = () => {
         breakpoint="lg"
         collapsedWidth="0"
         onBreakpoint={(broken) => {
-          // If screen size goes past breakpoint, handle mobile drawer switcher
+          setIsMobile(broken);
+          setCollapsed(broken);
+          if (!broken) setMobileVisible(false);
         }}
         trigger={null}
         collapsible
@@ -301,7 +303,7 @@ export const DashboardLayout: React.FC = () => {
                     : activeProject?.projectId
                 }
                 onChange={handleProjectSelect}
-                style={{ width: 200 }}
+                style={{ width: isMobile ? 140 : 200 }}
                 placeholder="切换项目"
               >
                 {visibleProjects.map((p) => (
@@ -358,7 +360,7 @@ export const DashboardLayout: React.FC = () => {
               danger
               icon={<LogoutOutlined />}
               onClick={() => logout()}
-              aria-label="退出登录"
+              aria-label="退出管理台"
             >
               {!isMobile && "退出"}
             </Button>
@@ -373,7 +375,7 @@ export const DashboardLayout: React.FC = () => {
           placement="left"
           onClose={() => setMobileDrawerVisible(false)}
           open={usesDrawerNavigation && mobileDrawerVisible}
-          bodyStyle={{ padding: 0, background: "#0b1f33" }}
+          styles={{ body: { padding: 0, background: "#0b1f33" } }}
           width={280}
         >
           {menuElement}

@@ -212,7 +212,7 @@ export const ClientList: React.FC = () => {
             columns={columns}
             rowKey="clientId"
             pagination={{ pageSize: isMobile ? 5 : 10 }}
-            scroll={{ x: isMobile ? 600 : undefined }}
+            scroll={{ x: isMobile ? "max-content" : undefined }}
             locale={{
               emptyText: "暂无符合筛选条件的客户端",
             }}

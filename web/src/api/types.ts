@@ -84,10 +84,19 @@ export type Client = {
 export type AuditLog = {
   id: number;
   projectId: string;
-  clientId: string | null;
-  subjectId: string | null;
+  clientId?: string;
+  revisionId?: number;
+  revisionNumber?: number;
+  secretId?: string;
+  actorSubjectId: string | null;
   action: string;
-  details: Record<string, any>;
+  changedFields: string[];
+  previousClientStatus?: string;
+  newClientStatus?: string;
+  previousRevisionStatus?: string;
+  newRevisionStatus?: string;
+  reason?: string;
+  sourceIp?: string;
   createdAt: string;
 };
 

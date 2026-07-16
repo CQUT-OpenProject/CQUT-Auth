@@ -581,7 +581,7 @@ function renderLogoutConfirmationPage(form: string) {
       <h1>确认退出登录</h1>
       <p class="hint">请确认是否退出当前登录状态。</p>
       ${formWithExplicitLogout}
-      <button form="op.logoutForm" type="submit" name="logout" value="yes">继续退出</button>
+      <button form="op.logoutForm" type="submit">继续退出</button>
     `,
   );
 }

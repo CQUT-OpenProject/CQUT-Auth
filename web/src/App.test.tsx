@@ -193,9 +193,10 @@ function mockApi(
               id: 1,
               projectId: "project_one",
               clientId: "active-web",
-              subjectId: "subj_owner",
+              actorSubjectId: "subj_owner",
               action: "client_created",
-              details: { ip: "127.0.0.1" },
+              changedFields: ["displayName"],
+              sourceIp: "127.0.0.1",
               createdAt: "2026-07-13T00:00:00.000Z",
             },
           ],
@@ -278,12 +279,13 @@ function mockApi(
 
 test("redirects to login when unauthenticated", async () => {
   apiAuthenticated = false;
-  mockApi();
+  const calls = mockApi();
   window.history.pushState({}, "", "/manage/projects");
   render(<App />);
   await waitFor(() => {
     expect(screen.getByRole("heading", { name: "登录管理台" })).toBeTruthy();
   });
+  expect(calls.some((call) => call.path.endsWith("/projects"))).toBe(false);
 });
 
 test("handles successful login and redirects to projects", async () => {
@@ -337,6 +339,16 @@ test("shows clients returned by the current project list", async () => {
   expect(await screen.findByText("Active Web")).toBeTruthy();
 });
 
+test("shows audit actor and source IP from the management API contract", async () => {
+  mockApi();
+  window.history.pushState({}, "", "/manage/projects/project_one/audit");
+  render(<App />);
+
+  expect(await screen.findByText("subj_owner")).toBeTruthy();
+  expect(screen.getByText("127.0.0.1")).toBeTruthy();
+  expect(screen.getByText(/displayName/)).toBeTruthy();
+});
+
 test("keeps the client danger zone open", async () => {
   mockApi();
   window.history.pushState(
@@ -346,9 +358,10 @@ test("keeps the client danger zone open", async () => {
   );
   render(<App />);
 
-  fireEvent.click(
-    await screen.findByRole("tab", { name: "安全操作 (Danger Zone)" }),
-  );
+  expect(
+    await screen.findByRole("button", { name: "返回客户端列表" }),
+  ).toBeTruthy();
+  fireEvent.click(screen.getByRole("tab", { name: "安全操作 (Danger Zone)" }));
 
   expect(await screen.findByText("危险操作区")).toBeTruthy();
   expect(window.location.pathname).toBe(
@@ -395,6 +408,10 @@ test("creates the selected web client type", async () => {
   const calls = mockApi();
   window.history.pushState({}, "", "/manage/projects/project_one/clients/new");
   render(<App />);
+
+  expect(
+    await screen.findByRole("button", { name: "返回客户端列表" }),
+  ).toBeTruthy();
 
   fireEvent.change(await screen.findByLabelText("显示名称"), {
     target: { value: "Web Client" },
@@ -450,12 +467,11 @@ test("hides the system project and exposes its clients to admins", async () => {
 
   fireEvent.click(screen.getByText("系统客户端"));
   await waitFor(() => {
-    expect(window.location.pathname).toBe("/manage/projects/system/overview");
+    expect(window.location.pathname).toBe("/manage/projects/system/clients");
   });
   expect(screen.getByText("当前项目【系统客户端】")).toBeTruthy();
-  expect(screen.getAllByText("项目概览").length).toBeGreaterThan(0);
+  expect(await screen.findByText("Active Web")).toBeTruthy();
   expect(screen.getByText("审计日志")).toBeTruthy();
-  expect(screen.queryByText("OIDC 客户端")).toBeNull();
   expect(screen.queryByText("当前项目【Project One】")).toBeNull();
   expect(screen.queryByRole("button", { name: "创建客户端" })).toBeNull();
 });
