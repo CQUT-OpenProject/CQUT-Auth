@@ -100,6 +100,10 @@ test("upsertArtifact stores encrypted envelope instead of plaintext payload", as
 
   assert.equal(payload["version"], 1);
   assert.equal(typeof payload["ciphertext"], "string");
+  assert.equal(
+    (payload["ciphertext"] as string).startsWith("v2$scrypt$"),
+    false,
+  );
   assert.equal((payload["ciphertext"] as string).includes("top-secret"), false);
   assert.equal((payload["ciphertext"] as string).includes("uid-1"), false);
 });
