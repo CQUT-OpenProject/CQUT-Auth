@@ -5,7 +5,7 @@ import type {
   SubjectRecord,
 } from "../identity/index.js";
 import { Pool } from "pg";
-import type { OidcOpConfig } from "../config.js";
+import type { StaticConfig } from "../config.js";
 import {
   ensureArtifactCleanupJob,
   ArtifactCleanupConfigurationError,
@@ -25,37 +25,49 @@ import type {
   ProjectMemberRecord,
   ProjectRecord,
   ProjectRole,
-  OidcPersistence,
   OidcSigningKeyRecord,
   PendingInteractionLogin,
   AppSettingRecord,
-  AppSettingsRepository,
   InteractionEmailVerificationResult,
+} from "./contracts.js";
+import type {
+  AppSettingsRepository,
+  IdentityRepository,
+  JwkCipherService,
+  ManagementSessionRepository,
+  OidcArtifactRepository,
+  OidcClientRepository,
+  PersistenceRuntime,
+  ProjectRepository,
+  SigningKeyRepository,
 } from "./contracts.js";
 import type { ProjectWriteAuthorization } from "../projects/project-access.js";
 import { IdentityRepositoryImpl } from "./identity.repository.js";
 import { JwkCipherServiceImpl } from "./jwk-cipher.service.js";
 import { OidcArtifactRepositoryImpl } from "./oidc-artifact.repository.js";
-import { OidcClientRepositoryImpl } from "./oidc-client.repository.js";
+import {
+  MemoryOidcClientRepository,
+  PostgresOidcClientRepository,
+} from "./oidc-client.repository.js";
 import { ManagementSessionRepositoryImpl } from "./management-session.repository.js";
 import { ProjectRepositoryImpl } from "./project.repository.js";
 import { SigningKeyRepositoryImpl } from "./signing-key.repository.js";
 import { AppSettingsRepositoryImpl } from "./app-settings.repository.js";
 
-export class OidcPersistenceImpl implements OidcPersistence {
+export class PersistenceRuntimeImpl {
   private readonly logger = console;
   private pool: Pool | undefined;
-  private readonly jwkCipherService: JwkCipherServiceImpl;
+  readonly jwkCipherService: JwkCipherServiceImpl;
   private readonly artifactPayloadCipherService: ArtifactPayloadCipherServiceImpl;
-  private readonly identityRepository: IdentityRepositoryImpl;
-  private readonly oidcClientRepository: OidcClientRepositoryImpl;
-  private readonly projectRepository: ProjectRepositoryImpl;
-  private readonly managementSessionRepository: ManagementSessionRepositoryImpl;
-  private readonly oidcArtifactRepository: OidcArtifactRepositoryImpl;
-  private readonly signingKeyRepository: SigningKeyRepositoryImpl;
-  private readonly appSettingsRepository: AppSettingsRepositoryImpl;
+  readonly identityRepository: IdentityRepositoryImpl;
+  oidcClientRepository!: OidcClientRepository;
+  readonly projectRepository: ProjectRepositoryImpl;
+  readonly managementSessionRepository: ManagementSessionRepositoryImpl;
+  readonly oidcArtifactRepository: OidcArtifactRepositoryImpl;
+  readonly signingKeyRepository: SigningKeyRepositoryImpl;
+  readonly appSettingsRepository: AppSettingsRepositoryImpl;
 
-  constructor(private readonly config: OidcOpConfig) {
+  constructor(private readonly config: StaticConfig) {
     const poolProvider = () => this.pool;
     this.jwkCipherService = new JwkCipherServiceImpl(
       config.keyEncryptionSecret,
@@ -94,18 +106,6 @@ export class OidcPersistenceImpl implements OidcPersistence {
           : null;
       },
     );
-    this.oidcClientRepository = new OidcClientRepositoryImpl(
-      poolProvider,
-      (clientId) => this.artifactPayloadCipherService.hashLookupValue(clientId),
-      (clientId) =>
-        this.oidcArtifactRepository.revokeArtifactsByClientId(clientId),
-      (authorization, clientProjectId, mutation) =>
-        this.projectRepository.withMemoryProjectWrite(
-          authorization,
-          clientProjectId,
-          mutation,
-        ),
-    );
     this.signingKeyRepository = new SigningKeyRepositoryImpl(
       poolProvider,
       this.jwkCipherService,
@@ -120,6 +120,7 @@ export class OidcPersistenceImpl implements OidcPersistence {
           "DATABASE_URL not configured for oidc-op, using in-memory store",
         );
         await this.projectRepository.ensureSystemProject();
+        this.selectClientRepository();
         return;
       }
       throw new Error("DATABASE_URL is required for oidc-op");
@@ -151,6 +152,30 @@ export class OidcPersistenceImpl implements OidcPersistence {
       );
       await this.projectRepository.ensureSystemProject();
     }
+    this.selectClientRepository();
+  }
+
+  selectClientRepository() {
+    const hashClientId = (clientId: string) =>
+      this.artifactPayloadCipherService.hashLookupValue(clientId);
+    const revokeArtifacts = (clientId: string) =>
+      this.oidcArtifactRepository.revokeArtifactsByClientId(clientId);
+    this.oidcClientRepository = this.pool
+      ? new PostgresOidcClientRepository(
+          this.pool,
+          hashClientId,
+          revokeArtifacts,
+        )
+      : new MemoryOidcClientRepository(
+          hashClientId,
+          revokeArtifacts,
+          (authorization, clientProjectId, mutation) =>
+            this.projectRepository.withMemoryProjectWrite(
+              authorization,
+              clientProjectId,
+              mutation,
+            ),
+        );
   }
 
   async close() {
@@ -1029,4 +1054,34 @@ export class OidcPersistenceImpl implements OidcPersistence {
       );
     }
   }
+}
+
+export type PersistenceModules = {
+  runtime: PersistenceRuntime;
+  identity: IdentityRepository;
+  projects: ProjectRepository;
+  clients: OidcClientRepository;
+  sessions: ManagementSessionRepository;
+  artifacts: OidcArtifactRepository;
+  signingKeys: SigningKeyRepository;
+  settings: AppSettingsRepository;
+  jwkCipher: JwkCipherService;
+};
+
+export async function createPersistence(
+  config: StaticConfig,
+): Promise<PersistenceModules> {
+  const runtime = new PersistenceRuntimeImpl(config);
+  await runtime.init();
+  return {
+    runtime,
+    identity: runtime.identityRepository,
+    projects: runtime.projectRepository,
+    clients: runtime.oidcClientRepository,
+    sessions: runtime.managementSessionRepository,
+    artifacts: runtime.oidcArtifactRepository,
+    signingKeys: runtime.signingKeyRepository,
+    settings: runtime.appSettingsRepository,
+    jwkCipher: runtime.jwkCipherService,
+  };
 }

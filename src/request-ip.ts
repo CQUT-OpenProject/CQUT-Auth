@@ -1,6 +1,6 @@
 import type { IncomingHttpHeaders } from "node:http";
 import type { Request } from "express";
-import type { OidcOpConfig } from "./config.js";
+import type { StaticConfig } from "./config.js";
 
 type HeaderValue = string | string[] | undefined;
 
@@ -146,7 +146,7 @@ function isTrustedProxy(remoteAddress: string, cidrs: string[]): boolean {
 }
 
 export function resolveTrustedRequestIp(
-  config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
+  config: Pick<StaticConfig, "trustProxyHops" | "trustedProxyCidrs">,
   input: TrustedRequestIpInput,
 ): string {
   const remoteAddress = normalizeIp(input.remoteAddress) ?? "unknown";
@@ -168,7 +168,7 @@ export function resolveTrustedRequestIp(
 }
 
 export function resolveTrustedExpressRequestIp(
-  config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
+  config: Pick<StaticConfig, "trustProxyHops" | "trustedProxyCidrs">,
   request: Pick<Request, "headers" | "socket">,
 ): string {
   return resolveTrustedRequestIp(config, {
@@ -178,7 +178,7 @@ export function resolveTrustedExpressRequestIp(
 }
 
 export function resolveTrustedKoaRequestIp(
-  config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
+  config: Pick<StaticConfig, "trustProxyHops" | "trustedProxyCidrs">,
   ctx: {
     req?: {
       headers?: IncomingHttpHeaders;

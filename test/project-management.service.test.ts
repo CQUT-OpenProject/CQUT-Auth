@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { ClientManagementError } from "../src/management/management-error.js";
-import { readOidcOpConfig } from "../src/config.js";
-import { OidcPersistenceImpl } from "../src/persistence/persistence.js";
+import { readConfig } from "../src/config.js";
+import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
 import { ProjectManagementService } from "../src/projects/project-management.service.js";
 
 const owner = { subjectId: "subj_project_owner", isAdmin: false };
@@ -12,8 +12,8 @@ const viewer = { subjectId: "subj_project_viewer", isAdmin: false };
 const outsider = { subjectId: "subj_project_outsider", isAdmin: false };
 
 async function fixture() {
-  const store = new OidcPersistenceImpl(
-    readOidcOpConfig({
+  const store = new PersistenceRuntimeImpl(
+    readConfig({
       APP_ENV: "test",
       AUTH_PROVIDER: "mock",
       OIDC_KEY_ENCRYPTION_SECRET: "project-test-key",

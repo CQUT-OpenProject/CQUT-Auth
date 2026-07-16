@@ -1,5 +1,5 @@
 import Redis from "ioredis";
-import type { OidcOpConfig } from "../config.js";
+import type { StaticConfig } from "../config.js";
 
 type MemoryCounter = {
   count: number;
@@ -26,7 +26,7 @@ export class RateLimitService {
   private mode: RateLimitMode = "memory";
   private memoryCleanupTimer: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly config: OidcOpConfig) {}
+  constructor(private readonly config: StaticConfig) {}
 
   async init() {
     if (!this.config.redisUrl) {

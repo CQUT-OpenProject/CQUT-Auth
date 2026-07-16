@@ -100,7 +100,7 @@ async function seedAdmin(
   state: Awaited<ReturnType<typeof createApp>>["state"],
 ) {
   const now = new Date().toISOString();
-  await state.store.createSubjectWithIdentity(
+  await state.persistence.identity.createSubjectWithIdentity(
     {
       subjectId: "subj_admin",
       status: "active",
@@ -118,7 +118,7 @@ async function seedAdmin(
       updatedAt: now,
     },
   );
-  await state.store.upsertProfile({
+  await state.persistence.identity.upsertProfile({
     subjectId: "subj_admin",
     preferredUsername: "admin-account",
     displayName: "Admin",
@@ -159,7 +159,7 @@ test("management login rejects oversized credentials", async () => {
     assert.equal(response.status, 400);
     assert.equal(response.body.error, "invalid_request");
   } finally {
-    await state.store.close();
+    await state.persistence.runtime.close();
   }
 });
 
@@ -182,7 +182,7 @@ test("management login normalizes account rate-limit keys", async () => {
     assert.equal(first.status, 200);
     assert.equal(second.status, 429);
   } finally {
-    await state.store.close();
+    await state.persistence.runtime.close();
   }
 });
 
@@ -202,7 +202,7 @@ test("management login blocks account spraying from one ip", async () => {
 
     assert.deepEqual(statuses, [200, 200, 429]);
   } finally {
-    await state.store.close();
+    await state.persistence.runtime.close();
   }
 });
 
@@ -404,9 +404,7 @@ test("management API exposes separate lifecycle and revision workflows", async (
       404,
     );
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -507,9 +505,7 @@ test("project API enforces roles, last-owner protection, and immediate removal",
     assert.equal(lastOwner.status, 409);
     assert.equal(lastOwner.body.error, "last_owner_required");
   } finally {
-    await state.closeOidcServices();
-    await state.store.close();
-    await state.rateLimitService.close();
+    await state.close();
   }
 });
 
@@ -575,9 +571,7 @@ test("management API rejects concurrent approval and approval after disable", as
       });
     assert.equal(blocked.status, 409);
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -666,19 +660,19 @@ test("management API rotates secrets and isolates authorization revocation", asy
       "revoked",
     );
 
-    await state.store.upsertArtifact(
+    await state.persistence.artifacts.upsertArtifact(
       "Grant:owned",
       "Grant",
       { clientId, value: "owned" },
       120,
     );
-    await state.store.upsertArtifact(
+    await state.persistence.artifacts.upsertArtifact(
       "Grant:other",
       "Grant",
       { clientId: "bootstrap-site", value: "other" },
       120,
     );
-    await state.store.upsertArtifact(
+    await state.persistence.artifacts.upsertArtifact(
       "Session:shared",
       "Session",
       { clientId, value: "session" },
@@ -691,9 +685,12 @@ test("management API rotates secrets and isolates authorization revocation", asy
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({ clientVersion: revoked.body.client.clientVersion });
     assert.equal(authorizations.status, 200);
-    assert.equal(await state.store.findArtifact("Grant:owned"), undefined);
-    assert.ok(await state.store.findArtifact("Grant:other"));
-    assert.ok(await state.store.findArtifact("Session:shared"));
+    assert.equal(
+      await state.persistence.artifacts.findArtifact("Grant:owned"),
+      undefined,
+    );
+    assert.ok(await state.persistence.artifacts.findArtifact("Grant:other"));
+    assert.ok(await state.persistence.artifacts.findArtifact("Session:shared"));
 
     const disabled = await admin
       .post(`/api/management/projects/system/clients/${clientId}/disable`)
@@ -706,16 +703,15 @@ test("management API rotates secrets and isolates authorization revocation", asy
         (secret: { status: string }) => secret.status === "revoked",
       ),
     );
-    const audits = await state.store.listOidcClientAuditLogs(clientId);
+    const audits =
+      await state.persistence.clients.listOidcClientAuditLogs(clientId);
     assert.equal(
       JSON.stringify(audits).includes(rotated.body.secret.value),
       false,
     );
     assert.equal(JSON.stringify(audits).includes("scrypt$"), false);
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -754,9 +750,7 @@ test("management API rate limits repeated zero-grace secret rotation", async () 
     assert.equal(blocked.status, 429);
     assert.equal(blocked.headers["retry-after"], "3600");
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -784,9 +778,7 @@ test("management API rate limits client creation by subject", async () => {
     assert.equal(limited.status, 429);
     assert.ok(limited.headers["retry-after"]);
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -817,9 +809,7 @@ test("management API rate limits project creation by subject", async () => {
     assert.equal(limited.status, 429);
     assert.ok(limited.headers["retry-after"]);
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -849,9 +839,7 @@ test("management API rate limits project creation by source IP", async () => {
       .send({ name: "Second project", description: "" });
     assert.equal(limited.status, 429);
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -882,9 +870,7 @@ test("management API enforces active project quota", async () => {
     assert.equal(limited.status, 409);
     assert.equal(limited.body.error, "project_quota_exceeded");
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -912,187 +898,22 @@ test("management API rate limits client creation by source IP", async () => {
       .send(input);
     assert.equal(limited.status, 429);
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
-test("email settings API is admin-only and never echoes secrets", async () => {
+test("legacy email settings API has been removed", async () => {
   const { app, state } = await createApp();
-  await seedAdmin(state);
   try {
-    const admin = request.agent(app);
-    const signedIn = await login(admin, "admin-account");
-
-    // Default view: no provider configured, no secret leaked.
-    const initial = await admin.get("/api/management/settings/email");
-    assert.equal(initial.status, 200);
-    assert.equal(initial.body.settings.provider, "disabled");
-    assert.equal(initial.body.settings.resend.apiKeyConfigured, false);
-    assert.equal(initial.body.settings.version, 0);
-    assert.equal(initial.body.settings.source, "default");
-
-    // Save a Resend key.
-    const saved = await admin
-      .put("/api/management/settings/email")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        expectedVersion: initial.body.settings.version,
-        provider: "resend",
-        resend: {
-          apiKey: "re_super_secret_value",
-          from: "noreply@example.edu.cn",
-        },
-      });
-    assert.equal(saved.status, 200);
-    assert.equal(saved.body.settings.provider, "resend");
-    assert.equal(saved.body.settings.resend.apiKeyConfigured, true);
-    assert.equal(saved.body.settings.version, 1);
-    assert.equal(saved.body.settings.verification.status, "unverified");
-    // The plaintext secret must never be echoed back to the client.
-    assert.equal(
-      JSON.stringify(saved.body).includes("re_super_secret_value"),
-      false,
-    );
-
-    // Re-reading also stays redacted.
-    const reread = await admin.get("/api/management/settings/email");
-    assert.equal(
-      JSON.stringify(reread.body).includes("re_super_secret_value"),
-      false,
-    );
-    assert.equal(reread.body.settings.resend.apiKeyConfigured, true);
-
-    // Blank secret on update keeps the stored key (still valid Resend config).
-    const kept = await admin
-      .put("/api/management/settings/email")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        expectedVersion: saved.body.settings.version,
-        provider: "resend",
-        resend: { apiKey: "", from: "changed@example.edu.cn" },
-      });
-    assert.equal(kept.status, 200);
-    assert.equal(kept.body.settings.resend.from, "changed@example.edu.cn");
-    assert.equal(kept.body.settings.resend.apiKeyConfigured, true);
-    assert.equal(kept.body.settings.version, 2);
-
-    const stale = await admin
-      .put("/api/management/settings/email")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        expectedVersion: saved.body.settings.version,
-        provider: "disabled",
-      });
-    assert.equal(stale.status, 409);
-    assert.equal(stale.body.error, "version_conflict");
-
-    const audits = await admin.get("/api/management/settings/email/audit-logs");
-    assert.equal(audits.status, 200);
-    assert.equal(audits.body.auditLogs.length, 2);
-    assert.equal(audits.body.auditLogs[1].actorSubjectId, "subj_admin");
-    assert.equal(audits.body.auditLogs[1].previousVersion, 0);
-    assert.equal(audits.body.auditLogs[1].newVersion, 1);
-    assert.equal(audits.body.auditLogs[1].secretsReplaced.resendApiKey, true);
-    assert.equal(
-      JSON.stringify(audits.body).includes("re_super_secret_value"),
-      false,
-    );
-
-    // Invalid provider selection is rejected with a field error.
-    const invalid = await admin
-      .put("/api/management/settings/email")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        expectedVersion: kept.body.settings.version,
-        provider: "smtp",
-        smtp: { port: 465 },
-      });
-    assert.equal(invalid.status, 400);
-
-    // Non-admins cannot read or write email settings.
-    const outsider = request.agent(app);
-    const outsiderLogin = await login(outsider, "settings-outsider");
-    assert.equal(
-      (await outsider.get("/api/management/settings/email")).status,
-      403,
-    );
-    assert.equal(
-      (
-        await outsider
-          .put("/api/management/settings/email")
-          .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
-          .send({ expectedVersion: 0, provider: "disabled" })
-      ).status,
-      403,
-    );
+    for (const path of [
+      "/api/management/settings/email",
+      "/api/management/settings/email/audit-logs",
+      "/api/management/settings/email/test",
+    ]) {
+      assert.equal((await request(app).get(path)).status, 404);
+    }
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
-  }
-});
-
-test("email settings API ignores env secrets and can test saved delivery settings", async () => {
-  const sent: Array<{ to: string; code: string }> = [];
-  const { app, state } = await createApp(
-    {
-      RESEND_API_KEY: "re_env_secret_key",
-      OIDC_EMAIL_FROM: "noreply@example.edu.cn",
-    },
-    {
-      emailSender: {
-        async sendVerificationCode(input) {
-          sent.push({ to: input.to, code: input.code });
-        },
-      },
-    },
-  );
-  await seedAdmin(state);
-  try {
-    const admin = request.agent(app);
-    const signedIn = await login(admin, "admin-account");
-    const initial = await admin.get("/api/management/settings/email");
-    assert.equal(initial.body.settings.source, "default");
-    assert.equal(initial.body.settings.resend.apiKeyConfigured, false);
-
-    const saved = await admin
-      .put("/api/management/settings/email")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        expectedVersion: 0,
-        provider: "resend",
-        resend: {
-          apiKey: "re_saved_secret_key",
-          from: "changed@example.edu.cn",
-        },
-      });
-    assert.equal(saved.status, 200);
-    assert.equal(saved.body.settings.resend.apiKeyConfigured, true);
-    assert.equal(saved.body.settings.source, "database");
-
-    const tested = await admin
-      .post("/api/management/settings/email/test")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        expectedVersion: saved.body.settings.version,
-        recipient: "Admin@Example.edu.cn",
-      });
-    assert.equal(tested.status, 200);
-    assert.equal(tested.body.settings.verification.status, "verified");
-    assert.equal(tested.body.settings.version, 2);
-    assert.deepEqual(sent, [{ to: "admin@example.edu.cn", code: "000000" }]);
-
-    const audits = await admin.get("/api/management/settings/email/audit-logs");
-    assert.deepEqual(
-      audits.body.auditLogs.map((audit: { action: string }) => audit.action),
-      ["runtime_policy.verified", "runtime_policy.updated"],
-    );
-  } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
@@ -1125,15 +946,13 @@ test("runtime policy restart is admin-only and runs after the response", async (
     assert.deepEqual(accepted.body, { restarting: true });
     assert.equal(restartRequests, 1);
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });
 
 test("liveness does not depend on dynamic client CSP lookup", async () => {
   const { app, state } = await createApp();
-  state.store.listActiveOidcClients = async () => {
+  state.persistence.clients.listActiveOidcClients = async () => {
     throw new Error("database unavailable");
   };
   try {
@@ -1141,8 +960,6 @@ test("liveness does not depend on dynamic client CSP lookup", async () => {
       status: "live",
     });
   } finally {
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
   }
 });

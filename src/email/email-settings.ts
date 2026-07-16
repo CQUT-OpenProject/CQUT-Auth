@@ -27,7 +27,7 @@ export type EmailSettings = {
   lastVerifiedAt?: string | undefined;
 };
 
-export type EmailSettingsSource = "database" | "environment" | "default";
+export type EmailSettingsSource = "database" | "default";
 
 export type EmailSettingsView = {
   provider: EmailProviderKind;
@@ -51,8 +51,6 @@ export type EmailSettingsView = {
   };
   updatedAt: string | null;
 };
-
-export const EMAIL_SETTINGS_KEY = "email";
 
 export function emptyEmailSettings(): EmailSettings {
   return {

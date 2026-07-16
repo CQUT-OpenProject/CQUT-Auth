@@ -21,7 +21,7 @@ import { ClientManagementError } from "../management/management-error.js";
 
 type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
-export class OidcClientRepositoryImpl implements OidcClientRepository {
+class OidcClientRepositoryImpl implements OidcClientRepository {
   private readonly clients = new Map<string, OidcClientRecord>();
   private readonly revisions = new Map<number, OidcClientRevisionRecord>();
   private readonly secrets = new Map<string, OidcClientSecretRecord>();
@@ -1930,5 +1930,33 @@ export class OidcClientRepositoryImpl implements OidcClientRepository {
     return value instanceof Date
       ? value.toISOString()
       : new Date(String(value)).toISOString();
+  }
+}
+
+type ClientIdHasher = (clientId: string) => string;
+type RevokeArtifacts = (clientId: string) => Promise<void>;
+type MemoryProjectWrite = <T>(
+  authorization: ProjectWriteAuthorization,
+  clientProjectId: string,
+  mutation: (project: ProjectRecord) => Promise<T>,
+) => Promise<T>;
+
+export class MemoryOidcClientRepository extends OidcClientRepositoryImpl {
+  constructor(
+    clientIdHasher?: ClientIdHasher,
+    revokeArtifacts?: RevokeArtifacts,
+    withProjectWrite?: MemoryProjectWrite,
+  ) {
+    super(() => undefined, clientIdHasher, revokeArtifacts, withProjectWrite);
+  }
+}
+
+export class PostgresOidcClientRepository extends OidcClientRepositoryImpl {
+  constructor(
+    pool: Pool,
+    clientIdHasher?: ClientIdHasher,
+    revokeArtifacts?: RevokeArtifacts,
+  ) {
+    super(() => pool, clientIdHasher, revokeArtifacts);
   }
 }

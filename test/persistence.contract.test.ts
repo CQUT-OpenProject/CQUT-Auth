@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readOidcOpConfig } from "../src/config.js";
+import { readConfig } from "../src/config.js";
 import { createClientSecretDigest } from "../src/crypto.js";
-import { OidcPersistenceImpl } from "../src/persistence/persistence.js";
+import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
 
-test("OidcPersistence contract is preserved in memory mode", async () => {
-  const config = readOidcOpConfig({
+test("persistence modules preserve the memory-mode contract", async () => {
+  const config = readConfig({
     APP_ENV: "test",
     AUTH_PROVIDER: "mock",
     OIDC_COOKIE_SECURE: "false",
@@ -14,7 +14,7 @@ test("OidcPersistence contract is preserved in memory mode", async () => {
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
   });
-  const persistence = new OidcPersistenceImpl(config);
+  const persistence = new PersistenceRuntimeImpl(config);
   await persistence.init();
 
   assert.equal(persistence.hasDatabase(), false);

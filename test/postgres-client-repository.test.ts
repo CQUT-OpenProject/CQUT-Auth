@@ -9,7 +9,7 @@ import type {
   OidcClientAuditRecord,
   ProjectAuditRecord,
 } from "../src/persistence/contracts.js";
-import { OidcClientRepositoryImpl } from "../src/persistence/oidc-client.repository.js";
+import { PostgresOidcClientRepository } from "../src/persistence/oidc-client.repository.js";
 import { ProjectRepositoryImpl } from "../src/persistence/project.repository.js";
 import { ProjectAccessService } from "../src/projects/project-access.js";
 import { ProjectManagementService } from "../src/projects/project-management.service.js";
@@ -66,7 +66,7 @@ test(
          values ($1, $2, 'owner')`,
         [projectId, owner.subjectId],
       );
-      const repository = new OidcClientRepositoryImpl(() => pool, clientHash);
+      const repository = new PostgresOidcClientRepository(pool, clientHash);
       const projects = new ProjectRepositoryImpl(
         () => pool,
         async () => true,

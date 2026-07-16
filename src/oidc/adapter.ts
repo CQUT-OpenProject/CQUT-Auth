@@ -1,6 +1,7 @@
 import type {
   ActiveOidcClientRecord,
-  OidcPersistence,
+  OidcArtifactRepository,
+  OidcClientRepository,
 } from "../persistence/contracts.js";
 import {
   captureAuthorizationGeneration,
@@ -9,18 +10,6 @@ import {
 
 const internalGenerationKey = "__cqutAuthorizationGeneration";
 const internalClientIdKey = "__cqutAuthorizationClientId";
-
-type AdapterStore = Pick<
-  OidcPersistence,
-  | "upsertArtifact"
-  | "findArtifact"
-  | "destroyArtifact"
-  | "consumeArtifact"
-  | "findArtifactByUid"
-  | "findArtifactByUserCode"
-  | "revokeArtifactsByGrantId"
-  | "findOidcClient"
->;
 
 function providerClientMetadata(client: ActiveOidcClientRecord) {
   const metadata: Record<string, unknown> = {
@@ -43,7 +32,11 @@ function providerClientMetadata(client: ActiveOidcClientRecord) {
   return metadata;
 }
 
-export function createAdapter(store: AdapterStore) {
+export function createAdapter(persistence: {
+  artifacts: OidcArtifactRepository;
+  clients: OidcClientRepository;
+}) {
+  const { artifacts, clients } = persistence;
   return class PostgresAdapter {
     readonly modelName: string;
 
@@ -59,7 +52,7 @@ export function createAdapter(store: AdapterStore) {
       if (this.modelName === "Client") {
         throw new Error("Client adapter upsert is disabled in managed profile");
       }
-      await store.upsertArtifact(
+      await artifacts.upsertArtifact(
         `${this.modelName}:${id}`,
         this.modelName,
         payload,
@@ -72,7 +65,7 @@ export function createAdapter(store: AdapterStore) {
 
     async find(id: string) {
       if (this.modelName === "Client") {
-        const client = await store.findOidcClient(id);
+        const client = await clients.findOidcClient(id);
         if (!client || client.lifecycleStatus !== "active") {
           return undefined;
         }
@@ -83,13 +76,13 @@ export function createAdapter(store: AdapterStore) {
         return providerClientMetadata(client);
       }
       return this.captureArtifactContext(
-        await store.findArtifact(`${this.modelName}:${id}`),
+        await artifacts.findArtifact(`${this.modelName}:${id}`),
       );
     }
 
     async findByUid(uid: string) {
       const payload = this.captureArtifactContext(
-        await store.findArtifactByUid(uid, this.modelName),
+        await artifacts.findArtifactByUid(uid, this.modelName),
       );
       if (!payload || payload["kind"] !== this.modelName) {
         return undefined;
@@ -99,20 +92,20 @@ export function createAdapter(store: AdapterStore) {
 
     async findByUserCode(userCode: string) {
       return this.captureArtifactContext(
-        await store.findArtifactByUserCode(userCode),
+        await artifacts.findArtifactByUserCode(userCode),
       );
     }
 
     async destroy(id: string) {
-      await store.destroyArtifact(`${this.modelName}:${id}`);
+      await artifacts.destroyArtifact(`${this.modelName}:${id}`);
     }
 
     async consume(id: string) {
-      await store.consumeArtifact(`${this.modelName}:${id}`);
+      await artifacts.consumeArtifact(`${this.modelName}:${id}`);
     }
 
     async revokeByGrantId(grantId: string) {
-      await store.revokeArtifactsByGrantId(grantId);
+      await artifacts.revokeArtifactsByGrantId(grantId);
     }
 
     captureArtifactContext(payload: Record<string, unknown> | undefined) {

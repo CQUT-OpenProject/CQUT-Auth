@@ -10,7 +10,7 @@ import { ClientManagementService } from "../src/clients/client-management.servic
 import { ProjectAccessService } from "../src/projects/project-access.js";
 import { SYSTEM_PROJECT_ID } from "../src/persistence/contracts.js";
 import { createOidcApp } from "../src/app.js";
-import { readOidcOpConfig } from "../src/config.js";
+import { readConfig } from "../src/config.js";
 import type { PolicyValues } from "../src/runtime-policy.js";
 import {
   createClientSecretDigest,
@@ -273,8 +273,6 @@ function createProductionConfigEnv(
     OIDC_COOKIE_KEYS:
       "prod-oidc-cookie-key-a-0123456789,prod-oidc-cookie-key-b-0123456789",
     OIDC_CSRF_SIGNING_SECRET: PROD_CSRF_SECRET,
-    RESEND_API_KEY: "test-resend-api-key",
-    OIDC_EMAIL_FROM: "CQUT Auth <no-reply@auth-cqut.ciallichannel.com>",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
     DATABASE_URL: "postgres://127.0.0.1:5432/oidc",
     REDIS_URL: "redis://127.0.0.1:6379",
@@ -380,13 +378,19 @@ async function runAuthorizationFlow(
 }
 
 async function disableDemoAutoConsent(state: {
-  store: { upsertOidcClient: (client: any) => Promise<unknown> };
+  persistence: {
+    clients: { upsertOidcClient: (client: any) => Promise<unknown> };
+  };
 }) {
   await upsertDemoClient(state);
 }
 
 async function upsertDemoClient(
-  state: { store: { upsertOidcClient: (client: any) => Promise<unknown> } },
+  state: {
+    persistence: {
+      clients: { upsertOidcClient: (client: any) => Promise<unknown> };
+    };
+  },
   patch: Partial<{
     clientSecretDigest: string | undefined;
     redirectUris: string[];
@@ -410,7 +414,7 @@ async function upsertDemoClient(
     "student",
     "offline_access",
   ] as const;
-  await state.store.upsertOidcClient({
+  await state.persistence.clients.upsertOidcClient({
     clientId: "demo-site",
     clientSecretDigests: [clientSecretDigest],
     displayName: "Demo Site",
@@ -450,7 +454,11 @@ async function upsertDemoClient(
 }
 
 async function upsertPublicNoneClient(
-  state: { store: { upsertOidcClient: (client: any) => Promise<unknown> } },
+  state: {
+    persistence: {
+      clients: { upsertOidcClient: (client: any) => Promise<unknown> };
+    };
+  },
   clientId: string,
   patch: Partial<{
     grantTypes: string[];
@@ -467,7 +475,7 @@ async function upsertPublicNoneClient(
     "email",
     "student",
   ];
-  await state.store.upsertOidcClient({
+  await state.persistence.clients.upsertOidcClient({
     clientId,
     clientSecretDigests: [],
     displayName: clientId,
@@ -800,7 +808,7 @@ test("discovery and jwks endpoints are available", async () => {
   assert.equal(Array.isArray(jwks.body.keys), true);
   assert.equal(jwks.body.keys[0]?.alg, "RS256");
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("disabled OIDC feature endpoints reject requests", async () => {
@@ -831,7 +839,7 @@ test("disabled OIDC feature endpoints reject requests", async () => {
     .send({ scope: "openid" });
   assert.ok(device.status >= 400);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("authorization endpoint only accepts response_type=code", async () => {
@@ -849,7 +857,7 @@ test("authorization endpoint only accepts response_type=code", async () => {
     code_challenge_method: "S256",
   });
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("authorization endpoint requires PKCE S256", async () => {
@@ -876,7 +884,7 @@ test("authorization endpoint requires PKCE S256", async () => {
     code_challenge_method: "plain",
   });
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("application sets security headers on interactive and provider pages", async () => {
@@ -902,7 +910,7 @@ test("application sets security headers on interactive and provider pages", asyn
   });
   assert.equal(logoutPage.status, 200);
   assertLogoutPageSecurityHeaders(logoutPage);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interaction page sets HttpOnly csrf nonce cookie with SameSite Lax", async () => {
@@ -923,7 +931,7 @@ test("interaction page sets HttpOnly csrf nonce cookie with SameSite Lax", async
   assert.match(nonceSetCookie as string, /;\s*SameSite=Lax/i);
   assert.doesNotMatch(nonceSetCookie as string, /;\s*Secure/i);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login follows the shared brand and accessibility rules", async () => {
@@ -957,7 +965,7 @@ test("interactive login follows the shared brand and accessibility rules", async
     /重庆理工大学统一身份认证 · OpenID Connect/,
   );
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("csrf rejects tampered token", async () => {
@@ -980,7 +988,7 @@ test("csrf rejects tampered token", async () => {
   assert.equal(response.status, 400);
   assert.match(response.text, /CSRF 校验失败，请刷新后重试/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("csrf rejects token reuse across interaction uid", async () => {
@@ -1022,7 +1030,7 @@ test("csrf rejects token reuse across interaction uid", async () => {
   assert.equal(response.status, 400);
   assert.match(response.text, /CSRF 校验失败，请刷新后重试/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("csrf rejects missing or mismatched nonce cookie", async () => {
@@ -1056,7 +1064,7 @@ test("csrf rejects missing or mismatched nonce cookie", async () => {
   assert.equal(withWrongCookie.status, 400);
   assert.match(withWrongCookie.text, /CSRF 校验失败，请刷新后重试/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("csrf rejects malformed percent-encoded cookies without 500", async () => {
@@ -1080,7 +1088,7 @@ test("csrf rejects malformed percent-encoded cookies without 500", async () => {
   assert.equal(response.status, 400);
   assert.match(response.text, /CSRF 校验失败，请刷新后重试/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("csrf rejects expired token", async () => {
@@ -1107,7 +1115,7 @@ test("csrf rejects expired token", async () => {
   assert.equal(response.status, 400);
   assert.match(response.text, /CSRF 校验失败，请刷新后重试/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("client secret digest uses scrypt and rejects non-scrypt legacy format", async () => {
@@ -1148,7 +1156,7 @@ test("encryptJson uses versioned scrypt envelope and rejects tampered version", 
 
 test("seeded demo client is confidential web client", async () => {
   const { state } = await createTestApp();
-  const client = await state.store.findOidcClient("demo-site");
+  const client = await state.persistence.clients.findOidcClient("demo-site");
   assert.ok(client);
   assert.equal(client?.applicationType, "web");
   assert.equal(client?.tokenEndpointAuthMethod, "client_secret_basic");
@@ -1162,7 +1170,7 @@ test("seeded demo client is confidential web client", async () => {
     true,
   );
   assert.equal(client?.autoConsent, true);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("public client without explicit refresh confirmation does not receive refresh token", async () => {
@@ -1224,7 +1232,7 @@ test("public client without explicit refresh confirmation does not receive refre
   assert.equal(token.status, 200);
   assert.equal(typeof token.body.access_token, "string");
   assert.equal(token.body.refresh_token, undefined);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("client disable takes effect immediately without restart", async () => {
@@ -1240,7 +1248,7 @@ test("client disable takes effect immediately without restart", async () => {
     });
   assert.ok(response.status === 400 || response.status === 401);
   assert.equal(response.body.error, "invalid_client");
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("redirect uri updates take effect immediately without restart", async () => {
@@ -1280,7 +1288,7 @@ test("redirect uri updates take effect immediately without restart", async () =>
     });
   assert.ok(authorize.status === 302 || authorize.status === 303);
   assert.match(authorize.headers["location"] as string, /^\/interaction\//);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("client secret rotation honors dual-secret grace and expiry without restart", async () => {
@@ -1297,14 +1305,15 @@ test("client secret rotation honors dual-secret grace and expiry without restart
 
   const rotatedSecret = `rotated-${Date.now()}-secret`;
   const management = new ClientManagementService(
-    state.store,
-    new ProjectAccessService(state.store),
+    state.persistence.clients,
+    new ProjectAccessService(state.persistence.projects),
     "test",
     {
       createSecret: () => rotatedSecret,
     },
   );
-  const managed = await state.store.findManagedOidcClient("demo-site");
+  const managed =
+    await state.persistence.clients.findManagedOidcClient("demo-site");
   await management.rotateSecret(
     { subjectId: "subj_admin", isAdmin: true },
     SYSTEM_PROJECT_ID,
@@ -1341,7 +1350,7 @@ test("client secret rotation honors dual-secret grace and expiry without restart
       refresh_token: "missing-token-expired-old-secret",
     });
   assert.equal(expiredOldSecret.body.error, "invalid_client");
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("signing key refresh updates jwks within configured interval", async () => {
@@ -1355,7 +1364,7 @@ test("signing key refresh updates jwks within configured interval", async () => 
       .map((key) => key.kid)
       .filter(Boolean),
   );
-  const addedKey = await generateSigningKey(state.store);
+  const addedKey = await generateSigningKey(state.persistence);
 
   await waitFor(async () => {
     const jwks = await request(app).get("/jwks");
@@ -1365,7 +1374,7 @@ test("signing key refresh updates jwks within configured interval", async () => 
     return kids.includes(addedKey.kid);
   });
 
-  await state.store.upsertSigningKey({
+  await state.persistence.signingKeys.upsertSigningKey({
     ...addedKey,
     status: "retired",
     retiredAt: new Date().toISOString(),
@@ -1380,7 +1389,7 @@ test("signing key refresh updates jwks within configured interval", async () => 
     return keepsExisting && !kids.includes(addedKey.kid);
   });
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("authorization code flow, userinfo, refresh rotation, and session reuse work", async () => {
@@ -1412,7 +1421,7 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
     .get("/userinfo")
     .set("Authorization", `Bearer ${token.body.access_token as string}`);
   assert.equal(userinfo.status, 200);
-  const principal = await state.store.findPrincipalBySubjectId(
+  const principal = await state.persistence.identity.findPrincipalBySubjectId(
     userinfo.body.sub as string,
   );
   assert.ok(principal);
@@ -1469,11 +1478,12 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
   assert.equal(reuse.body.error, "invalid_grant");
 
   const management = new ClientManagementService(
-    state.store,
-    new ProjectAccessService(state.store),
+    state.persistence.clients,
+    new ProjectAccessService(state.persistence.projects),
     "test",
   );
-  const managed = await state.store.findManagedOidcClient("demo-site");
+  const managed =
+    await state.persistence.clients.findManagedOidcClient("demo-site");
   await management.revokeAuthorizations(
     { subjectId: "subj_admin", isAdmin: true },
     SYSTEM_PROJECT_ID,
@@ -1495,7 +1505,7 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
   assert.equal(revokedRefresh.status, 400);
   assert.equal(revokedRefresh.body.error, "invalid_grant");
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("authorization code can be consumed by only one concurrent request", async () => {
@@ -1535,7 +1545,7 @@ test("authorization code can be consumed by only one concurrent request", async 
     ).length,
     9,
   );
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test(
@@ -1555,7 +1565,7 @@ test(
         OIDC_ALLOW_IN_MEMORY_STORE: "false",
       });
       state = created.state;
-      assert.equal(state.store.hasDatabase(), true);
+      assert.equal(state.persistence.runtime.hasDatabase(), true);
       const agent = request.agent(created.app);
       const { code, codeVerifier } = await runAuthorizationFlow(
         agent,
@@ -1591,10 +1601,11 @@ test(
         ),
       );
 
-      const managed = await state.store.findManagedOidcClient("demo-site");
+      const managed =
+        await state.persistence.clients.findManagedOidcClient("demo-site");
       const management = new ClientManagementService(
-        state.store,
-        new ProjectAccessService(state.store),
+        state.persistence.clients,
+        new ProjectAccessService(state.persistence.projects),
         "test",
       );
       let releaseLateIssue!: () => void;
@@ -1603,7 +1614,7 @@ test(
       });
       const lateIssue = (async () => {
         await revocationBarrier;
-        await state!.store.upsertArtifact(
+        await state!.persistence.artifacts.upsertArtifact(
           "AccessToken:late-postgres-token",
           "AccessToken",
           { clientId: "demo-site", accountId: "late-subject" },
@@ -1620,7 +1631,9 @@ test(
       releaseLateIssue();
       await lateIssue;
       assert.equal(
-        await state.store.findArtifact("AccessToken:late-postgres-token"),
+        await state.persistence.artifacts.findArtifact(
+          "AccessToken:late-postgres-token",
+        ),
         undefined,
       );
       const revokedAccess = await request(created.app)
@@ -1662,7 +1675,7 @@ test(
         "postgres-session-preserved",
       );
     } finally {
-      await state?.store.close();
+      await state?.persistence.runtime.close();
       await adminPool.query(`drop schema if exists "${schema}" cascade`);
       await adminPool.end();
     }
@@ -1692,16 +1705,16 @@ test("userinfo normalizes legacy active_student status to active", async () => {
   assert.equal(token.status, 200);
   assert.equal(typeof token.body.access_token, "string");
 
-  const identity = await state.store.findIdentity(
+  const identity = await state.persistence.identity.findIdentity(
     "mock",
     `mock:${TEST_LOGIN_ACCOUNT}`,
   );
   assert.ok(identity);
-  const principal = await state.store.findPrincipalBySubjectId(
+  const principal = await state.persistence.identity.findPrincipalBySubjectId(
     identity.subjectId,
   );
   assert.ok(principal);
-  await state.store.updateIdentity(
+  await state.persistence.identity.updateIdentity(
     principal.identitySource,
     principal.identityKey,
     {
@@ -1720,7 +1733,7 @@ test("userinfo normalizes legacy active_student status to active", async () => {
   assert.equal(Object.hasOwn(userinfo.body as object, "school"), false);
   assert.equal(Object.hasOwn(userinfo.body as object, "student_status"), false);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("unverified email stays in profile but is omitted from oidc claims when verification is disabled", async () => {
@@ -1802,14 +1815,14 @@ test("unverified email stays in profile but is omitted from oidc claims when ver
   assert.equal(Object.hasOwn(idTokenClaims, "email"), false);
   assert.equal(Object.hasOwn(idTokenClaims, "email_verified"), false);
 
-  const principal = await state.store.findPrincipalBySubjectId(
+  const principal = await state.persistence.identity.findPrincipalBySubjectId(
     userinfo.body.sub as string,
   );
   assert.ok(principal);
   assert.equal(principal.email, chosenEmail);
   assert.equal(principal.emailVerified, false);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
@@ -1850,7 +1863,7 @@ test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
   );
   assert.equal(redirect.searchParams.get("state"), "logout-state-1");
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("rp initiated logout shows success page when no redirect uri is provided", async () => {
@@ -1891,7 +1904,7 @@ test("rp initiated logout shows success page when no redirect uri is provided", 
   assert.equal(successResponse.status, 200);
   assert.match(successResponse.text, /你已退出登录。/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("rp initiated logout rejects unregistered post_logout_redirect_uri", async () => {
@@ -1901,7 +1914,7 @@ test("rp initiated logout rejects unregistered post_logout_redirect_uri", async 
     post_logout_redirect_uri: "http://localhost:3002/demo",
   });
   assert.equal(response.status, 400);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("non-whitelisted clients require explicit consent approval", async () => {
@@ -1928,7 +1941,7 @@ test("non-whitelisted clients require explicit consent approval", async () => {
   assert.equal(callbackUrl.searchParams.get("state"), "manual-state-allow");
   assert.equal(typeof callbackUrl.searchParams.get("code"), "string");
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("consent page disables duplicate submissions while completing authorization", async () => {
@@ -1951,7 +1964,7 @@ test("consent page disables duplicate submissions while completing authorization
   assert.match(consentPage, /event\.preventDefault\(\)/);
   assert.match(consentPage, /setAttribute\("disabled", "disabled"\)/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("stale interaction requests return an expired-flow page instead of server_error", async () => {
@@ -1991,7 +2004,7 @@ test("stale interaction requests return an expired-flow page instead of server_e
   assert.match(stalePost.text, /登录流程已过期/);
   assert.doesNotMatch(stalePost.text, /server_error/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("profile routes reject requests without the interaction session cookie", async () => {
@@ -2028,7 +2041,7 @@ test("profile routes reject requests without the interaction session cookie", as
     false,
   );
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("login without email scope skips profile completion", async () => {
@@ -2064,7 +2077,7 @@ test("login without email scope skips profile completion", async () => {
   assert.equal(typeof callbackUrl.searchParams.get("code"), "string");
   assert.equal(emailSender.sentVerifications.length, 0);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login treats upstream outages as retryable 503 without consuming the failure budget", async () => {
@@ -2096,7 +2109,7 @@ test("interactive login treats upstream outages as retryable 503 without consumi
     assert.equal(login.headers["retry-after"], "60");
   }
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("consent denial returns access_denied to client redirect uri", async () => {
@@ -2124,7 +2137,7 @@ test("consent denial returns access_denied to client redirect uri", async () => 
   assert.equal(denyUrl.searchParams.get("error"), "access_denied");
   assert.equal(denyUrl.searchParams.get("code"), null);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("prompt=none does not silently grant newly requested scopes", async () => {
@@ -2171,7 +2184,7 @@ test("prompt=none does not silently grant newly requested scopes", async () => {
   );
   assert.equal(secondUrl.searchParams.get("code"), null);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login failure does not expose internal error details", async () => {
@@ -2194,7 +2207,7 @@ test("interactive login failure does not expose internal error details", async (
   assert.equal(login.status, 401);
   assert.match(login.text, /登录失败，请检查账号或密码后重试/);
   assert.doesNotMatch(login.text, /IdentityCoreError|invalid credentials/i);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login page shows a pending state and prevents duplicate submits", async () => {
@@ -2213,7 +2226,7 @@ test("interactive login page shows a pending state and prevents duplicate submit
   assert.match(loginPage.text, /setAttribute\("readonly", "readonly"\)/);
   assert.match(loginPage.text, /setAttribute\("disabled", "disabled"\)/);
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login failure rate limit blocks repeated attempts for the same account across trusted proxy ips", async () => {
@@ -2287,7 +2300,7 @@ test("interactive login failure rate limit blocks repeated attempts for the same
   assert.equal(first.status, 401);
   assert.equal(second.status, 401);
   assert.equal(third.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login failure rate limit blocks sprays from the same trusted proxy ip across accounts", async () => {
@@ -2349,7 +2362,7 @@ test("interactive login failure rate limit blocks sprays from the same trusted p
   assert.equal(first.status, 401);
   assert.equal(second.status, 401);
   assert.equal(third.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login failure rate limit blocks repeated attempts for the same account and trusted proxy ip", async () => {
@@ -2394,7 +2407,7 @@ test("interactive login failure rate limit blocks repeated attempts for the same
 
   assert.equal(first.status, 401);
   assert.equal(second.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("interactive login success clears account failure buckets but keeps shared ip protection", async () => {
@@ -2473,7 +2486,7 @@ test("interactive login success clears account failure buckets but keeps shared 
   assert.equal(second.status, 401);
   assert.equal(success.status, 302);
   assert.equal(blocked.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification rejects wrong code after max attempts", async () => {
@@ -2501,7 +2514,7 @@ test("email verification rejects wrong code after max attempts", async () => {
     assert.match(verify.text, /验证码尝试次数过多，请重新发送/);
   }
 
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification expires and requires resending code", async () => {
@@ -2523,7 +2536,7 @@ test("email verification expires and requires resending code", async () => {
   });
   assert.equal(verify.status, 400);
   assert.match(verify.text, /验证码已过期，请重新发送/);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification resend is blocked during cooldown window", async () => {
@@ -2542,7 +2555,7 @@ test("email verification resend is blocked during cooldown window", async () => 
   });
   assert.equal(resend.status, 429);
   assert.match(resend.text, /秒后再重试发送/);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification global rate limit blocks by subjectId across interactions", async () => {
@@ -2570,7 +2583,7 @@ test("email verification global rate limit blocks by subjectId across interactio
   assert.equal(second.sendCode.headers["retry-after"], "600");
   assert.match(second.sendCode.text, /发送过于频繁/);
   assert.equal(emailSender.sentVerifications.length, 1);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification global rate limit blocks by target email across interactions", async () => {
@@ -2598,7 +2611,7 @@ test("email verification global rate limit blocks by target email across interac
   assert.equal(second.sendCode.headers["retry-after"], "600");
   assert.match(second.sendCode.text, /发送过于频繁/);
   assert.equal(emailSender.sentVerifications.length, 1);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification global rate limit blocks by target domain across interactions", async () => {
@@ -2626,7 +2639,7 @@ test("email verification global rate limit blocks by target domain across intera
   assert.equal(second.sendCode.headers["retry-after"], "600");
   assert.match(second.sendCode.text, /发送过于频繁/);
   assert.equal(emailSender.sentVerifications.length, 1);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification global rate limit blocks by source ip across interactions", async () => {
@@ -2657,7 +2670,7 @@ test("email verification global rate limit blocks by source ip across interactio
   assert.equal(second.sendCode.headers["retry-after"], "600");
   assert.match(second.sendCode.text, /发送过于频繁/);
   assert.equal(emailSender.sentVerifications.length, 1);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("email verification trusted proxy resolution ignores spoofed leading forwarded ips", async () => {
@@ -2685,7 +2698,7 @@ test("email verification trusted proxy resolution ignores spoofed leading forwar
   assert.equal(first.sendCode.status, 200);
   assert.equal(second.sendCode.status, 429);
   assert.equal(emailSender.sentVerifications.length, 1);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("OIDC error page returns generic message only", async () => {
@@ -2694,7 +2707,7 @@ test("OIDC error page returns generic message only", async () => {
   assert.ok(response.status >= 400);
   assert.match(response.text, /认证请求未能完成，请刷新后重试。/);
   assert.doesNotMatch(response.text, /client_id|required|invalid_request/i);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("token endpoint returns 503 when rate limiter is fail-closed and redis is unavailable", async () => {
@@ -2710,7 +2723,7 @@ test("token endpoint returns 503 when rate limiter is fail-closed and redis is u
 
   assert.equal(response.status, 503);
   assert.equal(response.body.error, "service_unavailable");
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("token endpoint returns 503 when fail-closed mode is enabled and REDIS_URL is missing", async () => {
@@ -2726,7 +2739,7 @@ test("token endpoint returns 503 when fail-closed mode is enabled and REDIS_URL 
 
   assert.equal(response.status, 503);
   assert.equal(response.body.error, "service_unavailable");
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("token endpoint rate limit blocks the same none-auth client_id across trusted proxy ips", async () => {
@@ -2776,7 +2789,7 @@ test("token endpoint rate limit blocks the same none-auth client_id across trust
   assert.notEqual(first.status, 429);
   assert.notEqual(second.status, 429);
   assert.equal(third.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("token endpoint rate limit blocks multiple none-auth client_ids from the same trusted proxy ip", async () => {
@@ -2828,7 +2841,7 @@ test("token endpoint rate limit blocks multiple none-auth client_ids from the sa
   assert.notEqual(first.status, 429);
   assert.notEqual(second.status, 429);
   assert.equal(third.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("token endpoint rate limit isolates Basic client bucket from none client bucket", async () => {
@@ -2865,7 +2878,7 @@ test("token endpoint rate limit isolates Basic client bucket from none client bu
   assert.notEqual(first.status, 429);
   assert.equal(second.status, 429);
   assert.notEqual(noneClient.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("token endpoint rate limit uses anonymous fallback bucket when client identity is missing", async () => {
@@ -2889,7 +2902,7 @@ test("token endpoint rate limit uses anonymous fallback bucket when client ident
   assert.equal(first.body.error, "invalid_request");
   assert.equal(second.status, 429);
   assert.equal(second.body.error, "rate_limited");
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("token endpoint trusted proxy resolution ignores spoofed leading forwarded ips", async () => {
@@ -2914,7 +2927,7 @@ test("token endpoint trusted proxy resolution ignores spoofed leading forwarded 
 
   assert.equal(first.status, 400);
   assert.equal(second.status, 429);
-  await state.store.close();
+  await state.persistence.runtime.close();
 });
 
 test("session ttl uses idle ttl when absolute ttl has more remaining time", () => {
@@ -2962,7 +2975,7 @@ test("session ttl absolute window resets after re-login", () => {
 test.skip("config rejects when session idle ttl exceeds absolute session ttl", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -2975,7 +2988,7 @@ test.skip("config rejects when session idle ttl exceeds absolute session ttl", (
 });
 
 test.skip("config defaults grant ttl above refresh token ttl and enforces the floor", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -2985,7 +2998,7 @@ test.skip("config defaults grant ttl above refresh token ttl and enforces the fl
 
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -2998,7 +3011,7 @@ test.skip("config defaults grant ttl above refresh token ttl and enforces the fl
 });
 
 test("config ignores deprecated OIDC_DEMO_* variables", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3015,7 +3028,7 @@ test("config ignores deprecated OIDC_DEMO_* variables", () => {
 test("config rejects missing OIDC_ARTIFACT_ENCRYPTION_SECRET outside test", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "development",
         OIDC_ISSUER: "https://localhost:3003",
         OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
@@ -3028,7 +3041,7 @@ test("config rejects missing OIDC_ARTIFACT_ENCRYPTION_SECRET outside test", () =
 test("config rejects short encryption secret outside test", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "development",
         OIDC_ISSUER: "https://localhost:3003",
         OIDC_KEY_ENCRYPTION_SECRET: "short-secret",
@@ -3042,7 +3055,7 @@ test("config rejects short encryption secret outside test", () => {
 test("config rejects identical artifact and key encryption secrets", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "same-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "same-secret",
@@ -3053,7 +3066,7 @@ test("config rejects identical artifact and key encryption secrets", () => {
 });
 
 test("config accepts explicit OIDC_CLIENTS_CONFIG_PATH", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3064,7 +3077,7 @@ test("config accepts explicit OIDC_CLIENTS_CONFIG_PATH", () => {
 });
 
 test("config defaults AUTH_PROVIDER to cqut", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3079,7 +3092,7 @@ test("config defaults AUTH_PROVIDER to cqut", () => {
 });
 
 test("config allows AUTH_PROVIDER=mock in test", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     AUTH_PROVIDER: "mock",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
@@ -3090,7 +3103,7 @@ test("config allows AUTH_PROVIDER=mock in test", () => {
 });
 
 test("config defaults email verification global rate limits to strict profile", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3107,7 +3120,7 @@ test("config defaults email verification global rate limits to strict profile", 
 });
 
 test("config defaults client creation quotas and rate limits", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3138,7 +3151,7 @@ test("config defaults client creation quotas and rate limits", () => {
 test.skip("config rejects client secret grace defaults above the maximum", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3152,7 +3165,7 @@ test.skip("config rejects client secret grace defaults above the maximum", () =>
 test.skip("config rejects client pending quota above total quota", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3166,7 +3179,7 @@ test.skip("config rejects client pending quota above total quota", () => {
 test.skip("config rejects subject pending quota above subject client quota", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3198,7 +3211,7 @@ test.skip("config rejects non-positive email verification global rate limit valu
   for (const key of keys) {
     assert.throws(
       () =>
-        readOidcOpConfig({
+        readConfig({
           ...baseEnv,
           [key]: "0",
         }),
@@ -3208,7 +3221,7 @@ test.skip("config rejects non-positive email verification global rate limit valu
 });
 
 test("config allows explicitly enabling opportunistic cleanup", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3221,7 +3234,7 @@ test("config allows explicitly enabling opportunistic cleanup", () => {
 test("config rejects non-positive signing key refresh interval", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "test",
         OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
         OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3235,7 +3248,7 @@ test("config rejects non-positive signing key refresh interval", () => {
 test("config rejects missing OIDC_COOKIE_KEYS in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_COOKIE_KEYS: undefined,
         }),
@@ -3247,7 +3260,7 @@ test("config rejects missing OIDC_COOKIE_KEYS in production", () => {
 test("config rejects missing OIDC_CSRF_SIGNING_SECRET in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_CSRF_SIGNING_SECRET: undefined,
         }),
@@ -3259,7 +3272,7 @@ test("config rejects missing OIDC_CSRF_SIGNING_SECRET in production", () => {
 test("config rejects csrf signing secret reused as key encryption secret in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_CSRF_SIGNING_SECRET: PROD_KEY_SECRET,
         }),
@@ -3271,7 +3284,7 @@ test("config rejects csrf signing secret reused as key encryption secret in prod
 test("config rejects cookie key reused as key encryption secret in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_COOKIE_KEYS: `${PROD_KEY_SECRET},prod-cookie-b-0123456789`,
         }),
@@ -3283,7 +3296,7 @@ test("config rejects cookie key reused as key encryption secret in production", 
 test("config rejects cookie key reused as csrf signing secret in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_COOKIE_KEYS: `${PROD_CSRF_SECRET},prod-cookie-b-0123456789`,
         }),
@@ -3293,7 +3306,7 @@ test("config rejects cookie key reused as csrf signing secret in production", ()
 });
 
 test.skip("config caps csrf token ttl to interaction ttl", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
@@ -3307,7 +3320,7 @@ test.skip("config caps csrf token ttl to interaction ttl", () => {
 test("config rejects non-https issuer outside test", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "development",
         OIDC_ISSUER: "http://localhost:3003",
         OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
@@ -3319,7 +3332,7 @@ test("config rejects non-https issuer outside test", () => {
 });
 
 test("config allows loopback http issuer in test", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_ISSUER: "http://127.0.0.1:3003",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
@@ -3332,7 +3345,7 @@ test("config allows loopback http issuer in test", () => {
 test("config rejects AUTH_PROVIDER=mock outside test", () => {
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "development",
         OIDC_ISSUER: "https://localhost:3003",
         AUTH_PROVIDER: "mock",
@@ -3344,7 +3357,7 @@ test("config rejects AUTH_PROVIDER=mock outside test", () => {
   );
   assert.throws(
     () =>
-      readOidcOpConfig({
+      readConfig({
         APP_ENV: "production",
         OIDC_ISSUER: "https://localhost:3003",
         AUTH_PROVIDER: "mock",
@@ -3359,7 +3372,7 @@ test("config rejects AUTH_PROVIDER=mock outside test", () => {
 test("config rejects OIDC_ALLOW_IN_MEMORY_STORE=true in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_ALLOW_IN_MEMORY_STORE: "true",
         }),
@@ -3371,7 +3384,7 @@ test("config rejects OIDC_ALLOW_IN_MEMORY_STORE=true in production", () => {
 test("config rejects missing DATABASE_URL in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           DATABASE_URL: undefined,
         }),
@@ -3383,7 +3396,7 @@ test("config rejects missing DATABASE_URL in production", () => {
 test("config rejects missing REDIS_URL in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           REDIS_URL: undefined,
         }),
@@ -3395,7 +3408,7 @@ test("config rejects missing REDIS_URL in production", () => {
 test("config rejects OIDC_RATE_LIMIT_FAIL_CLOSED=false in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_RATE_LIMIT_FAIL_CLOSED: "false",
         }),
@@ -3407,7 +3420,7 @@ test("config rejects OIDC_RATE_LIMIT_FAIL_CLOSED=false in production", () => {
 test("config rejects TRUST_PROXY_HOPS=0 in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           TRUST_PROXY_HOPS: "0",
         }),
@@ -3419,7 +3432,7 @@ test("config rejects TRUST_PROXY_HOPS=0 in production", () => {
 test("config rejects TRUST_PROXY_HOPS=2 in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           TRUST_PROXY_HOPS: "2",
         }),
@@ -3431,7 +3444,7 @@ test("config rejects TRUST_PROXY_HOPS=2 in production", () => {
 test("config rejects empty TRUSTED_PROXY_CIDRS when proxy trust is enabled", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           TRUSTED_PROXY_CIDRS: "",
         }),
@@ -3441,7 +3454,7 @@ test("config rejects empty TRUSTED_PROXY_CIDRS when proxy trust is enabled", () 
 });
 
 test("config allows TRUST_PROXY_HOPS=0 in test", () => {
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     TRUST_PROXY_HOPS: "0",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
@@ -3451,38 +3464,14 @@ test("config allows TRUST_PROXY_HOPS=0 in test", () => {
   assert.equal(config.trustProxyHops, 0);
 });
 
-test.skip("config rejects missing RESEND_API_KEY in production when email verification enabled", () => {
-  assert.throws(
-    () =>
-      readOidcOpConfig(
-        createProductionConfigEnv({
-          RESEND_API_KEY: undefined,
-        }),
-      ),
-    /RESEND_API_KEY is required when APP_ENV=production and email verification is enabled/,
-  );
-});
-
 test("config rejects disabling email verification in production", () => {
   assert.throws(
     () =>
-      readOidcOpConfig(
+      readConfig(
         createProductionConfigEnv({
           OIDC_EMAIL_VERIFICATION_ENABLED: "false",
         }),
       ),
     /OIDC_EMAIL_VERIFICATION_ENABLED must remain enabled when APP_ENV=production/,
-  );
-});
-
-test.skip("config rejects missing OIDC_EMAIL_FROM in production when email verification enabled", () => {
-  assert.throws(
-    () =>
-      readOidcOpConfig(
-        createProductionConfigEnv({
-          OIDC_EMAIL_FROM: undefined,
-        }),
-      ),
-    /OIDC_EMAIL_FROM is required when APP_ENV=production and email verification is enabled/,
   );
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { OidcOpConfig } from "./config.js";
+import type { StaticConfig } from "./config.js";
 import { decryptJson, encryptJson } from "./crypto.js";
 import type { EmailSender } from "./email/email-sender.js";
 import { buildEmailSender } from "./email/runtime-email-sender.js";
@@ -16,7 +16,6 @@ import type {
 import { isValidEmail } from "./utils.js";
 
 export const RUNTIME_POLICY_KEY = "runtime-policy";
-const LEGACY_EMAIL_SETTINGS_KEY = "email";
 
 export const POLICY_KEYS = [
   "csrfTokenTtlSeconds",
@@ -67,8 +66,13 @@ export const POLICY_KEYS = [
   "clientSecretRotateMinimumIntervalSeconds",
 ] as const;
 
-export type PolicyValues = Pick<OidcOpConfig, (typeof POLICY_KEYS)[number]>;
+export type PolicyValues = Pick<StaticConfig, (typeof POLICY_KEYS)[number]>;
 export type RuntimePolicy = { policy: PolicyValues; email: EmailSettings };
+export type RuntimePolicySnapshot = Readonly<{
+  policy: Readonly<PolicyValues>;
+  email: Readonly<EmailSettings>;
+  version: number;
+}>;
 
 export type RuntimePolicyView = {
   policy: PolicyValues;
@@ -84,7 +88,7 @@ type Store = Pick<
   "getAppSetting" | "saveAppSetting" | "listAppSettingAuditLogs"
 >;
 
-export class RuntimePolicyService {
+export class RuntimePolicyModule {
   private active!: RuntimePolicy;
   private loadedVersion = 0;
 
@@ -95,23 +99,21 @@ export class RuntimePolicyService {
     private readonly now: () => Date = () => new Date(),
   ) {}
 
-  async initialize(config: OidcOpConfig): Promise<void> {
-    let stored = await this.loadStored();
-    if (!stored) {
-      try {
-        stored = await this.migrateLegacyEmail();
-      } catch (error) {
-        if (!(error instanceof ClientManagementError) || error.status !== 409) {
-          throw error;
-        }
-        stored = await this.loadStored();
-      }
-    }
+  async initialize(): Promise<RuntimePolicySnapshot> {
+    const stored = await this.loadStored();
     this.active = stored?.settings ?? structuredClone(this.defaults);
     validatePolicy(this.active.policy);
     validateEmail(this.active.email);
     this.loadedVersion = stored?.version ?? 0;
-    Object.assign(config, this.active.policy);
+    return this.activeSnapshot();
+  }
+
+  activeSnapshot(): RuntimePolicySnapshot {
+    return Object.freeze({
+      policy: Object.freeze({ ...this.active.policy }),
+      email: Object.freeze(structuredClone(this.active.email)),
+      version: this.loadedVersion,
+    });
   }
 
   async loadEffective(): Promise<EmailSettings> {
@@ -209,33 +211,6 @@ export class RuntimePolicyService {
     return this.store.listAppSettingAuditLogs(RUNTIME_POLICY_KEY, limit);
   }
 
-  private async migrateLegacyEmail() {
-    const legacy = await this.store.getAppSetting(LEGACY_EMAIL_SETTINGS_KEY);
-    if (!legacy) return null;
-    const email = await decryptJson<EmailSettings>(
-      this.encryptionSecret,
-      legacy.valueCiphertext,
-    );
-    const settings = {
-      ...structuredClone(this.defaults),
-      email: normalizeEmail(email),
-    };
-    const updatedAt = this.now().toISOString();
-    const record = await this.save(settings, 0, updatedAt, {
-      actorSubjectId: null,
-      action: "runtime_policy.migrated",
-      changedFields: ["email"],
-      previousValues: {},
-      newValues: auditValues(settings),
-      secretsReplaced: {
-        resendApiKey: Boolean(email.resend?.apiKey),
-        smtpPassword: Boolean(email.smtp?.password),
-      },
-      createdAt: updatedAt,
-    });
-    return { settings, version: record.version, updatedAt: record.updatedAt };
-  }
-
   private async loadStored() {
     const record = await this.store.getAppSetting(RUNTIME_POLICY_KEY);
     if (!record) return null;
@@ -286,7 +261,7 @@ export class RuntimePolicyService {
 
 type Actor = { subjectId: string; sourceIp?: string };
 
-export function defaultRuntimePolicy(config: OidcOpConfig): RuntimePolicy {
+export function defaultRuntimePolicy(config: StaticConfig): RuntimePolicy {
   return {
     policy: Object.fromEntries(
       POLICY_KEYS.map((key) => [key, config[key]]),

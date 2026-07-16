@@ -2,27 +2,25 @@ import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
-import { readOidcOpConfig, type OidcOpConfig } from "./config.js";
-import {
-  defaultRuntimePolicy,
-  RuntimePolicyService,
-} from "./runtime-policy.js";
+import { readConfig, type StaticConfig } from "./config.js";
+import { defaultRuntimePolicy, RuntimePolicyModule } from "./runtime-policy.js";
 import type { PolicyValues } from "./runtime-policy.js";
-import { createOidcServices } from "./oidc/provider.js";
+import { createOidcRuntime } from "./oidc/provider.js";
 import { RateLimitService } from "./persistence/rate-limit.service.js";
-import type { OidcPersistence } from "./persistence/contracts.js";
-import { OidcPersistenceImpl } from "./persistence/persistence.js";
+import {
+  createPersistence,
+  type PersistenceModules,
+} from "./persistence/persistence.js";
 import { createInteractionRouter } from "./routes/interactions.js";
 import { createManagementRouter } from "./routes/management.js";
 import type { EmailSender } from "./email/email-sender.js";
 import { withAuthorizationContext } from "./oidc/authorization-context.js";
 
 type AppState = {
-  config: OidcOpConfig;
-  provider: any;
-  store: OidcPersistence;
+  config: StaticConfig;
+  persistence: PersistenceModules;
   rateLimitService: RateLimitService;
-  closeOidcServices(): Promise<void>;
+  close(): Promise<void>;
 };
 
 type AppDependencies = {
@@ -56,7 +54,7 @@ function cspSourceForOrigin(origin: string): string | undefined {
   }
 }
 
-function buildFormActionSources(config: OidcOpConfig, redirectUris: string[]) {
+function buildFormActionSources(config: StaticConfig, redirectUris: string[]) {
   const sources = new Set<string>(["'self'"]);
   for (const uri of redirectUris) {
     const source = cspSourceForOrigin(uri);
@@ -107,27 +105,30 @@ export async function createOidcApp(
   env: NodeJS.ProcessEnv = process.env,
   dependencies: AppDependencies = {},
 ) {
-  const config = readOidcOpConfig(env);
-  if (config.adminSubjectIds.length === 0) {
+  const staticConfig = readConfig(env);
+  if (staticConfig.adminSubjectIds.length === 0) {
     console.warn(
       "[oidc-op] OIDC_ADMIN_SUBJECT_IDS is empty; client approvals are unavailable",
     );
   }
-  const store = new OidcPersistenceImpl(config);
-  await store.init();
-  const policyDefaults = defaultRuntimePolicy(config);
+  const persistence = await createPersistence(staticConfig);
+  const policyDefaults = defaultRuntimePolicy(staticConfig);
   Object.assign(policyDefaults.policy, dependencies.runtimePolicyOverrides);
-  const runtimePolicy = new RuntimePolicyService(
-    store,
-    config.keyEncryptionSecret,
+  const runtimePolicy = new RuntimePolicyModule(
+    persistence.settings,
+    staticConfig.keyEncryptionSecret,
     policyDefaults,
   );
-  await runtimePolicy.initialize(config);
+  const policySnapshot = await runtimePolicy.initialize();
+  const config: StaticConfig = Object.freeze({
+    ...staticConfig,
+    ...policySnapshot.policy,
+  });
   const rateLimitService = new RateLimitService(config);
   await rateLimitService.init();
-  const services = await createOidcServices(
+  const services = await createOidcRuntime(
     config,
-    store,
+    persistence,
     rateLimitService,
     dependencies.emailSender,
     runtimePolicy,
@@ -143,7 +144,7 @@ export async function createOidcApp(
   };
   const getFormActionSources = async () => {
     if (Date.now() >= formActionSourcesExpiresAt) {
-      const clients = await store.listActiveOidcClients();
+      const clients = await persistence.clients.listActiveOidcClients();
       formActionSources = buildFormActionSources(
         config,
         clients.flatMap((client) => client.redirectUris),
@@ -160,7 +161,7 @@ export async function createOidcApp(
   app.use(withAuthorizationContext);
 
   app.get("/health/ready", async (_request, response) => {
-    const databaseReady = await store.checkReadiness();
+    const databaseReady = await persistence.runtime.checkReadiness();
     const redisReady = await rateLimitService.checkReadiness();
     const emailReady =
       !config.emailVerificationEnabled || runtimePolicy.isEmailConfigured();
@@ -170,7 +171,7 @@ export async function createOidcApp(
         status:
           databaseReady && redisReady && emailReady ? "ready" : "degraded",
         issuer: config.issuer,
-        database: store.hasDatabase() ? "postgres" : "memory",
+        database: persistence.runtime.hasDatabase() ? "postgres" : "memory",
         redis: config.redisUrl
           ? redisReady
             ? "ready"
@@ -185,7 +186,7 @@ export async function createOidcApp(
     createManagementRouter(
       config,
       services,
-      store,
+      persistence,
       rateLimitService,
       invalidateClientOrigins,
       dependencies.requestRestart,
@@ -220,9 +221,9 @@ export async function createOidcApp(
     "/interaction",
     createInteractionRouter(
       config,
-      services.provider,
+      services.interactions,
       services,
-      store,
+      persistence,
       rateLimitService,
     ),
   );
@@ -241,15 +242,18 @@ export async function createOidcApp(
     }
     next();
   });
-  app.use(services.provider.callback());
+  app.use(services.middleware);
   app.use(errorHandler);
 
   const state: AppState = {
     config,
-    provider: services.provider,
-    store,
+    persistence,
     rateLimitService,
-    closeOidcServices: services.close,
+    async close() {
+      await services.close();
+      await rateLimitService.close();
+      await persistence.runtime.close();
+    },
   };
   return { app, state } as { app: express.Express; state: AppState };
 }

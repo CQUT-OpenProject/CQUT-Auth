@@ -1,4 +1,4 @@
-export type OidcOpConfig = {
+export type StaticConfig = {
   port: number;
   appEnv: string;
   isProduction: boolean;
@@ -8,8 +8,6 @@ export type OidcOpConfig = {
   schoolCode: string;
   authProvider: string;
   emailVerificationEnabled: boolean;
-  resendApiKey: string | undefined;
-  emailFrom: string | undefined;
   emailVerifyCodeTtlSeconds: number;
   emailVerifyResendCooldownSeconds: number;
   emailVerifyMaxAttempts: number;
@@ -159,9 +157,7 @@ function assertHttpsOrTestLoopbackHttp(
   throw new Error(`${key} must use https:// when APP_ENV is not test`);
 }
 
-export function readOidcOpConfig(
-  env: NodeJS.ProcessEnv = process.env,
-): OidcOpConfig {
+export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
   // Business policy is persisted in app_settings and loaded after database
   // initialization. Keep legacy variables from influencing bootstrap defaults.
   env = { ...env };
@@ -186,8 +182,6 @@ export function readOidcOpConfig(
       "OIDC_EMAIL_VERIFICATION_ENABLED must remain enabled when APP_ENV=production",
     );
   }
-  const resendApiKey = env["RESEND_API_KEY"]?.trim() || undefined;
-  const emailFrom = env["OIDC_EMAIL_FROM"]?.trim() || undefined;
   const emailVerifyCodeTtlSeconds = Number(
     env["OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS"] ?? 600,
   );
@@ -722,8 +716,6 @@ export function readOidcOpConfig(
     schoolCode: env["SCHOOL_CODE"] ?? "cqut",
     authProvider,
     emailVerificationEnabled,
-    resendApiKey,
-    emailFrom,
     emailVerifyCodeTtlSeconds,
     emailVerifyResendCooldownSeconds,
     emailVerifyMaxAttempts,
@@ -824,8 +816,6 @@ export function readOidcOpConfig(
 }
 
 const MIGRATED_RUNTIME_POLICY_ENV_KEYS = [
-  "RESEND_API_KEY",
-  "OIDC_EMAIL_FROM",
   "OIDC_CSRF_TOKEN_TTL_SECONDS",
   "OIDC_SESSION_TTL_SECONDS",
   "OIDC_SESSION_IDLE_TTL_SECONDS",

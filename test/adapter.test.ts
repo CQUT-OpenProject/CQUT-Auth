@@ -3,7 +3,8 @@ import test from "node:test";
 import { createAdapter } from "../src/oidc/adapter.js";
 import type {
   ActiveOidcClientRecord,
-  OidcPersistence,
+  OidcArtifactRepository,
+  OidcClientRepository,
   PendingInteractionLogin,
 } from "../src/persistence/contracts.js";
 
@@ -15,21 +16,8 @@ function createMockStore(
   findOidcClientImpl: (
     clientId: string,
   ) => Promise<ActiveOidcClientRecord | null> = async () => null,
-): Pick<
-  OidcPersistence,
-  | "upsertArtifact"
-  | "findArtifact"
-  | "destroyArtifact"
-  | "consumeArtifact"
-  | "findArtifactByUid"
-  | "findArtifactByUserCode"
-  | "revokeArtifactsByGrantId"
-  | "saveInteractionLogin"
-  | "getInteractionLogin"
-  | "deleteInteractionLogin"
-  | "findOidcClient"
-> {
-  return {
+): { artifacts: OidcArtifactRepository; clients: OidcClientRepository } {
+  const artifacts = {
     async upsertArtifact() {},
     async findArtifact() {
       return undefined;
@@ -51,10 +39,13 @@ function createMockStore(
       return undefined;
     },
     async deleteInteractionLogin() {},
+  } as unknown as OidcArtifactRepository;
+  const clients = {
     async findOidcClient(clientId: string) {
       return findOidcClientImpl(clientId);
     },
-  };
+  } as OidcClientRepository;
+  return { artifacts, clients };
 }
 
 test("adapter findByUid requests uid with current model kind", async () => {

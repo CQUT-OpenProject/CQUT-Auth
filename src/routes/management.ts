@@ -1,13 +1,13 @@
 import express from "express";
 import type { NextFunction, Request, Response, Router } from "express";
-import type { OidcOpConfig } from "../config.js";
+import type { StaticConfig } from "../config.js";
 import type {
   AuthenticatedPrincipal,
   InteractiveAuthenticatorService,
 } from "../identity/index.js";
 import { ClientManagementService } from "../clients/client-management.service.js";
 import { ClientManagementError } from "../management/management-error.js";
-import type { OidcPersistence } from "../persistence/contracts.js";
+import type { PersistenceModules } from "../persistence/persistence.js";
 import {
   RateLimitService,
   RateLimitUnavailableError,
@@ -18,7 +18,7 @@ import { hasSafeCredentialLengths } from "../identity/types.js";
 import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
-import type { RuntimePolicyService } from "../runtime-policy.js";
+import type { RuntimePolicyModule } from "../runtime-policy.js";
 import type { EmailSender } from "../email/email-sender.js";
 import {
   clearManagementSessionCookie,
@@ -32,7 +32,7 @@ import {
 
 type ManagementRouterServices = {
   interactiveAuthenticator: InteractiveAuthenticatorService;
-  emailSettingsService: RuntimePolicyService;
+  runtimePolicy: RuntimePolicyModule;
   emailSender: EmailSender;
 };
 
@@ -66,9 +66,12 @@ async function consumeManagementLoginRateLimit(
 }
 
 export function createManagementRouter(
-  config: OidcOpConfig,
+  config: StaticConfig,
   services: ManagementRouterServices,
-  store: OidcPersistence,
+  persistence: Pick<
+    PersistenceModules,
+    "identity" | "projects" | "clients" | "sessions"
+  >,
   rateLimitService: RateLimitService,
   onClientsChanged: () => void,
   onRestartRequested?: () => void,
@@ -76,16 +79,22 @@ export function createManagementRouter(
   const router = express.Router();
   const jsonParser = express.json({ limit: "64kb", strict: true });
   const sessions = new ManagementSessionService(
-    store,
+    persistence.sessions,
+    persistence.identity,
     config.sessionTtlSeconds,
     config.sessionIdleTtlSeconds,
   );
-  const projects = new ProjectManagementService(store, undefined, undefined, {
-    maxActiveProjects: config.managementProjectMaxActivePerSubject,
-    adminQuotaExempt: config.managementProjectQuotaAdminExempt,
-  });
+  const projects = new ProjectManagementService(
+    persistence.projects,
+    undefined,
+    undefined,
+    {
+      maxActiveProjects: config.managementProjectMaxActivePerSubject,
+      adminQuotaExempt: config.managementProjectQuotaAdminExempt,
+    },
+  );
   const clients = new ClientManagementService(
-    store,
+    persistence.clients,
     projects.access,
     config.appEnv,
     {
@@ -101,7 +110,7 @@ export function createManagementRouter(
     },
   );
   const adminIds = new Set(config.adminSubjectIds);
-  const emailSettings = services.emailSettingsService;
+  const emailSettings = services.runtimePolicy;
 
   function requireAdmin(actor: { isAdmin: boolean }) {
     if (!actor.isAdmin) {
@@ -381,46 +390,6 @@ export function createManagementRouter(
             request.body,
           ),
         });
-      });
-    },
-  );
-
-  // Compatibility aliases for clients deployed before the unified settings page.
-  router.get("/settings/email", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      requireAdmin(auth.actor);
-      response.json({ settings: (await emailSettings.getView()).email });
-    });
-  });
-  router.put("/settings/email", jsonParser, async (request, response, next) => {
-    await withMutation(request, response, next, async (auth) => {
-      requireAdmin(auth.actor);
-      const current = await emailSettings.getView();
-      const updated = await emailSettings.update(
-        { ...request.body, policy: current.policy, email: request.body },
-        auth.actor,
-      );
-      response.json({ settings: updated.email });
-    });
-  });
-  router.get("/settings/email/audit-logs", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      requireAdmin(auth.actor);
-      response.json({ auditLogs: await emailSettings.listAuditLogs(50) });
-    });
-  });
-  router.post(
-    "/settings/email/test",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        requireAdmin(auth.actor);
-        const updated = await emailSettings.sendTest(
-          request.body ?? {},
-          auth.actor,
-          services.emailSender,
-        );
-        response.json({ settings: updated.email });
       });
     },
   );
@@ -917,7 +886,7 @@ export function createManagementRouter(
 async function requireAuthentication(
   request: Request,
   response: Response,
-  config: OidcOpConfig,
+  config: StaticConfig,
   sessions: ManagementSessionService,
   adminIds: Set<string>,
 ) {
@@ -942,7 +911,7 @@ async function requireAuthentication(
 }
 
 function contextPayload(
-  config: OidcOpConfig,
+  config: StaticConfig,
   principal: AuthenticatedPrincipal,
   isAdmin: boolean,
   token: string,

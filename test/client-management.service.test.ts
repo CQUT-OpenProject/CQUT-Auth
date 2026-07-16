@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { ClientManagementError } from "../src/management/management-error.js";
-import { readOidcOpConfig } from "../src/config.js";
+import { readConfig } from "../src/config.js";
 import { verifyClientSecretDigest } from "../src/crypto.js";
-import { OidcPersistenceImpl } from "../src/persistence/persistence.js";
+import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
 import { ProjectAccessService } from "../src/projects/project-access.js";
 import { SYSTEM_PROJECT_ID } from "../src/persistence/contracts.js";
 
 function config() {
-  return readOidcOpConfig({
+  return readConfig({
     APP_ENV: "test",
     AUTH_PROVIDER: "mock",
     OIDC_KEY_ENCRYPTION_SECRET: "test-key-secret",
@@ -50,7 +50,7 @@ async function activeClient(
 }
 
 test("client creation produces a draft revision and never exposes secrets in audit", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   try {
     const service = new ClientManagementService(
@@ -99,7 +99,7 @@ test("client creation produces a draft revision and never exposes secrets in aud
 });
 
 test("secret rotation enforces grace, expiry, revocation, and optimistic concurrency", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   let secretNumber = 0;
   const service = new ClientManagementService(
@@ -250,7 +250,7 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
 });
 
 test("secret rotation preflight and cooldown run before scrypt digest work", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   let now = new Date("2026-07-13T00:00:00.000Z");
   let digestCalls = 0;
@@ -323,7 +323,7 @@ test("secret rotation preflight and cooldown run before scrypt digest work", asy
 });
 
 test("client type is immutable and pending changes keep the active revision online", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   try {
     const service = new ClientManagementService(
@@ -366,7 +366,7 @@ test("client type is immutable and pending changes keep the active revision onli
 });
 
 test("withdraw, edit, resubmit and rejection preserve the active configuration", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   try {
     const service = new ClientManagementService(
@@ -488,7 +488,7 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
 });
 
 test("concurrent approval atomically activates one revision", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   try {
     const service = new ClientManagementService(
@@ -541,7 +541,7 @@ test("concurrent approval atomically activates one revision", async () => {
 });
 
 test("configuration validation requires openid and forbids SPA offline_access", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   try {
     const service = new ClientManagementService(
@@ -572,7 +572,7 @@ test("configuration validation requires openid and forbids SPA offline_access", 
 });
 
 test("client and pending revision quotas cannot be bypassed", async () => {
-  const store = new OidcPersistenceImpl(config());
+  const store = new PersistenceRuntimeImpl(config());
   await store.init();
   try {
     let id = 0;

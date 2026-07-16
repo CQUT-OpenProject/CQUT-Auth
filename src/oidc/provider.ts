@@ -8,35 +8,140 @@ import type { CampusVerifierProvider } from "../identity/types.js";
 import { OIDC_CLAIMS, OIDC_SCOPES } from "../shared/oidc-contracts.js";
 import { exportJWK, generateKeyPair } from "jose";
 import Provider from "oidc-provider";
-import KeyStore from "oidc-provider/lib/helpers/keystore.js";
-import oidcProviderInstance from "oidc-provider/lib/helpers/weak_cache.js";
-import type { OidcOpConfig } from "../config.js";
+import type { StaticConfig } from "../config.js";
 import type {
-  OidcPersistence,
   OidcSigningKeyRecord,
+  SigningKeyRepository,
 } from "../persistence/contracts.js";
+import type { PersistenceModules } from "../persistence/persistence.js";
 import {
   RateLimitService,
   RateLimitUnavailableError,
 } from "../persistence/rate-limit.service.js";
 import { resolveTrustedKoaRequestIp } from "../request-ip.js";
 import { createAdapter } from "./adapter.js";
-import { renderBrandedPage } from "../routes/interactions.js";
+import { renderBrandedPage } from "../pages/branded-page.js";
 import { verifyClientSecretDigest } from "../crypto.js";
 import { randomId, parseScope, escapeHtml } from "../utils.js";
 import { initializeOidcClientsFromConfig } from "./client-config.js";
 import type { EmailSender } from "../email/email-sender.js";
 import { RuntimeEmailSender } from "../email/runtime-email-sender.js";
-import type { RuntimePolicyService } from "../runtime-policy.js";
+import type { RuntimePolicyModule } from "../runtime-policy.js";
+import type { Request, Response, RequestHandler } from "express";
+import {
+  decorateClientFinder,
+  replaceSigningKeyset,
+  wrapGrantHandlers,
+  type RawOidcProvider,
+} from "./provider-internals.adapter.js";
 
-export type OidcServices = {
-  provider: any;
+export type OidcInteractionDetails = {
+  uid: string;
+  prompt: {
+    name: string;
+    details: {
+      missingOIDCScope?: string[];
+      missingOIDCClaims?: string[];
+      missingResourceScopes?: Record<string, string[]>;
+    };
+  };
+  params: { client_id?: unknown; scope?: unknown };
+  session: { accountId?: string };
+  grantId?: string;
+};
+
+export type OidcInteractionPort = {
+  details(
+    request: Request,
+    response: Response,
+  ): Promise<OidcInteractionDetails>;
+  finishLogin(
+    request: Request,
+    response: Response,
+    login: { accountId: string; authTime: number },
+  ): Promise<void>;
+  finishConsent(
+    request: Request,
+    response: Response,
+    details?: OidcInteractionDetails,
+  ): Promise<boolean>;
+  denyConsent(request: Request, response: Response): Promise<void>;
+};
+
+export type OidcRuntime = {
+  middleware: RequestHandler;
+  interactions: OidcInteractionPort;
   interactiveAuthenticator: InteractiveAuthenticatorService;
   subjectProfileService: SubjectProfileService;
   emailSender: EmailSender;
-  emailSettingsService: RuntimePolicyService;
+  runtimePolicy: RuntimePolicyModule;
   close(): Promise<void>;
 };
+
+function createInteractionPort(provider: RawOidcProvider): OidcInteractionPort {
+  return {
+    details: (request, response) =>
+      provider.interactionDetails(request, response),
+    async finishLogin(request, response, login) {
+      await provider.interactionFinished(
+        request,
+        response,
+        {
+          login: {
+            accountId: login.accountId,
+            acr: "urn:cqut:loa:1",
+            amr: ["pwd"],
+            remember: false,
+            ts: login.authTime,
+          },
+        },
+        { mergeWithLastSubmission: false },
+      );
+    },
+    async finishConsent(request, response, providedDetails) {
+      const details: OidcInteractionDetails =
+        providedDetails ??
+        (await provider.interactionDetails(request, response));
+      const { prompt, params, session, grantId } = details;
+      if (prompt.name !== "consent") return false;
+      const grant = grantId
+        ? await provider.Grant.find(grantId)
+        : new provider.Grant({
+            accountId: session.accountId,
+            clientId: String(params.client_id),
+          });
+      if (prompt.details.missingOIDCScope)
+        grant.addOIDCScope(prompt.details.missingOIDCScope.join(" "));
+      if (prompt.details.missingOIDCClaims)
+        grant.addOIDCClaims(prompt.details.missingOIDCClaims);
+      if (prompt.details.missingResourceScopes) {
+        for (const [indicator, scope] of Object.entries(
+          prompt.details.missingResourceScopes,
+        )) {
+          grant.addResourceScope(indicator, (scope as string[]).join(" "));
+        }
+      }
+      await provider.interactionFinished(
+        request,
+        response,
+        { consent: { grantId: await grant.save() } },
+        { mergeWithLastSubmission: true },
+      );
+      return true;
+    },
+    async denyConsent(request, response) {
+      await provider.interactionFinished(
+        request,
+        response,
+        {
+          error: "access_denied",
+          error_description: "resource owner denied consent",
+        },
+        { mergeWithLastSubmission: false },
+      );
+    },
+  };
+}
 
 type SigningJwk = JsonWebKey & {
   kid: string;
@@ -86,8 +191,6 @@ class TokenRateLimitError extends Error {
   }
 }
 
-const wrappedTokenHandlers = new WeakSet<(ctx: any) => Promise<unknown>>();
-
 function normalizeStatusClaim(status: string) {
   return status === "active_student" ? "active" : status;
 }
@@ -134,7 +237,7 @@ function resolveBasicClientId(ctx: any): string | undefined {
 }
 
 function resolveRequestIp(
-  config: Pick<OidcOpConfig, "trustProxyHops" | "trustedProxyCidrs">,
+  config: Pick<StaticConfig, "trustProxyHops" | "trustedProxyCidrs">,
   ctx: any,
 ) {
   return resolveTrustedKoaRequestIp(config, ctx);
@@ -171,7 +274,7 @@ function resolveClientRateLimitSource(
 }
 
 async function evaluateTokenRateLimit(
-  config: OidcOpConfig,
+  config: StaticConfig,
   rateLimitService: RateLimitService,
   ctx: any,
   identity: TokenRateLimitIdentity,
@@ -237,7 +340,7 @@ function replyWithTokenError(
 }
 
 function createTokenRateLimitMiddleware(
-  config: OidcOpConfig,
+  config: StaticConfig,
   rateLimitService: RateLimitService,
   tokenPath: string,
 ) {
@@ -294,49 +397,39 @@ function createTokenRateLimitMiddleware(
 }
 
 function wrapTokenGrantHandlersWithRateLimit(
-  provider: any,
-  config: OidcOpConfig,
+  provider: RawOidcProvider,
+  config: StaticConfig,
   rateLimitService: RateLimitService,
 ) {
-  const internals = oidcProviderInstance(provider);
-  const grantTypeHandlers: Map<string, (ctx: any) => Promise<unknown>> =
-    internals.grantTypeHandlers;
-  for (const [grantType, handler] of grantTypeHandlers.entries()) {
-    if (wrappedTokenHandlers.has(handler)) {
-      continue;
-    }
-    const wrappedHandler = async (ctx: any) => {
-      const clientId = normalizeClientId(ctx.oidc?.client?.clientId);
-      if (clientId) {
-        const subjectId = resolveSubjectRateLimitIdentity(ctx);
-        const clientRateLimitError = await evaluateTokenRateLimit(
-          config,
-          rateLimitService,
-          ctx,
-          {
-            source: resolveClientRateLimitSource(
-              ctx.oidc.client.clientAuthMethod,
-            ),
-            clientId,
-            ip: resolveRequestIp(config, ctx),
-            ...(subjectId ? { subjectId } : {}),
-          },
-        );
-        if (clientRateLimitError) {
-          replyWithTokenError(ctx, clientRateLimitError);
-          return;
-        }
+  wrapGrantHandlers(provider, async (handler, ctx) => {
+    const clientId = normalizeClientId(ctx.oidc?.client?.clientId);
+    if (clientId) {
+      const subjectId = resolveSubjectRateLimitIdentity(ctx);
+      const clientRateLimitError = await evaluateTokenRateLimit(
+        config,
+        rateLimitService,
+        ctx,
+        {
+          source: resolveClientRateLimitSource(
+            ctx.oidc.client.clientAuthMethod,
+          ),
+          clientId,
+          ip: resolveRequestIp(config, ctx),
+          ...(subjectId ? { subjectId } : {}),
+        },
+      );
+      if (clientRateLimitError) {
+        replyWithTokenError(ctx, clientRateLimitError);
+        return;
       }
-      return handler(ctx);
-    };
-    wrappedTokenHandlers.add(wrappedHandler);
-    grantTypeHandlers.set(grantType, wrappedHandler);
-  }
+    }
+    return handler(ctx);
+  });
 }
 
 function installTokenRateLimitMiddleware(
-  provider: any,
-  config: OidcOpConfig,
+  provider: RawOidcProvider,
+  config: StaticConfig,
   rateLimitService: RateLimitService,
 ) {
   const tokenPath = provider.pathFor("token");
@@ -348,7 +441,7 @@ function installTokenRateLimitMiddleware(
 
 export function computeSessionTtlSeconds(
   session: SessionTtlState | undefined,
-  config: Pick<OidcOpConfig, "sessionIdleTtlSeconds" | "sessionTtlSeconds">,
+  config: Pick<StaticConfig, "sessionIdleTtlSeconds" | "sessionTtlSeconds">,
   nowSeconds = Math.floor(Date.now() / 1000),
 ) {
   const loginTs = parseEpochSeconds(session?.loginTs);
@@ -395,24 +488,18 @@ function signingJwksFingerprint(jwks: SigningJwk[]) {
 }
 
 function replaceProviderSigningKeyset(
-  provider: any,
+  provider: RawOidcProvider,
   signingJwks: SigningJwk[],
 ) {
-  const internals = oidcProviderInstance(provider);
-  const keyStore = new KeyStore();
-  for (const jwk of signingJwks) {
-    keyStore.add(structuredClone(jwk));
-  }
-  internals.keystore = keyStore;
-  internals.jwks = {
-    keys: signingJwks.map((jwk) => asPublicSigningJwk(structuredClone(jwk))),
-  };
+  replaceSigningKeyset(
+    provider,
+    signingJwks,
+    signingJwks.map((jwk) => asPublicSigningJwk(structuredClone(jwk))),
+  );
 }
 
-function installClientSecretDigestValidation(provider: any) {
-  const originalFind = provider.Client.find.bind(provider.Client);
-  provider.Client.find = async (id: string) => {
-    const providerClient = await originalFind(id);
+function installClientSecretDigestValidation(provider: RawOidcProvider) {
+  decorateClientFinder(provider, (providerClient) => {
     if (providerClient && Array.isArray(providerClient.clientSecretDigests)) {
       const digests = providerClient.clientSecretDigests.filter(
         (digest: unknown): digest is string =>
@@ -425,13 +512,12 @@ function installClientSecretDigestValidation(provider: any) {
         return false;
       };
     }
-    return providerClient;
-  };
+  });
 }
 
 function startSigningKeyRefreshLoop(
-  provider: any,
-  store: OidcPersistence,
+  provider: RawOidcProvider,
+  store: SigningKeyRepository,
   refreshIntervalSeconds: number,
   initialSigningJwks: SigningJwk[],
 ) {
@@ -510,20 +596,28 @@ function renderLogoutSuccessPage() {
   );
 }
 
-async function ensureSigningKey(store: OidcPersistence, config: OidcOpConfig) {
-  const existing = await store.listSigningKeys(["active", "retiring"]);
+type SigningKeyModules = Pick<PersistenceModules, "signingKeys" | "jwkCipher">;
+
+async function ensureSigningKey(
+  persistence: SigningKeyModules,
+  config: StaticConfig,
+) {
+  const existing = await persistence.signingKeys.listSigningKeys([
+    "active",
+    "retiring",
+  ]);
   if (existing.length > 0) {
     return existing;
   }
   if (!config.autoSeedSigningKey) {
     throw new Error("no signing keys available; run pnpm seed:key");
   }
-  const created = await generateSigningKey(store);
+  const created = await generateSigningKey(persistence);
   return [created];
 }
 
 export async function generateSigningKey(
-  store: OidcPersistence,
+  persistence: SigningKeyModules,
 ): Promise<OidcSigningKeyRecord> {
   const kid = randomId("kid");
   const { privateKey, publicKey } = await generateKeyPair("RS256", {
@@ -544,7 +638,7 @@ export async function generateSigningKey(
       alg: "RS256",
       use: "sig",
     } as SigningJwk,
-    privateJwkCiphertext: await store.encryptPrivateJwk({
+    privateJwkCiphertext: await persistence.jwkCipher.encryptPrivateJwk({
       ...privateJwk,
       kid,
       alg: "RS256",
@@ -554,19 +648,19 @@ export async function generateSigningKey(
     createdAt: now,
     activatedAt: now,
   };
-  await store.upsertSigningKey(record);
+  await persistence.signingKeys.upsertSigningKey(record);
   return record;
 }
 
-export async function createOidcServices(
-  config: OidcOpConfig,
-  store: OidcPersistence,
+export async function createOidcRuntime(
+  config: StaticConfig,
+  persistence: PersistenceModules,
   rateLimitService: RateLimitService,
   providedEmailSender?: EmailSender,
-  runtimePolicyService?: RuntimePolicyService,
-): Promise<OidcServices> {
-  await initializeOidcClientsFromConfig(store, config);
-  await ensureSigningKey(store, config);
+  runtimePolicyService?: RuntimePolicyModule,
+): Promise<OidcRuntime> {
+  await initializeOidcClientsFromConfig(persistence.clients, config);
+  await ensureSigningKey(persistence, config);
 
   const providerRegistry = new ProviderRegistry(
     new Map<string, CampusVerifierProvider>([
@@ -589,32 +683,33 @@ export async function createOidcServices(
       ],
     ]),
   );
-  const identityLinkService = new IdentityLinkService(store);
-  const subjectProfileService = new SubjectProfileService(store);
+  const identityLinkService = new IdentityLinkService(persistence.identity);
+  const subjectProfileService = new SubjectProfileService(persistence.identity);
   if (!runtimePolicyService) {
     throw new Error("runtime policy service is required");
   }
-  const emailSettingsService = runtimePolicyService;
+  const runtimePolicyModule = runtimePolicyService;
   const emailSender =
-    providedEmailSender ?? new RuntimeEmailSender(emailSettingsService);
+    providedEmailSender ?? new RuntimeEmailSender(runtimePolicyModule);
   const interactiveAuthenticator = new InteractiveAuthenticatorService(
     providerRegistry,
     identityLinkService,
     subjectProfileService,
-    store,
+    persistence.identity,
   );
 
-  const initialSigningJwks = await store.loadPrivateSigningJwks([
-    "active",
-    "retiring",
-  ]);
+  const initialSigningJwks =
+    await persistence.signingKeys.loadPrivateSigningJwks([
+      "active",
+      "retiring",
+    ]);
   if (initialSigningJwks.length === 0) {
     throw new Error("no signing keys available after initialization");
   }
   const jwks = { keys: initialSigningJwks };
   const sessionCookieName = config.cookieSecure ? "__Host-op_sid" : "op_sid";
   const provider = new Provider(normalizeIssuer(config.issuer), {
-    adapter: createAdapter(store),
+    adapter: createAdapter(persistence),
     jwks,
     clientAuthMethods: ["client_secret_basic", "none"],
     responseTypes: ["code"],
@@ -718,7 +813,8 @@ export async function createOidcServices(
       validator() {},
     },
     findAccount: async (_ctx: any, sub: string) => {
-      const principal = await store.findPrincipalBySubjectId(sub);
+      const principal =
+        await persistence.identity.findPrincipalBySubjectId(sub);
       if (!principal) {
         return undefined;
       }
@@ -816,7 +912,7 @@ export async function createOidcServices(
   installClientSecretDigestValidation(provider);
   const stopSigningKeyRefresh = startSigningKeyRefreshLoop(
     provider,
-    store,
+    persistence.signingKeys,
     config.signingKeyRefreshIntervalSeconds,
     initialSigningJwks as SigningJwk[],
   );
@@ -824,11 +920,12 @@ export async function createOidcServices(
   installTokenRateLimitMiddleware(provider, config, rateLimitService);
 
   return {
-    provider,
+    middleware: provider.callback(),
+    interactions: createInteractionPort(provider),
     interactiveAuthenticator,
     subjectProfileService,
     emailSender,
-    emailSettingsService,
+    runtimePolicy: runtimePolicyModule,
     async close() {
       await stopSigningKeyRefresh();
     },

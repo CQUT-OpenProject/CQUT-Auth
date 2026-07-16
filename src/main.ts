@@ -10,16 +10,12 @@ async function bootstrap() {
   const server = app.listen(state.config.port);
   process.on("SIGINT", async () => {
     server.close();
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
     process.exit(0);
   });
   process.on("SIGTERM", async () => {
     server.close();
-    await state.closeOidcServices();
-    await state.rateLimitService.close();
-    await state.store.close();
+    await state.close();
     process.exit(0);
   });
 }

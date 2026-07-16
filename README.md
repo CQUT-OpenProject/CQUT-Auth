@@ -34,34 +34,6 @@
 
 `student` Scope 返回的 `status=active` 只表示学校账号已通过 UIS / CAS 验证且本地 Subject 可用，不代表当前在读或具有有效学籍。依赖学籍状态的业务不应使用该字段作出决定。
 
-## 架构
-
-```mermaid
-flowchart LR
-    User["用户浏览器"] --> Proxy["HTTPS 反向代理"]
-    Proxy --> OP["CQUT Auth"]
-    OP --> UIS["CQUT UIS / CAS"]
-    OP --> PG["PostgreSQL"]
-    OP --> Redis["Redis"]
-    OP --> Mail["SMTP / Resend"]
-    RP["OIDC Client"] --> Proxy
-```
-
-生产环境中，CQUT Auth 应部署在可信反向代理之后。应用只监听内部 HTTP；代理负责终止 TLS、覆盖转发头，并将请求转发到容器。PostgreSQL 保存业务数据和 OIDC Artifact，Redis 负责跨实例限流，邮件通道则在管理后台配置。
-
-主要目录：
-
-| 路径               | 内容                                               |
-| ------------------ | -------------------------------------------------- |
-| `src/oidc/`        | OIDC Provider、Adapter、客户端引导和授权上下文。   |
-| `src/identity/`    | UIS Provider、身份关联和用户资料。                 |
-| `src/persistence/` | PostgreSQL Repository、Artifact 加密、限流和清理。 |
-| `src/routes/`      | OIDC 交互页和管理 API。                            |
-| `src/projects/`    | 项目、成员、客户端和审核业务规则。                 |
-| `web/`             | React 管理后台。                                   |
-| `deploy/`          | 环境模板和 Docker Compose 配置。                   |
-| `scripts/`         | 环境、数据库和初始化脚本。                         |
-
 ## 环境要求
 
 - Node.js 24 或更高版本
@@ -95,14 +67,6 @@ pnpm docker:up
 | `http://127.0.0.1:3003/.well-known/openid-configuration` | OIDC Discovery。                   |
 | `http://127.0.0.1:3003/health/live`                      | 进程存活检查。                     |
 | `http://127.0.0.1:3003/health/ready`                     | PostgreSQL、Redis 和邮件状态检查。 |
-
-检查服务状态：
-
-```bash
-curl --fail http://127.0.0.1:3003/health/live
-curl --fail http://127.0.0.1:3003/.well-known/openid-configuration
-curl http://127.0.0.1:3003/health/ready
-```
 
 邮箱验证默认启用。在管理员完成邮件通道配置前，`/health/ready` 会返回 `503 degraded` 和 `email: unconfigured`；这不妨碍打开管理后台完成首次配置。
 
@@ -299,4 +263,4 @@ pnpm build
 
 ## 许可证
 
-[MIT](./LICENSE)
+本项目基于 [MIT](./LICENSE) 协议开源。

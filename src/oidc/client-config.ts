@@ -4,11 +4,11 @@ import {
   OIDC_SCOPES,
   type OidcScope,
 } from "../shared/oidc-contracts.js";
-import type { OidcOpConfig } from "../config.js";
+import type { StaticConfig } from "../config.js";
 import type {
   ActiveOidcClientRecord,
   OidcClientAuditRecord,
-  OidcPersistence,
+  OidcClientRepository,
 } from "../persistence/contracts.js";
 import { SYSTEM_PROJECT_ID } from "../persistence/contracts.js";
 
@@ -383,7 +383,7 @@ function parseBootstrapClient(
 }
 
 export async function loadOidcClientsFromConfig(
-  config: Pick<OidcOpConfig, "appEnv" | "oidcClientsConfigPath">,
+  config: Pick<StaticConfig, "appEnv" | "oidcClientsConfigPath">,
 ) {
   let rawText: string;
   try {
@@ -416,8 +416,8 @@ export async function loadOidcClientsFromConfig(
 }
 
 export async function initializeOidcClientsFromConfig(
-  store: OidcPersistence,
-  config: Pick<OidcOpConfig, "appEnv" | "oidcClientsConfigPath">,
+  store: OidcClientRepository,
+  config: Pick<StaticConfig, "appEnv" | "oidcClientsConfigPath">,
 ) {
   if ((await store.countOidcClients()) > 0) {
     return { imported: false, count: 0 };

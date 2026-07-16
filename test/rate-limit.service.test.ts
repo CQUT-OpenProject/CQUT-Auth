@@ -1,16 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { OidcOpConfig } from "../src/config.js";
+import type { StaticConfig } from "../src/config.js";
 import { RateLimitService } from "../src/persistence/rate-limit.service.js";
 
-function createConfig(overrides: Partial<OidcOpConfig> = {}): OidcOpConfig {
+function createConfig(overrides: Partial<StaticConfig> = {}): StaticConfig {
   return {
     redisUrl: undefined,
     rateLimitFailClosed: false,
     rateLimitMemoryMaxKeys: 2,
     rateLimitMemoryCleanupIntervalSeconds: 3600,
     ...overrides,
-  } as unknown as OidcOpConfig;
+  } as unknown as StaticConfig;
 }
 
 test("memory fallback evicts oldest key when capacity is exceeded on new insert", async () => {

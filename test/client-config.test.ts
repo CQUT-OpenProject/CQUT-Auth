@@ -3,13 +3,13 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { readOidcOpConfig } from "../src/config.js";
+import { readConfig } from "../src/config.js";
 import { createClientSecretDigest } from "../src/crypto.js";
 import {
   initializeOidcClientsFromConfig,
   loadOidcClientsFromConfig,
 } from "../src/oidc/client-config.js";
-import { OidcPersistenceImpl } from "../src/persistence/persistence.js";
+import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
 
 async function writeClientsConfig(document: object) {
   const directory = mkdtempSync(join(tmpdir(), "oidc-client-config-"));
@@ -220,14 +220,14 @@ test("initializeOidcClientsFromConfig inserts configured client records", async 
       },
     ],
   });
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
     OIDC_CLIENTS_CONFIG_PATH: filePath,
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
   });
-  const store = new OidcPersistenceImpl(config);
+  const store = new PersistenceRuntimeImpl(config);
   await store.init();
   await initializeOidcClientsFromConfig(store, config);
   const activeClients = await store.listActiveOidcClients();
@@ -249,13 +249,13 @@ test("client config initialization skips file access and never overwrites a non-
       },
     ],
   });
-  const config = readOidcOpConfig({
+  const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
     OIDC_CLIENTS_CONFIG_PATH: filePath,
   });
-  const store = new OidcPersistenceImpl(config);
+  const store = new PersistenceRuntimeImpl(config);
   await store.init();
   const first = await initializeOidcClientsFromConfig(store, config);
   assert.deepEqual(first, { imported: true, count: 1 });

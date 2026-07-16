@@ -94,7 +94,6 @@ export type AuditLog = {
 export type EmailProviderKind = "resend" | "smtp" | "disabled";
 
 export type EmailSettingsView = {
-  id?: "email";
   provider: EmailProviderKind;
   resend: {
     from: string;
@@ -109,34 +108,12 @@ export type EmailSettingsView = {
     passwordConfigured: boolean;
   };
   version: number;
-  source: "database" | "environment" | "default";
+  source: "database" | "default";
   verification: {
     status: "verified" | "unverified" | "not_applicable";
     verifiedAt: string | null;
   };
   updatedAt: string | null;
-};
-
-export type EmailSettingsUpdate = {
-  expectedVersion: number;
-  provider: EmailProviderKind;
-  resend: {
-    from: string;
-    apiKey: string;
-  };
-  smtp: {
-    host: string;
-    port: number | null;
-    secure: boolean;
-    user: string;
-    from: string;
-    password: string;
-  };
-};
-
-export type EmailSettingsTestInput = {
-  expectedVersion: number;
-  recipient: string;
 };
 
 export type RuntimePolicyView = {

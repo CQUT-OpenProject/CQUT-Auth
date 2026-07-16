@@ -6,12 +6,13 @@ import type {
 } from "../persistence/contracts.js";
 import { base64Url, sha256 } from "../utils.js";
 
-type SessionStore = ManagementSessionRepository &
-  Pick<IdentityRepository, "findPrincipalBySubjectId">;
-
 export class ManagementSessionService {
   constructor(
-    private readonly store: SessionStore,
+    private readonly sessions: ManagementSessionRepository,
+    private readonly identity: Pick<
+      IdentityRepository,
+      "findPrincipalBySubjectId"
+    >,
     private readonly absoluteTtlSeconds: number,
     private readonly idleTtlSeconds: number,
     private readonly now: () => Date = () => new Date(),
@@ -26,8 +27,8 @@ export class ManagementSessionService {
     const expiresAt = new Date(
       now.getTime() + this.absoluteTtlSeconds * 1000,
     ).toISOString();
-    await this.store.deleteExpiredManagementSessions(now.toISOString());
-    await this.store.createManagementSession({
+    await this.sessions.deleteExpiredManagementSessions(now.toISOString());
+    await this.sessions.createManagementSession({
       tokenHash,
       subjectId,
       createdAt: now.toISOString(),
@@ -44,7 +45,7 @@ export class ManagementSessionService {
       return null;
     }
     const tokenHash = sha256(token);
-    const session = await this.store.findManagementSession(tokenHash);
+    const session = await this.sessions.findManagementSession(tokenHash);
     if (!session) {
       return null;
     }
@@ -55,28 +56,28 @@ export class ManagementSessionService {
       new Date(session.expiresAt).getTime() <= now.getTime() ||
       idleExpiresAt <= now.getTime()
     ) {
-      await this.store.deleteManagementSession(tokenHash);
+      await this.sessions.deleteManagementSession(tokenHash);
       return null;
     }
-    const principal = await this.store.findPrincipalBySubjectId(
+    const principal = await this.identity.findPrincipalBySubjectId(
       session.subjectId,
     );
     if (!principal) {
-      await this.store.deleteManagementSession(tokenHash);
+      await this.sessions.deleteManagementSession(tokenHash);
       return null;
     }
     if (
       now.getTime() - new Date(session.lastSeenAt).getTime() >=
       5 * 60 * 1000
     ) {
-      await this.store.touchManagementSession(tokenHash, now.toISOString());
+      await this.sessions.touchManagementSession(tokenHash, now.toISOString());
     }
     return principal;
   }
 
   async revoke(token: string | undefined) {
     if (token) {
-      await this.store.deleteManagementSession(sha256(token));
+      await this.sessions.deleteManagementSession(sha256(token));
     }
   }
 }

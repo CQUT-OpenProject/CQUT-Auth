@@ -495,11 +495,8 @@ export interface AppSettingRecord {
 }
 
 export type AppSettingAuditAction =
-  | "email_settings.updated"
-  | "email_settings.verified"
   | "runtime_policy.updated"
-  | "runtime_policy.verified"
-  | "runtime_policy.migrated";
+  | "runtime_policy.verified";
 
 export interface AppSettingAuditRecord {
   id: number;
@@ -544,18 +541,6 @@ export interface PersistenceRuntime {
   hasDatabase(): boolean;
   checkReadiness(): Promise<boolean>;
 }
-
-export interface OidcPersistence
-  extends
-    PersistenceRuntime,
-    IdentityRepository,
-    ProjectRepository,
-    OidcClientRepository,
-    ManagementSessionRepository,
-    OidcArtifactRepository,
-    SigningKeyRepository,
-    AppSettingsRepository,
-    JwkCipherService {}
 
 export function buildArtifactCleanupSql(limit: string | number): string {
   return `

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readOidcOpConfig } from "../src/config.js";
+import { readConfig } from "../src/config.js";
 import { ManagementSessionService } from "../src/management/management-session.service.js";
-import { OidcPersistenceImpl } from "../src/persistence/persistence.js";
+import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
 import { sha256 } from "../src/utils.js";
 
 test("management sessions persist only a token hash and expire on idle timeout", async () => {
-  const store = new OidcPersistenceImpl(
-    readOidcOpConfig({
+  const store = new PersistenceRuntimeImpl(
+    readConfig({
       APP_ENV: "test",
       AUTH_PROVIDER: "mock",
       OIDC_KEY_ENCRYPTION_SECRET: "test-session-key",
@@ -36,6 +36,7 @@ test("management sessions persist only a token hash and expire on idle timeout",
       },
     );
     const sessions = new ManagementSessionService(
+      store,
       store,
       3600,
       60,

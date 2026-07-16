@@ -1,21 +1,21 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
-import type { OidcOpConfig } from "../config.js";
+import type { StaticConfig } from "../config.js";
 import { base64Url, parseCookies, sha256 } from "../utils.js";
 
 export function managementSessionCookieName(
-  config: Pick<OidcOpConfig, "cookieSecure">,
+  config: Pick<StaticConfig, "cookieSecure">,
 ) {
   return config.cookieSecure ? "__Host-cqut_manage_sid" : "cqut_manage_sid";
 }
 
-function managementNonceCookieName(config: Pick<OidcOpConfig, "cookieSecure">) {
+function managementNonceCookieName(config: Pick<StaticConfig, "cookieSecure">) {
   return config.cookieSecure ? "__Host-cqut_manage_csrf" : "cqut_manage_csrf";
 }
 
 export function readManagementSessionToken(
   request: Request,
-  config: Pick<OidcOpConfig, "cookieSecure">,
+  config: Pick<StaticConfig, "cookieSecure">,
 ) {
   return parseCookies(request.get("cookie"))[
     managementSessionCookieName(config)
@@ -24,7 +24,7 @@ export function readManagementSessionToken(
 
 export function setManagementSessionCookie(
   response: Response,
-  config: Pick<OidcOpConfig, "cookieSecure" | "sessionTtlSeconds">,
+  config: Pick<StaticConfig, "cookieSecure" | "sessionTtlSeconds">,
   token: string,
 ) {
   response.cookie(managementSessionCookieName(config), token, {
@@ -38,7 +38,7 @@ export function setManagementSessionCookie(
 
 export function clearManagementSessionCookie(
   response: Response,
-  config: Pick<OidcOpConfig, "cookieSecure">,
+  config: Pick<StaticConfig, "cookieSecure">,
 ) {
   response.clearCookie(managementSessionCookieName(config), {
     httpOnly: true,
@@ -51,7 +51,7 @@ export function clearManagementSessionCookie(
 export function ensureManagementNonce(
   request: Request,
   response: Response,
-  config: Pick<OidcOpConfig, "cookieSecure" | "csrfTokenTtlSeconds">,
+  config: Pick<StaticConfig, "cookieSecure" | "csrfTokenTtlSeconds">,
 ) {
   const name = managementNonceCookieName(config);
   const existing = parseCookies(request.get("cookie"))[name];
@@ -70,7 +70,7 @@ export function ensureManagementNonce(
 }
 
 export function issueManagementCsrf(
-  config: Pick<OidcOpConfig, "csrfSigningSecret" | "csrfTokenTtlSeconds">,
+  config: Pick<StaticConfig, "csrfSigningSecret" | "csrfTokenTtlSeconds">,
   binding: string,
   now = Math.floor(Date.now() / 1000),
 ) {
@@ -83,7 +83,7 @@ export function issueManagementCsrf(
 
 export function validateManagementCsrf(
   request: Request,
-  config: Pick<OidcOpConfig, "csrfSigningSecret" | "issuer">,
+  config: Pick<StaticConfig, "csrfSigningSecret" | "issuer">,
   binding: string,
   now = Math.floor(Date.now() / 1000),
 ) {
@@ -122,7 +122,7 @@ export function validateManagementCsrf(
 
 export function readManagementNonce(
   request: Request,
-  config: Pick<OidcOpConfig, "cookieSecure">,
+  config: Pick<StaticConfig, "cookieSecure">,
 ) {
   return parseCookies(request.get("cookie"))[managementNonceCookieName(config)];
 }
