@@ -5,6 +5,11 @@ import type { AuthContext } from "../../api/types";
 export const authProvider: AuthProvider = {
   login: async ({ account, password }) => {
     try {
+      // The login CSRF token is bound to the anonymous nonce cookie. Refresh it
+      // immediately before submitting so a stale page or an earlier provider
+      // call cannot submit without the matching header.
+      const context = await request<AuthContext>("/auth/context");
+      setCsrfToken(context.csrfToken);
       const data = await request<AuthContext>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ account, password }),

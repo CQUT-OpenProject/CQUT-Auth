@@ -1,5 +1,5 @@
 import type { AccessControlProvider } from "@refinedev/core";
-import { request } from "../../api/client";
+import { request, setCsrfToken } from "../../api/client";
 import type { AuthContext, Project, ProjectAction } from "../../api/types";
 
 // Dynamic active project reference for global access control
@@ -20,6 +20,7 @@ export const accessControlProvider: AccessControlProvider = {
     if (!currentUser) {
       try {
         const data = await request<AuthContext>("/auth/context");
+        setCsrfToken(data.csrfToken);
         if (data.authenticated) {
           currentUser = data.user;
         } else {

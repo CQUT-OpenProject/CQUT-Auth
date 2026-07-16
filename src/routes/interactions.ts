@@ -1551,9 +1551,14 @@ export function createInteractionRouter(
             throw error;
           }
         });
+        const requestedScopes =
+          typeof loginDetails.params?.scope === "string"
+            ? new Set(loginDetails.params.scope.split(/\s+/).filter(Boolean))
+            : new Set<string>();
         if (
-          !principal.email ||
-          (config.emailVerificationEnabled && !principal.emailVerified)
+          requestedScopes.has("email") &&
+          (!principal.email ||
+            (config.emailVerificationEnabled && !principal.emailVerified))
         ) {
           await store.saveInteractionLogin(uid, {
             principal,

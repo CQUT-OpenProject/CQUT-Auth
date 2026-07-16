@@ -576,7 +576,15 @@ async function authorizeThroughProfile(
       account: TEST_LOGIN_ACCOUNT,
       password: TEST_LOGIN_PASSWORD,
     });
-  assert.equal(login.status, 302);
+  assert.ok(login.status === 302 || login.status === 303);
+  if (!scope.split(/\s+/).includes("email")) {
+    return {
+      response: login,
+      codeVerifier: verifier,
+      profileLocation: undefined,
+      interactionUid: extractInteractionUid(interactionLocation),
+    };
+  }
   assert.match(
     login.headers["location"] as string,
     /\/interaction\/.+\/profile/,
@@ -696,12 +704,13 @@ async function openLoginInteraction(
   agent: any,
   state = "login-state-1",
   headers?: Record<string, string>,
+  scope = "openid profile email",
 ) {
   const authorize = await withHeaders(agent.get("/auth"), headers).query({
     client_id: "demo-site",
     redirect_uri: TEST_REDIRECT_URI,
     response_type: "code",
-    scope: "openid profile",
+    scope,
     prompt: "consent",
     state,
     nonce: "nonce-login-1",
@@ -1157,7 +1166,7 @@ test("seeded demo client is confidential web client", async () => {
 });
 
 test("public client without explicit refresh confirmation does not receive refresh token", async () => {
-  const { app, state, emailSender } = await createTestApp();
+  const { app, state } = await createTestApp();
   await upsertPublicNoneClient(state, "public-unconfirmed", {
     allowRefreshTokenForPublicClient: false,
   });
@@ -1187,31 +1196,9 @@ test("public client without explicit refresh confirmation does not receive refre
       account: TEST_LOGIN_ACCOUNT,
       password: TEST_LOGIN_PASSWORD,
     });
-  assert.equal(login.status, 302);
-  const profileLocation = login.headers["location"] as string;
-  const profilePage = await agent.get(profileLocation);
-  const sendCode = await agent
-    .post(profileLocation)
-    .type("form")
-    .send({
-      csrf: extractCsrf(profilePage.text),
-      action: "send_code",
-      email: "demo@example.com",
-    });
-  const sentCode = emailSender.latestCode(
-    extractInteractionUid(interactionLocation),
-    "demo@example.com",
-  );
-  assert.equal(typeof sentCode, "string");
-  const profile = await agent
-    .post(profileLocation)
-    .type("form")
-    .send({
-      csrf: extractCsrf(sendCode.text),
-      action: "verify_code",
-      code: sentCode,
-    });
-  const consentPageHtml = await followToConsentPage(agent, profile);
+  assert.ok(login.status === 302 || login.status === 303);
+  assert.doesNotMatch(login.headers["location"] as string, /\/profile/);
+  const consentPageHtml = await followToConsentPage(agent, login);
   const consent = await agent
     .post(normalizeActionPath(extractConsentAction(consentPageHtml)))
     .type("form")
@@ -2000,6 +1987,42 @@ test("profile routes reject requests without the interaction session cookie", as
     ),
     false,
   );
+
+  await state.store.close();
+});
+
+test("login without email scope skips profile completion", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  const agent = request.agent(app);
+  const { interactionLocation, loginPage } = await openLoginInteraction(
+    agent,
+    "login-without-email-scope",
+    undefined,
+    "openid profile",
+  );
+  const login = await agent
+    .post(`${interactionLocation}/login`)
+    .type("form")
+    .send({
+      csrf: extractCsrf(loginPage.text),
+      account: TEST_LOGIN_ACCOUNT,
+      password: TEST_LOGIN_PASSWORD,
+    });
+
+  assert.ok(login.status === 302 || login.status === 303);
+  assert.doesNotMatch(login.headers["location"] as string, /\/profile/);
+  const callback = await followToRedirectUriOrigin(
+    agent,
+    login,
+    TEST_REDIRECT_URI,
+  );
+  const callbackUrl = new URL(callback);
+  assert.equal(
+    callbackUrl.searchParams.get("state"),
+    "login-without-email-scope",
+  );
+  assert.equal(typeof callbackUrl.searchParams.get("code"), "string");
+  assert.equal(emailSender.sentVerifications.length, 0);
 
   await state.store.close();
 });

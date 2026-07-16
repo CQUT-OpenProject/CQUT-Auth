@@ -7,6 +7,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     env: { NODE_ENV: "development" },
-    testTimeout: 15_000,
+    // The client-creation flow exercises several Ant Design modal transitions.
+    // GitHub-hosted runners can exceed the default 15 seconds without a failure.
+    testTimeout: 30_000,
   },
 });

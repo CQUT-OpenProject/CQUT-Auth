@@ -5,6 +5,7 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
+      target: dev
     user: root
     env_file:
       - ./.env
@@ -23,6 +24,9 @@ services:
       - "${OIDC_APP_PORT:-3003}:3003"
     volumes:
       - ../:/app
+      # Anonymous volume keeps the container's Linux-native node_modules from
+      # being shadowed by the host bind mount (host is Windows, container is alpine).
+      - /app/node_modules
       - ./oidc-clients.json:${OIDC_CLIENTS_CONFIG_PATH:-/app/config/oidc-clients.json}:ro
     command: sh -c "corepack enable && pnpm dev"
     depends_on:
