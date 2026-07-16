@@ -1904,37 +1904,6 @@ export function createInteractionRouter(
           );
           return;
         }
-        if (verification.expiresAt <= now) {
-          await store.saveInteractionLogin(uid, {
-            principal: pending.principal,
-            authTime: pending.authTime,
-          });
-          const csrf = issueCsrfToken(response, config, uid, "profile");
-          response.status(400).send(
-            profileEmailView(uid, csrf, {
-              email: verification.email,
-              error: "验证码已过期，请重新发送。",
-              verificationEnabled: true,
-            }),
-          );
-          return;
-        }
-        if (verification.attempts >= config.emailVerifyMaxAttempts) {
-          await store.saveInteractionLogin(uid, {
-            principal: pending.principal,
-            authTime: pending.authTime,
-          });
-          const csrf = issueCsrfToken(response, config, uid, "profile");
-          response.status(400).send(
-            profileEmailView(uid, csrf, {
-              email: verification.email,
-              error: "验证码尝试次数过多，请重新发送。",
-              verificationEnabled: true,
-            }),
-          );
-          return;
-        }
-
         const code =
           typeof request.body?.code === "string"
             ? request.body.code.trim()
@@ -1959,50 +1928,62 @@ export function createInteractionRouter(
           verification.email,
           code,
         );
-        if (!secureStringEqual(inputHash, verification.codeHash)) {
-          const nextAttempts = verification.attempts + 1;
-          if (nextAttempts >= config.emailVerifyMaxAttempts) {
-            await store.saveInteractionLogin(uid, {
-              principal: pending.principal,
-              authTime: pending.authTime,
-            });
-            const csrf = issueCsrfToken(response, config, uid, "profile");
-            response.status(400).send(
-              profileEmailView(uid, csrf, {
-                email: verification.email,
-                error: "验证码尝试次数过多，请重新发送。",
-                verificationEnabled: true,
-              }),
-            );
-            return;
-          }
-          await store.saveInteractionLogin(uid, {
-            ...pending,
-            emailVerification: {
-              ...verification,
-              attempts: nextAttempts,
-            },
-          });
+        const result = await store.verifyInteractionEmailCode(
+          uid,
+          verification.codeHash,
+          inputHash,
+          now,
+          config.emailVerifyMaxAttempts,
+        );
+        if (result.status === "incorrect") {
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(400).send(
             profileVerifyCodeView(uid, csrf, {
-              email: verification.email,
-              error: `验证码错误，还可尝试 ${config.emailVerifyMaxAttempts - nextAttempts} 次。`,
+              email: result.email,
+              error: `验证码错误，还可尝试 ${result.attemptsRemaining} 次。`,
               resendCooldownSeconds: getResendCooldownSeconds(
-                verification.nextResendAt,
+                result.nextResendAt,
                 now,
               ),
             }),
           );
           return;
         }
-
+        if (result.status === "expired" || result.status === "locked") {
+          const csrf = issueCsrfToken(response, config, uid, "profile");
+          response.status(400).send(
+            profileEmailView(uid, csrf, {
+              email: result.email,
+              error:
+                result.status === "expired"
+                  ? "验证码已过期，请重新发送。"
+                  : "验证码尝试次数过多，请重新发送。",
+              verificationEnabled: true,
+            }),
+          );
+          return;
+        }
+        if (result.status === "missing" || result.status === "stale") {
+          response.redirect(
+            303,
+            `/interaction/${encodeURIComponent(uid)}/profile`,
+          );
+          return;
+        }
+        if (result.status !== "verified") {
+          throw new Error("unexpected email verification result");
+        }
         await services.subjectProfileService.setVerifiedEmail(
-          pending.principal.subjectId,
-          verification.email,
+          result.pending.principal.subjectId,
+          result.email,
         );
         await store.deleteInteractionLogin(uid);
-        await finishInteractionLogin(provider, request, response, pending);
+        await finishInteractionLogin(
+          provider,
+          request,
+          response,
+          result.pending,
+        );
         return;
       }
 

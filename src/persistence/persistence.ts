@@ -30,6 +30,7 @@ import type {
   PendingInteractionLogin,
   AppSettingRecord,
   AppSettingsRepository,
+  InteractionEmailVerificationResult,
 } from "./contracts.js";
 import type { ProjectWriteAuthorization } from "../projects/project-access.js";
 import { IdentityRepositoryImpl } from "./identity.repository.js";
@@ -654,6 +655,22 @@ export class OidcPersistenceImpl implements OidcPersistence {
     uid: string,
   ): Promise<PendingInteractionLogin | undefined> {
     return this.oidcArtifactRepository.getInteractionLogin(uid);
+  }
+
+  async verifyInteractionEmailCode(
+    uid: string,
+    expectedCodeHash: string,
+    inputCodeHash: string,
+    now: number,
+    maxAttempts: number,
+  ): Promise<InteractionEmailVerificationResult> {
+    return this.oidcArtifactRepository.verifyInteractionEmailCode(
+      uid,
+      expectedCodeHash,
+      inputCodeHash,
+      now,
+      maxAttempts,
+    );
   }
 
   async deleteInteractionLogin(uid: string): Promise<void> {

@@ -1498,6 +1498,46 @@ test("authorization code flow, userinfo, refresh rotation, and session reuse wor
   await state.store.close();
 });
 
+test("authorization code can be consumed by only one concurrent request", async () => {
+  const { app, state, emailSender } = await createTestApp({
+    OIDC_TOKEN_RATE_LIMIT_MAX: "20",
+  });
+  const agent = request.agent(app);
+  const { code, codeVerifier } = await runAuthorizationFlow(
+    agent,
+    emailSender,
+    "concurrent-code-consumption",
+  );
+
+  const responses = await Promise.all(
+    Array.from({ length: 10 }, () =>
+      request(app)
+        .post("/token")
+        .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
+        .type("form")
+        .send({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: TEST_REDIRECT_URI,
+          code_verifier: codeVerifier,
+        }),
+    ),
+  );
+
+  assert.equal(
+    responses.filter((response) => response.status === 200).length,
+    1,
+  );
+  assert.equal(
+    responses.filter(
+      (response) =>
+        response.status === 400 && response.body.error === "invalid_grant",
+    ).length,
+    9,
+  );
+  await state.store.close();
+});
+
 test(
   "PostgreSQL application flow stores HMAC client indexes and enforces authorization generations",
   { skip: !process.env["TEST_DATABASE_URL"] },

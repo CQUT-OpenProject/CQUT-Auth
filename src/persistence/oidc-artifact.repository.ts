@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import type { ArtifactPayloadCipherServiceImpl } from "./artifact-payload-cipher.service.js";
 import type {
+  InteractionEmailVerificationResult,
   OidcArtifactRepository,
   PendingInteractionLogin,
 } from "./contracts.js";
@@ -45,6 +46,18 @@ type OpportunisticCleanupOptions = {
   batchSize: number;
   minIntervalSeconds: number;
 };
+
+export class ArtifactAlreadyConsumedError extends Error {
+  readonly status = 400;
+  readonly statusCode = 400;
+  readonly expose = true;
+  readonly error_description = "grant request is invalid";
+
+  constructor() {
+    super("invalid_grant");
+    this.name = "ArtifactAlreadyConsumedError";
+  }
+}
 
 export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
   private readonly artifacts = new Map<string, ArtifactRecord>();
@@ -217,15 +230,16 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     const pool = this.poolProvider();
     if (!pool) {
       const record = this.artifacts.get(id);
-      if (record) {
-        record.consumedAt = new Date().toISOString();
-      }
+      if (!record || record.consumedAt)
+        throw new ArtifactAlreadyConsumedError();
+      record.consumedAt = new Date().toISOString();
       return;
     }
-    await pool.query(
+    const result = await pool.query(
       "update oidc_artifacts set consumed_at = now() where id = $1 and consumed_at is null",
       [id],
     );
+    if (result.rowCount !== 1) throw new ArtifactAlreadyConsumedError();
   }
 
   async findArtifactByUid(
@@ -309,6 +323,65 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     return payload as PendingInteractionLogin | undefined;
   }
 
+  async verifyInteractionEmailCode(
+    uid: string,
+    expectedCodeHash: string,
+    inputCodeHash: string,
+    now: number,
+    maxAttempts: number,
+  ): Promise<InteractionEmailVerificationResult> {
+    const id = `interaction_login:${uid}`;
+    const pool = this.poolProvider();
+    if (!pool) {
+      const record = this.artifacts.get(id);
+      if (!record || this.isExpired(record)) return { status: "missing" };
+      return this.applyEmailVerificationAttempt(
+        record,
+        expectedCodeHash,
+        inputCodeHash,
+        now,
+        maxAttempts,
+      );
+    }
+
+    const connection = await pool.connect();
+    try {
+      await connection.query("begin");
+      const selected = await connection.query(
+        `select * from oidc_artifacts
+         where id = $1
+           and (expires_at is null or expires_at > now())
+         for update`,
+        [id],
+      );
+      const record = await this.mapArtifactRow(selected.rows[0]);
+      if (!record) {
+        await connection.query("commit");
+        return { status: "missing" };
+      }
+      const result = this.applyEmailVerificationAttempt(
+        record,
+        expectedCodeHash,
+        inputCodeHash,
+        now,
+        maxAttempts,
+      );
+      if (result.status !== "stale" && result.status !== "missing") {
+        await connection.query(
+          "update oidc_artifacts set payload = $2::jsonb where id = $1",
+          [id, JSON.stringify(await this.encryptPayload(record.payload))],
+        );
+      }
+      await connection.query("commit");
+      return result;
+    } catch (error) {
+      await connection.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   async deleteInteractionLogin(uid: string): Promise<void> {
     await this.destroyArtifact(`interaction_login:${uid}`);
   }
@@ -322,6 +395,45 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       return true;
     }
     return false;
+  }
+
+  private applyEmailVerificationAttempt(
+    record: ArtifactRecord,
+    expectedCodeHash: string,
+    inputCodeHash: string,
+    now: number,
+    maxAttempts: number,
+  ): InteractionEmailVerificationResult {
+    const pending = record.payload as unknown as PendingInteractionLogin;
+    const verification = pending.emailVerification;
+    if (!verification) return { status: "missing" };
+    if (verification.codeHash !== expectedCodeHash) return { status: "stale" };
+
+    if (verification.expiresAt <= now) {
+      delete pending.emailVerification;
+      return { status: "expired", email: verification.email };
+    }
+    if (verification.attempts >= maxAttempts) {
+      delete pending.emailVerification;
+      return { status: "locked", email: verification.email };
+    }
+    if (verification.codeHash === inputCodeHash) {
+      delete pending.emailVerification;
+      return { status: "verified", email: verification.email, pending };
+    }
+
+    verification.attempts += 1;
+    const attemptsRemaining = maxAttempts - verification.attempts;
+    if (attemptsRemaining === 0) {
+      delete pending.emailVerification;
+      return { status: "locked", email: verification.email };
+    }
+    return {
+      status: "incorrect",
+      email: verification.email,
+      nextResendAt: verification.nextResendAt,
+      attemptsRemaining,
+    };
   }
 
   private async readArtifactById(id: string): Promise<ArtifactRecord | null> {

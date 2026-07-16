@@ -282,3 +282,139 @@ test("findArtifactByUid applies kind filter in memory mode", async () => {
     "session-payload",
   );
 });
+
+test("consumeArtifact allows only one consumer in memory mode", async () => {
+  const repository = createInMemoryRepository();
+  await repository.upsertArtifact(
+    "AuthorizationCode:single-use",
+    "AuthorizationCode",
+    { value: "code" },
+    120,
+  );
+
+  const attempts = await Promise.allSettled(
+    Array.from({ length: 20 }, () =>
+      repository.consumeArtifact("AuthorizationCode:single-use"),
+    ),
+  );
+
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "fulfilled").length,
+    1,
+  );
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "rejected").length,
+    19,
+  );
+});
+
+test("consumeArtifact rejects when the database update loses the race", async () => {
+  const pool = new FakePool((sql) => ({
+    rowCount: sql.includes("update oidc_artifacts") ? 0 : 1,
+  }));
+  const repository = createRepository(pool);
+
+  await assert.rejects(
+    repository.consumeArtifact("RefreshToken:already-consumed"),
+    (error: unknown) =>
+      error instanceof Error && error.message === "invalid_grant",
+  );
+});
+
+test("email verification counts concurrent attempts atomically", async () => {
+  const repository = createInMemoryRepository();
+  await repository.saveInteractionLogin("interaction-1", {
+    principal: {
+      subjectId: "subject-1",
+      schoolUid: "student-1",
+      school: "cqut",
+      studentStatus: "active",
+      identitySource: "mock",
+      identityKey: "mock:student-1",
+      emailVerified: false,
+      preferredUsername: "student-1",
+    },
+    authTime: 1,
+    emailVerification: {
+      email: "target@example.com",
+      codeHash: "correct-hash",
+      expiresAt: 10_000,
+      attempts: 0,
+      nextResendAt: 2_000,
+    },
+  });
+
+  const attempts = await Promise.all(
+    Array.from({ length: 20 }, () =>
+      repository.verifyInteractionEmailCode(
+        "interaction-1",
+        "correct-hash",
+        "wrong-hash",
+        1_000,
+        5,
+      ),
+    ),
+  );
+
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "incorrect").length,
+    4,
+  );
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "locked").length,
+    1,
+  );
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "missing").length,
+    15,
+  );
+  assert.equal(
+    (await repository.getInteractionLogin("interaction-1"))?.emailVerification,
+    undefined,
+  );
+});
+
+test("email verification accepts a concurrent correct code only once", async () => {
+  const repository = createInMemoryRepository();
+  await repository.saveInteractionLogin("interaction-2", {
+    principal: {
+      subjectId: "subject-2",
+      schoolUid: "student-2",
+      school: "cqut",
+      studentStatus: "active",
+      identitySource: "mock",
+      identityKey: "mock:student-2",
+      emailVerified: false,
+      preferredUsername: "student-2",
+    },
+    authTime: 1,
+    emailVerification: {
+      email: "target@example.com",
+      codeHash: "correct-hash",
+      expiresAt: 10_000,
+      attempts: 0,
+      nextResendAt: 2_000,
+    },
+  });
+
+  const attempts = await Promise.all(
+    Array.from({ length: 20 }, () =>
+      repository.verifyInteractionEmailCode(
+        "interaction-2",
+        "correct-hash",
+        "correct-hash",
+        1_000,
+        5,
+      ),
+    ),
+  );
+
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "verified").length,
+    1,
+  );
+  assert.equal(
+    attempts.filter((attempt) => attempt.status === "missing").length,
+    19,
+  );
+});

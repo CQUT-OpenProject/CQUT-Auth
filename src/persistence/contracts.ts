@@ -219,6 +219,21 @@ export type PendingInteractionLogin = {
   };
 };
 
+export type InteractionEmailVerificationResult =
+  | { status: "missing" | "stale" }
+  | { status: "expired" | "locked"; email: string }
+  | {
+      status: "incorrect";
+      email: string;
+      nextResendAt: number;
+      attemptsRemaining: number;
+    }
+  | {
+      status: "verified";
+      email: string;
+      pending: PendingInteractionLogin;
+    };
+
 export type OidcSigningKeyRecord = {
   kid: string;
   alg: string;
@@ -447,6 +462,13 @@ export interface OidcArtifactRepository {
   getInteractionLogin(
     uid: string,
   ): Promise<PendingInteractionLogin | undefined>;
+  verifyInteractionEmailCode(
+    uid: string,
+    expectedCodeHash: string,
+    inputCodeHash: string,
+    now: number,
+    maxAttempts: number,
+  ): Promise<InteractionEmailVerificationResult>;
   deleteInteractionLogin(uid: string): Promise<void>;
 }
 
