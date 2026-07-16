@@ -3,6 +3,7 @@ import {
   IdentityCoreError,
   RetryableProviderError,
 } from "../identity/errors.js";
+import { hasSafeCredentialLengths } from "../identity/types.js";
 import express, { type Request, type Response } from "express";
 import type { OidcOpConfig } from "../config.js";
 import {
@@ -1495,10 +1496,17 @@ export function createInteractionRouter(
       }
       const account =
         typeof request.body?.account === "string"
-          ? request.body.account.trim()
+          ? request.body.account.trim().toLowerCase()
           : "";
       const password =
         typeof request.body?.password === "string" ? request.body.password : "";
+      if (!hasSafeCredentialLengths(account, password)) {
+        const csrf = issueCsrfToken(response, config, uid, "login");
+        response
+          .status(400)
+          .send(loginView(response, uid, csrf, "账号或密码长度无效。"));
+        return;
+      }
       const loginRateLimitIdentity = {
         ip: resolveTrustedExpressRequestIp(config, request),
         account: account || "unknown",

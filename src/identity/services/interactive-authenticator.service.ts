@@ -3,6 +3,7 @@ import type {
   AuthenticatedPrincipal,
   InteractiveLoginInput,
 } from "../types.js";
+import { hasSafeCredentialLengths } from "../types.js";
 import { IdentityCoreError } from "../errors.js";
 import { ProviderRegistry } from "../provider-registry.js";
 import { IdentityLinkService } from "./identity-link.service.js";
@@ -23,6 +24,12 @@ export class InteractiveAuthenticatorService {
       throw new IdentityCoreError(
         "invalid_request",
         "missing account or password",
+      );
+    }
+    if (!hasSafeCredentialLengths(input.account, input.password)) {
+      throw new IdentityCoreError(
+        "invalid_request",
+        "invalid credential length",
       );
     }
     const provider = this.providerRegistry.getByName(input.provider);

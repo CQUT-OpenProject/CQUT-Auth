@@ -1,5 +1,15 @@
 import type { StudentStatus } from "../shared/oidc-contracts.js";
 
+export const MAX_LOGIN_ACCOUNT_LENGTH = 128;
+export const MAX_LOGIN_PASSWORD_LENGTH = 256;
+
+export function hasSafeCredentialLengths(account: string, password: string) {
+  return (
+    account.length <= MAX_LOGIN_ACCOUNT_LENGTH &&
+    password.length <= MAX_LOGIN_PASSWORD_LENGTH
+  );
+}
+
 export type VerificationIdentity = {
   schoolUid: string;
   verified: boolean;

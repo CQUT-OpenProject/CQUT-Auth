@@ -54,6 +54,10 @@ async function createApp(
 
 function testPolicyOverrides(env: NodeJS.ProcessEnv): Partial<PolicyValues> {
   const names: Record<string, keyof PolicyValues> = {
+    OIDC_LOGIN_RATE_LIMIT_MAX: "loginRateLimitMax",
+    OIDC_LOGIN_RATE_LIMIT_WINDOW_SECONDS: "loginRateLimitWindowSeconds",
+    OIDC_LOGIN_FAILURE_LIMIT: "loginFailureLimit",
+    OIDC_LOGIN_FAILURE_WINDOW_SECONDS: "loginFailureWindowSeconds",
     OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX:
       "clientSecretRotateRateLimitSubjectMax",
     OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX:
@@ -141,6 +145,66 @@ const input = {
   postLogoutRedirectUris: [],
   scopeWhitelist: ["openid", "profile"],
 };
+
+test("management login rejects oversized credentials", async () => {
+  const { app, state } = await createApp();
+  try {
+    const agent = request.agent(app);
+    const context = await agent.get("/api/management/auth/context");
+    const response = await agent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", context.body.csrfToken)
+      .send({ account: "a".repeat(129), password: "p".repeat(257) });
+
+    assert.equal(response.status, 400);
+    assert.equal(response.body.error, "invalid_request");
+  } finally {
+    await state.store.close();
+  }
+});
+
+test("management login normalizes account rate-limit keys", async () => {
+  const { app, state } = await createApp({ OIDC_LOGIN_RATE_LIMIT_MAX: "1" });
+  try {
+    const firstAgent = request.agent(app);
+    const firstContext = await firstAgent.get("/api/management/auth/context");
+    const first = await firstAgent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", firstContext.body.csrfToken)
+      .send({ account: "Student001", password: "valid-password" });
+    const secondAgent = request.agent(app);
+    const secondContext = await secondAgent.get("/api/management/auth/context");
+    const second = await secondAgent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", secondContext.body.csrfToken)
+      .send({ account: "STUDENT001", password: "valid-password" });
+
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 429);
+  } finally {
+    await state.store.close();
+  }
+});
+
+test("management login blocks account spraying from one ip", async () => {
+  const { app, state } = await createApp({ OIDC_LOGIN_RATE_LIMIT_MAX: "2" });
+  try {
+    const statuses: number[] = [];
+    for (const account of ["spray-a", "spray-b", "spray-c"]) {
+      const agent = request.agent(app);
+      const context = await agent.get("/api/management/auth/context");
+      const response = await agent
+        .post("/api/management/auth/login")
+        .set("X-CSRF-Token", context.body.csrfToken)
+        .send({ account, password: "valid-password" });
+      statuses.push(response.status);
+    }
+
+    assert.deepEqual(statuses, [200, 200, 429]);
+  } finally {
+    await state.store.close();
+  }
+});
 
 test("management API exposes separate lifecycle and revision workflows", async () => {
   const { app, state } = await createApp();

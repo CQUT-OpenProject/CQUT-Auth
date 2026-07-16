@@ -14,6 +14,7 @@ import {
 } from "../persistence/rate-limit.service.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 import { RetryableProviderError } from "../identity/errors.js";
+import { hasSafeCredentialLengths } from "../identity/types.js";
 import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
@@ -34,6 +35,35 @@ type ManagementRouterServices = {
   emailSettingsService: RuntimePolicyService;
   emailSender: EmailSender;
 };
+
+function managementLoginRateLimitKeys(
+  stage: "attempt" | "failure",
+  account: string,
+  ip: string,
+) {
+  const prefix = `oidc:login:${stage}`;
+  const accountHash = sha256(account);
+  return [
+    `${prefix}:account:${accountHash}`,
+    `${prefix}:ip:${ip}`,
+    `${prefix}:account-ip:${accountHash}:${ip}`,
+  ];
+}
+
+async function consumeManagementLoginRateLimit(
+  rateLimitService: RateLimitService,
+  stage: "attempt" | "failure",
+  account: string,
+  ip: string,
+  max: number,
+  windowSeconds: number,
+) {
+  for (const key of managementLoginRateLimitKeys(stage, account, ip)) {
+    const decision = await rateLimitService.consume(key, max, windowSeconds);
+    if (!decision.allowed) return decision;
+  }
+  return undefined;
+}
 
 export function createManagementRouter(
   config: OidcOpConfig,
@@ -125,18 +155,27 @@ export function createManagementRouter(
       }
       const account =
         typeof request.body?.account === "string"
-          ? request.body.account.trim()
+          ? request.body.account.trim().toLowerCase()
           : "";
       const password =
         typeof request.body?.password === "string" ? request.body.password : "";
+      if (!hasSafeCredentialLengths(account, password)) {
+        response.status(400).json({
+          error: "invalid_request",
+          error_description: "invalid credential length",
+        });
+        return;
+      }
       const ip = resolveTrustedExpressRequestIp(config, request);
-      const attemptKey = `oidc:login:attempt:account-ip:${sha256(account || "unknown")}:${ip}`;
-      const attempt = await rateLimitService.consume(
-        attemptKey,
+      const attempt = await consumeManagementLoginRateLimit(
+        rateLimitService,
+        "attempt",
+        account,
+        ip,
         config.loginRateLimitMax,
         config.loginRateLimitWindowSeconds,
       );
-      if (!attempt.allowed) {
+      if (attempt) {
         response.setHeader("Retry-After", String(attempt.retryAfterSeconds));
         response.status(429).json({
           error: "rate_limited",
@@ -154,7 +193,11 @@ export function createManagementRouter(
             ? { userAgent: request.get("user-agent") as string }
             : {}),
         });
-        await rateLimitService.reset(attemptKey).catch(() => undefined);
+        await Promise.all(
+          managementLoginRateLimitKeys("failure", account, ip)
+            .filter((key) => !key.includes(":ip:"))
+            .map((key) => rateLimitService.reset(key)),
+        ).catch(() => undefined);
         const session = await sessions.create(principal.subjectId);
         setManagementSessionCookie(response, config, session.token);
         response.json(
@@ -180,13 +223,15 @@ export function createManagementRouter(
           });
           return;
         }
-        const failureKey = `oidc:login:failure:account-ip:${sha256(account || "unknown")}:${ip}`;
-        const failure = await rateLimitService.consume(
-          failureKey,
+        const failure = await consumeManagementLoginRateLimit(
+          rateLimitService,
+          "failure",
+          account,
+          ip,
           config.loginFailureLimit,
           config.loginFailureWindowSeconds,
         );
-        if (!failure.allowed) {
+        if (failure) {
           response.setHeader("Retry-After", String(failure.retryAfterSeconds));
           response.status(429).json({
             error: "rate_limited",
