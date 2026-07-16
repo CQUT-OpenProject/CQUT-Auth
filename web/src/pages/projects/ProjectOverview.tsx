@@ -19,6 +19,7 @@ import { useProject } from "../../contexts/project-context";
 import { ProjectStatusTag } from "../../components/status/Tags";
 import { request } from "../../api/client";
 import { PermissionGuard } from "../../components/layout/PermissionGuard";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 
 const { Text, Paragraph } = Typography;
 
@@ -26,6 +27,7 @@ export const ProjectOverview: React.FC = () => {
   const { activeProject, refreshProjects } = useProject();
   const [editVisible, setEditVisible] = useState(false);
   const [form] = Form.useForm();
+  const { isMobile } = useBreakpoint();
 
   useEffect(() => {
     if (activeProject) {
@@ -99,30 +101,37 @@ export const ProjectOverview: React.FC = () => {
     <Card
       title="项目概览"
       extra={
-        <Space>
+        <Space size={isMobile ? "small" : "middle"}>
           {canManage && !isArchived && (
             <>
               <Button
                 type="primary"
                 icon={<EditOutlined />}
                 onClick={() => setEditVisible(true)}
+                size={isMobile ? "small" : "middle"}
               >
-                编辑项目
+                {isMobile ? "编辑" : "编辑项目"}
               </Button>
               <Button
                 type="primary"
                 danger
                 icon={<DeleteOutlined />}
                 onClick={handleArchive}
+                size={isMobile ? "small" : "middle"}
               >
-                归档项目
+                {isMobile ? "归档" : "归档项目"}
               </Button>
             </>
           )}
         </Space>
       }
     >
-      <Descriptions bordered column={1}>
+      <Descriptions
+        bordered
+        column={1}
+        size={isMobile ? "small" : "default"}
+        labelStyle={{ width: isMobile ? "100px" : "150px" }}
+      >
         <Descriptions.Item label="项目名称">
           {activeProject.name}
         </Descriptions.Item>
@@ -138,7 +147,7 @@ export const ProjectOverview: React.FC = () => {
         <Descriptions.Item label="状态">
           <ProjectStatusTag status={activeProject.status} />
         </Descriptions.Item>
-        <Descriptions.Item label="项目版本 (乐观锁)">
+        <Descriptions.Item label={isMobile ? "版本" : "项目版本 (乐观锁)"}>
           <Text code>{activeProject.version}</Text>
         </Descriptions.Item>
       </Descriptions>

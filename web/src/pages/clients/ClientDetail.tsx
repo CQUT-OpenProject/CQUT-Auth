@@ -41,6 +41,7 @@ import { request } from "../../api/client";
 import { RevisionDiff } from "../../components/revision/RevisionDiff";
 import { ConfirmActionModal } from "../../components/confirmations/ConfirmActionModal";
 import { OneTimeSecretModal } from "../../components/secret/OneTimeSecretModal";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 import type { Client, ClientRevision, AuditLog } from "../../api/types";
 
 const { Text, Title, Paragraph } = Typography;
@@ -61,6 +62,7 @@ export const ClientDetail: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { activeProject } = useProject();
+  const { isMobile } = useBreakpoint();
 
   // Determine active tab based on route
   const getActiveTab = () => {
@@ -432,22 +434,42 @@ export const ClientDetail: React.FC = () => {
   return (
     <Card
       title={
-        <Space>
-          <Button
-            icon={<ArrowLeftOutlined />}
-            onClick={() =>
-              navigate(`/projects/${encodeURIComponent(projectId!)}/clients`)
-            }
-          />
-          <Space direction="vertical" size={0}>
-            <Title level={4} style={{ margin: 0 }}>
+        isMobile ? (
+          <Space direction="vertical" size={2} style={{ width: "100%" }}>
+            <Button
+              icon={<ArrowLeftOutlined />}
+              onClick={() =>
+                navigate(`/projects/${encodeURIComponent(projectId!)}/clients`)
+              }
+              size="small"
+              aria-label="返回客户端列表"
+            />
+            <Title level={5} style={{ margin: 0 }}>
               {client.displayName}
             </Title>
-            <Text type="secondary" style={{ fontSize: "12px" }}>
-              ID: <Text code>{client.clientId}</Text>
+            <Text type="secondary" style={{ fontSize: "11px" }}>
+              <Text code>{client.clientId}</Text>
             </Text>
           </Space>
-        </Space>
+        ) : (
+          <Space>
+            <Button
+              icon={<ArrowLeftOutlined />}
+              onClick={() =>
+                navigate(`/projects/${encodeURIComponent(projectId!)}/clients`)
+              }
+              aria-label="返回客户端列表"
+            />
+            <Space direction="vertical" size={0}>
+              <Title level={4} style={{ margin: 0 }}>
+                {client.displayName}
+              </Title>
+              <Text type="secondary" style={{ fontSize: "12px" }}>
+                ID: <Text code>{client.clientId}</Text>
+              </Text>
+            </Space>
+          </Space>
+        )
       }
       extra={
         <Space>
@@ -461,12 +483,13 @@ export const ClientDetail: React.FC = () => {
       <Tabs
         activeKey={getActiveTab()}
         onChange={handleTabChange}
+        size={isMobile ? "small" : "middle"}
         items={[
           {
             key: "overview",
             label: "概览",
             children: (
-              <Row gutter={24}>
+              <Row gutter={isMobile ? 16 : 24}>
                 <Col xs={24} md={16}>
                   <Space
                     direction="vertical"
@@ -529,7 +552,7 @@ export const ClientDetail: React.FC = () => {
           },
           {
             key: "configuration",
-            label: "OIDC 配置 & 版本",
+            label: isMobile ? "配置" : "OIDC 配置 & 版本",
             children: (
               <Space
                 direction="vertical"
@@ -624,7 +647,9 @@ export const ClientDetail: React.FC = () => {
                                       >
                                         <Input
                                           placeholder="https://example.com/callback"
-                                          style={{ width: 400 }}
+                                          style={{
+                                            width: isMobile ? "100%" : 400,
+                                          }}
                                         />
                                       </Form.Item>
                                       {fields.length > 1 && (
@@ -642,7 +667,7 @@ export const ClientDetail: React.FC = () => {
                                   type="dashed"
                                   onClick={() => add()}
                                   icon={<PlusOutlined />}
-                                  style={{ width: 400 }}
+                                  style={{ width: isMobile ? "100%" : 400 }}
                                 >
                                   添加 Redirect URI
                                 </Button>
@@ -682,7 +707,9 @@ export const ClientDetail: React.FC = () => {
                                       >
                                         <Input
                                           placeholder="https://example.com/logged-out"
-                                          style={{ width: 400 }}
+                                          style={{
+                                            width: isMobile ? "100%" : 400,
+                                          }}
                                         />
                                       </Form.Item>
                                       <Button
@@ -698,7 +725,7 @@ export const ClientDetail: React.FC = () => {
                                   type="dashed"
                                   onClick={() => add()}
                                   icon={<PlusOutlined />}
-                                  style={{ width: 400 }}
+                                  style={{ width: isMobile ? "100%" : 400 }}
                                 >
                                   添加 Logout URI
                                 </Button>
@@ -767,7 +794,7 @@ export const ClientDetail: React.FC = () => {
                     <Card
                       title="管理员审核入口"
                       type="inner"
-                      style={{ border: "1px solid #1890ff" }}
+                      style={{ border: "1px solid var(--wb-brand-2)" }}
                     >
                       <Alert
                         message="审核提示"
@@ -819,7 +846,7 @@ export const ClientDetail: React.FC = () => {
           },
           {
             key: "secrets",
-            label: "凭据管理",
+            label: isMobile ? "凭据" : "凭据管理",
             disabled: client.clientType === "spa",
             children: (
               <Space
@@ -838,6 +865,7 @@ export const ClientDetail: React.FC = () => {
                   dataSource={client.secrets}
                   rowKey="secretId"
                   pagination={{ pageSize: 5 }}
+                  scroll={{ x: isMobile ? 800 : undefined }}
                   columns={[
                     {
                       title: "Secret ID (标识前缀)",
@@ -942,7 +970,7 @@ export const ClientDetail: React.FC = () => {
           },
           {
             key: "safety",
-            label: "安全操作 (Danger Zone)",
+            label: isMobile ? "安全" : "安全操作 (Danger Zone)",
             children: (
               <Card
                 title="危险操作区"
@@ -1014,7 +1042,7 @@ export const ClientDetail: React.FC = () => {
           },
           {
             key: "audit",
-            label: "审计日志",
+            label: isMobile ? "审计" : "审计日志",
             children: (
               <Space
                 direction="vertical"
@@ -1026,6 +1054,7 @@ export const ClientDetail: React.FC = () => {
                   rowKey="id"
                   loading={auditsLoading}
                   pagination={false}
+                  scroll={{ x: isMobile ? 900 : undefined }}
                   columns={[
                     {
                       title: "时间",

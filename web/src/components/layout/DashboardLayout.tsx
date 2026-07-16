@@ -29,6 +29,7 @@ import { useProject } from "../../contexts/project-context";
 import { useNavigate, useLocation, useParams, Outlet } from "react-router-dom";
 import { useGetIdentity, useLogout } from "@refinedev/core";
 import { useThemeMode } from "../../contexts/theme-context";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 import logoMonoLight from "../../assets/logo-mono-light.svg";
 import logoColor from "../../assets/logo-color.svg";
 
@@ -44,9 +45,11 @@ export const DashboardLayout: React.FC = () => {
   const { mutate: logout } = useLogout();
   const { themeMode, toggleTheme } = useThemeMode();
   const { token } = theme.useToken();
+  const { isMobile, isDesktop } = useBreakpoint();
+  const usesDrawerNavigation = !isDesktop;
 
   const [collapsed, setCollapsed] = useState(false);
-  const [mobileVisible, setMobileVisible] = useState(false);
+  const [mobileDrawerVisible, setMobileDrawerVisible] = useState(false);
   const visibleProjects = projects.filter(
     (project) => project.projectId !== "system",
   );
@@ -54,6 +57,7 @@ export const DashboardLayout: React.FC = () => {
   const handleProjectSelect = (value: string) => {
     selectProject(value);
     navigate(`/projects/${encodeURIComponent(value)}/overview`);
+    setMobileDrawerVisible(false);
   };
 
   const getBreadcrumbs = () => {
@@ -207,6 +211,7 @@ export const DashboardLayout: React.FC = () => {
       selectedKeys={[location.pathname]}
       items={getMenuItems()}
       style={{ borderRight: 0 }}
+      onClick={() => setMobileDrawerVisible(false)}
     />
   );
 
@@ -228,6 +233,7 @@ export const DashboardLayout: React.FC = () => {
           position: "sticky",
           top: 0,
           left: 0,
+          display: usesDrawerNavigation ? "none" : "block",
         }}
       >
         <div
@@ -236,36 +242,58 @@ export const DashboardLayout: React.FC = () => {
           <img
             src={logoMonoLight}
             alt="CQUT-Auth"
-            style={{ height: "40px", maxWidth: "100%" }}
+            width={160}
+            height={40}
+            style={{ maxWidth: "100%" }}
           />
         </div>
+        <hr
+          className="wb-rule wb-rule-on-dark"
+          style={{ margin: "0 16px 8px" }}
+        />
         {menuElement}
       </Sider>
 
       <Layout style={{ height: "100vh", minHeight: 0 }}>
+        <div className="wb-weave" />
         <Header
           style={{
             background: token.colorBgContainer,
-            padding: "0 24px",
+            padding: isMobile ? "0 12px" : "0 24px",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <Space>
+          <Space size={isMobile ? "small" : "middle"}>
             <Button
               type="text"
-              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              icon={
+                usesDrawerNavigation ? (
+                  <MenuUnfoldOutlined />
+                ) : collapsed ? (
+                  <MenuUnfoldOutlined />
+                ) : (
+                  <MenuFoldOutlined />
+                )
+              }
               onClick={() => {
-                setCollapsed(!collapsed);
-                // Also trigger mobile drawer if screen width is narrow
-                if (window.innerWidth < 992) {
-                  setMobileVisible(true);
+                if (usesDrawerNavigation) {
+                  setMobileDrawerVisible(true);
+                } else {
+                  setCollapsed(!collapsed);
                 }
               }}
+              aria-label={
+                usesDrawerNavigation
+                  ? "打开导航菜单"
+                  : collapsed
+                    ? "展开侧边栏"
+                    : "收起侧边栏"
+              }
             />
-            {visibleProjects.length > 0 && (
+            {!isMobile && visibleProjects.length > 0 && (
               <Select
                 value={
                   activeProject?.projectId === "system"
@@ -285,30 +313,41 @@ export const DashboardLayout: React.FC = () => {
             )}
           </Space>
 
-          <Space size="middle">
+          <Space size={isMobile ? 4 : "middle"}>
             {identity && (
-              <Space size={8}>
-                <Space size={4}>
-                  <Text strong>{identity.displayName}</Text>
-                  {identity.isAdmin && (
-                    <Badge status="success" text="系统管理员" />
-                  )}
-                </Space>
-                <Text
-                  type="secondary"
-                  copyable={{ tooltips: ["复制 Subject ID", "已复制"] }}
-                  style={{ fontSize: "12px", fontFamily: "monospace" }}
-                >
-                  {identity.subjectId}
-                </Text>
-              </Space>
+              <>
+                {isMobile ? (
+                  <Text strong style={{ fontSize: "13px" }}>
+                    {identity.displayName}
+                  </Text>
+                ) : (
+                  <Space size={8}>
+                    <Space size={4}>
+                      <Text strong>{identity.displayName}</Text>
+                      {identity.isAdmin && (
+                        <Badge status="success" text="系统管理员" />
+                      )}
+                    </Space>
+                    <Text
+                      type="secondary"
+                      copyable={{ tooltips: ["复制 Subject ID", "已复制"] }}
+                      style={{ fontSize: "12px", fontFamily: "monospace" }}
+                    >
+                      {identity.subjectId}
+                    </Text>
+                  </Space>
+                )}
+              </>
             )}
             <Button
               type="text"
               icon={themeMode === "dark" ? <SunOutlined /> : <MoonOutlined />}
               onClick={toggleTheme}
+              aria-label={
+                themeMode === "dark" ? "切换到浅色模式" : "切换到深色模式"
+              }
               style={{
-                fontSize: "16px",
+                fontSize: isMobile ? "14px" : "16px",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
@@ -319,8 +358,9 @@ export const DashboardLayout: React.FC = () => {
               danger
               icon={<LogoutOutlined />}
               onClick={() => logout()}
+              aria-label="退出登录"
             >
-              退出
+              {!isMobile && "退出"}
             </Button>
           </Space>
         </Header>
@@ -328,18 +368,19 @@ export const DashboardLayout: React.FC = () => {
         {/* Mobile Drawer */}
         <Drawer
           title={
-            <img src={logoColor} alt="CQUT-Auth" style={{ height: "32px" }} />
+            <img src={logoColor} alt="CQUT-Auth" width={128} height={32} />
           }
           placement="left"
-          onClose={() => setMobileVisible(false)}
-          open={mobileVisible}
+          onClose={() => setMobileDrawerVisible(false)}
+          open={usesDrawerNavigation && mobileDrawerVisible}
           bodyStyle={{ padding: 0, background: "#0b1f33" }}
+          width={280}
         >
           {menuElement}
         </Drawer>
 
         <div
-          className="dashboard-page-scroll"
+          className="dashboard-page-scroll wb-paper-bg"
           style={
             {
               flex: 1,
@@ -350,8 +391,8 @@ export const DashboardLayout: React.FC = () => {
             } as React.CSSProperties
           }
         >
-          <Content style={{ margin: "24px 24px 0" }}>
-            <div style={{ marginBottom: "16px" }}>
+          <Content style={{ margin: isMobile ? "16px 12px 0" : "24px 24px 0" }}>
+            <div style={{ marginBottom: isMobile ? "12px" : "16px" }}>
               <Breadcrumb
                 items={getBreadcrumbs().map((b) => ({
                   title: <a onClick={b.onClick}>{b.title}</a>,

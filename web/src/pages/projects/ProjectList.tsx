@@ -19,6 +19,7 @@ import {
 import { useProject } from "../../contexts/project-context";
 import { ProjectStatusTag } from "../../components/status/Tags";
 import { useNavigate } from "react-router-dom";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 import { request } from "../../api/client";
 
 const { Paragraph } = Typography;
@@ -28,6 +29,7 @@ export const ProjectList: React.FC = () => {
   const [createVisible, setCreateVisible] = useState(false);
   const [form] = Form.useForm();
   const navigate = useNavigate();
+  const { isMobile } = useBreakpoint();
   const visibleProjects = projects.filter(
     (project) => project.projectId !== "system",
   );
@@ -101,12 +103,17 @@ export const ProjectList: React.FC = () => {
           ghost
           icon={<LoginOutlined />}
           onClick={() => handleEnter(record.projectId)}
+          size={isMobile ? "small" : "middle"}
         >
-          进入项目
+          {isMobile ? "进入" : "进入项目"}
         </Button>
       ),
     },
-  ];
+  ].filter((col) => {
+    // Hide description column on mobile
+    if (isMobile && col.key === "description") return false;
+    return true;
+  });
 
   return (
     <Card
@@ -126,7 +133,8 @@ export const ProjectList: React.FC = () => {
         columns={columns}
         rowKey="projectId"
         loading={loading}
-        pagination={{ pageSize: 10 }}
+        pagination={{ pageSize: isMobile ? 5 : 10 }}
+        scroll={{ x: isMobile ? 600 : undefined }}
       />
 
       <Modal

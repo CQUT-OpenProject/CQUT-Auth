@@ -1,0 +1,288 @@
+/*
+ * "学术雕版/纸感" 设计语言 —— 移植自服务端 OIDC 交互页
+ * (src/routes/interactions.ts 的 renderInteractionPageStyles,只读源头)。
+ * 变量前缀 wb = woodblock。暗色模式由 <html data-theme="dark"> 切换。
+ */
+:root {
+  --wb-ink: #0e2233;
+  --wb-ink-soft: #52667a;
+  --wb-paper: #eef3f8;
+  --wb-card: #fdfefe;
+  --wb-line: #d3dfe9;
+  --wb-line-strong: #a9bfd2;
+  --wb-brand: #0b1f33;
+  --wb-brand-2: #055088;
+  --wb-accent: #2eaf72;
+  --wb-focus-ring: rgba(5, 80, 136, 0.22);
+  --wb-grain: rgba(5, 80, 136, 0.02);
+  --wb-grain-ring: rgba(5, 80, 136, 0.035);
+  --wb-grain-glow: rgba(5, 80, 136, 0.06);
+  --wb-card-shadow: rgba(11, 31, 51, 0.35);
+  --wb-serif:
+    "Source Han Serif SC", "Noto Serif SC", "Songti SC", STSong, Georgia,
+    "Times New Roman", serif;
+}
+
+[data-theme="dark"] {
+  --wb-ink: #e8e3d5;
+  --wb-ink-soft: #9db0c0;
+  --wb-paper: #0c1824;
+  --wb-card: #122333;
+  --wb-line: #26394c;
+  --wb-line-strong: #3b5268;
+  --wb-brand: #0b1f33;
+  --wb-brand-2: #3f8fc4;
+  --wb-accent: #3cc384;
+  --wb-focus-ring: rgba(63, 143, 196, 0.3);
+  --wb-grain: rgba(232, 227, 213, 0.02);
+  --wb-grain-ring: rgba(232, 227, 213, 0.03);
+  --wb-grain-glow: rgba(63, 143, 196, 0.05);
+  --wb-card-shadow: rgba(0, 0, 0, 0.55);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* 纸感底纹背景(细环纹 + 交叉斜纹 + 顶部微光) */
+.wb-paper-bg {
+  background-color: var(--wb-paper);
+  background-image:
+    repeating-radial-gradient(
+      circle at 50% -60vh,
+      transparent 0,
+      transparent 38px,
+      var(--wb-grain-ring) 39px,
+      transparent 40px
+    ),
+    repeating-linear-gradient(
+      45deg,
+      transparent 0,
+      transparent 11px,
+      var(--wb-grain) 11px,
+      var(--wb-grain) 12px
+    ),
+    repeating-linear-gradient(
+      -45deg,
+      transparent 0,
+      transparent 11px,
+      var(--wb-grain) 11px,
+      var(--wb-grain) 12px
+    ),
+    radial-gradient(120% 90% at 50% 0%, var(--wb-grain-glow), transparent 60%);
+}
+
+/* 藏青/翠绿织纹条 */
+.wb-weave {
+  height: 4px;
+  flex: none;
+  background: repeating-linear-gradient(
+    -55deg,
+    var(--wb-brand-2) 0,
+    var(--wb-brand-2) 7px,
+    var(--wb-accent) 7px,
+    var(--wb-accent) 9px
+  );
+}
+
+/* 雕版卡片:小圆角 + 双描边 + 顶部织纹条 */
+.wb-card {
+  box-sizing: border-box;
+  background: var(--wb-card);
+  border: 1px solid var(--wb-line-strong);
+  border-radius: 3px;
+  box-shadow:
+    0 0 0 4px var(--wb-card),
+    0 0 0 5px var(--wb-line),
+    0 24px 48px -24px var(--wb-card-shadow);
+  position: relative;
+  overflow: hidden;
+}
+.wb-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: repeating-linear-gradient(
+    -55deg,
+    var(--wb-brand-2) 0,
+    var(--wb-brand-2) 7px,
+    var(--wb-accent) 7px,
+    var(--wb-accent) 9px
+  );
+}
+
+/* 菱形装饰分隔线 */
+.wb-rule {
+  border: none;
+  height: 1px;
+  margin: 0 0 1.5rem;
+  background: linear-gradient(
+    to right,
+    transparent,
+    var(--wb-line-strong) 18%,
+    var(--wb-line-strong) 82%,
+    transparent
+  );
+  position: relative;
+  overflow: visible;
+}
+.wb-rule::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -3px;
+  width: 7px;
+  height: 7px;
+  transform: translateX(-50%) rotate(45deg);
+  background: var(--wb-card);
+  border: 1px solid var(--wb-line-strong);
+}
+/* 深色底(如 Sider)上使用的浅色变体 */
+.wb-rule-on-dark {
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(232, 227, 213, 0.28) 18%,
+    rgba(232, 227, 213, 0.28) 82%,
+    transparent
+  );
+}
+.wb-rule-on-dark::after {
+  background: var(--wb-brand);
+  border-color: rgba(232, 227, 213, 0.28);
+}
+
+/* 衬线品牌标题 */
+.wb-serif {
+  font-family: var(--wb-serif);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+@keyframes wb-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes wb-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.wb-card-in {
+  animation: wb-card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.wb-rise-in {
+  animation: wb-rise-in 0.55s 0.12s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* AntD 全局微调:按钮字距贴近雕版风 */
+.ant-btn {
+  letter-spacing: 0.04em;
+  touch-action: manipulation;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wb-card-in,
+  .wb-rise-in {
+    animation: none;
+  }
+}
+
+/* ============================================
+   Responsive Adaptations for Mobile & Tablet
+   ============================================ */
+
+/* Mobile: Reduce paper texture complexity for performance */
+@media (max-width: 767px) {
+  .wb-paper-bg {
+    /* Remove complex radial gradients on mobile, keep simpler cross-hatch */
+    background-image:
+      repeating-linear-gradient(
+        45deg,
+        transparent 0,
+        transparent 11px,
+        var(--wb-grain) 11px,
+        var(--wb-grain) 12px
+      ),
+      repeating-linear-gradient(
+        -45deg,
+        transparent 0,
+        transparent 11px,
+        var(--wb-grain) 11px,
+        var(--wb-grain) 12px
+      ),
+      radial-gradient(120% 90% at 50% 0%, var(--wb-grain-glow), transparent 60%);
+  }
+
+  /* Adjust card styling for mobile */
+  .wb-card {
+    border-radius: 2px;
+    box-shadow:
+      0 0 0 3px var(--wb-card),
+      0 0 0 4px var(--wb-line),
+      0 16px 32px -16px var(--wb-card-shadow);
+  }
+
+  .wb-card::before {
+    height: 3px; /* Thinner weave on mobile */
+  }
+
+  /* Adjust typography for mobile readability */
+  .wb-serif {
+    font-size: 1.1rem;
+    letter-spacing: 0.03em;
+  }
+
+  /* Adjust decorative rule */
+  .wb-rule {
+    margin-bottom: 1rem;
+  }
+
+  .wb-rule::after {
+    width: 6px;
+    height: 6px;
+    top: -2.5px;
+  }
+}
+
+/* Tablet: Keep full aesthetic but optimize spacing */
+@media (min-width: 768px) and (max-width: 991px) {
+  .wb-card {
+    box-shadow:
+      0 0 0 3px var(--wb-card),
+      0 0 0 4px var(--wb-line),
+      0 20px 40px -20px var(--wb-card-shadow);
+  }
+}
+
+/* Touch target optimization: Ensure 44x44px minimum (WCAG 2.5.5) */
+@media (hover: none) and (pointer: coarse) {
+  .ant-btn-sm {
+    min-height: 32px;
+    padding: 4px 12px;
+  }
+
+  .ant-btn {
+    min-height: 40px;
+    padding: 8px 16px;
+  }
+
+  .ant-btn-lg {
+    min-height: 48px;
+    padding: 10px 20px;
+  }
+}

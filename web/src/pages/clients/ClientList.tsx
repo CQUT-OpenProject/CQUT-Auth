@@ -8,12 +8,14 @@ import {
   Space,
   Typography,
   Skeleton,
+  Tag,
 } from "antd";
 import { PlusOutlined, EyeOutlined, SearchOutlined } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
 import { useList } from "@refinedev/core";
 import { ClientStatusTag } from "../../components/status/Tags";
 import { useNavigate } from "react-router-dom";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 import type { Client } from "../../api/types";
 
 const { Text } = Typography;
@@ -21,6 +23,7 @@ const { Text } = Typography;
 export const ClientList: React.FC = () => {
   const { activeProject } = useProject();
   const navigate = useNavigate();
+  const { isMobile } = useBreakpoint();
 
   // Search & Filter State
   const [searchText, setSearchText] = useState("");
@@ -132,12 +135,18 @@ export const ClientList: React.FC = () => {
               `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(record.clientId)}/overview`,
             )
           }
+          size={isMobile ? "small" : "middle"}
         >
-          查看详情
+          {isMobile ? "查看" : "查看详情"}
         </Button>
       ),
     },
-  ];
+  ].filter((col) => {
+    // Hide non-essential columns on mobile
+    if (isMobile && col.key === "clientType") return false;
+    if (isMobile && col.key === "updatedAt") return false;
+    return true;
+  });
 
   const canWriteClient = activeProject.capabilities.includes("write_client");
   const isArchived = activeProject.status === "archived";
@@ -164,28 +173,28 @@ export const ClientList: React.FC = () => {
       }
     >
       <Space direction="vertical" style={{ width: "100%" }} size="middle">
-        <Space wrap>
+        <Space wrap style={{ width: "100%" }}>
           <Input
-            placeholder="搜索客户端名称或 ID"
+            placeholder={isMobile ? "搜索" : "搜索客户端名称或 ID"}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             prefix={<SearchOutlined />}
-            style={{ width: 220 }}
+            style={{ width: isMobile ? "100%" : 220, minWidth: isMobile ? "100%" : "auto" }}
             allowClear
           />
           <Select
             value={clientTypeFilter}
             onChange={setClientTypeFilter}
-            style={{ width: 130 }}
+            style={{ width: isMobile ? "48%" : 130 }}
           >
             <Select.Option value="all">所有类型</Select.Option>
-            <Select.Option value="web">Web (服务端保密)</Select.Option>
-            <Select.Option value="spa">SPA (公开客户端)</Select.Option>
+            <Select.Option value="web">Web{!isMobile && " (服务端保密)"}</Select.Option>
+            <Select.Option value="spa">SPA{!isMobile && " (公开客户端)"}</Select.Option>
           </Select>
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
-            style={{ width: 130 }}
+            style={{ width: isMobile ? "48%" : 130 }}
           >
             <Select.Option value="all">所有状态</Select.Option>
             <Select.Option value="draft">草稿</Select.Option>
@@ -202,7 +211,8 @@ export const ClientList: React.FC = () => {
             dataSource={filteredClients}
             columns={columns}
             rowKey="clientId"
-            pagination={{ pageSize: 10 }}
+            pagination={{ pageSize: isMobile ? 5 : 10 }}
+            scroll={{ x: isMobile ? 600 : undefined }}
             locale={{
               emptyText: "暂无符合筛选条件的客户端",
             }}
@@ -212,5 +222,3 @@ export const ClientList: React.FC = () => {
     </Card>
   );
 };
-
-import { Tag } from "antd";

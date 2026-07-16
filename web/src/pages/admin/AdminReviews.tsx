@@ -21,12 +21,14 @@ import {
 import { request } from "../../api/client";
 import { RevisionDiff } from "../../components/revision/RevisionDiff";
 import { useProject } from "../../contexts/project-context";
+import { useBreakpoint } from "../../hooks/useBreakpoint";
 import type { Client } from "../../api/types";
 
 const { Text, Title } = Typography;
 
 export const AdminReviews: React.FC = () => {
   const { projects } = useProject();
+  const { isMobile } = useBreakpoint();
   const [pendingClients, setPendingClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -130,15 +132,20 @@ export const AdminReviews: React.FC = () => {
       title: "操作",
       key: "action",
       render: (_: any, record: Client) => (
-        <Space>
-          <Button type="primary" onClick={() => setSelectedClient(record)}>
-            对比并审核
+        <Space direction={isMobile ? "vertical" : "horizontal"} size="small">
+          <Button
+            type="primary"
+            onClick={() => setSelectedClient(record)}
+            size={isMobile ? "small" : "middle"}
+          >
+            {isMobile ? "审核" : "对比并审核"}
           </Button>
           <Button
             type="primary"
             ghost
             icon={<CheckOutlined />}
             onClick={() => handleApprove(record)}
+            size={isMobile ? "small" : "middle"}
           >
             批准
           </Button>
@@ -172,13 +179,18 @@ export const AdminReviews: React.FC = () => {
                 },
               });
             }}
+            size={isMobile ? "small" : "middle"}
           >
             拒绝
           </Button>
         </Space>
       ),
     },
-  ];
+  ].filter((col) => {
+    // Hide "提交时间" column on mobile
+    if (isMobile && col.key === "updatedAt") return false;
+    return true;
+  });
 
   return (
     <Card title="待审核客户端配置">
@@ -188,6 +200,8 @@ export const AdminReviews: React.FC = () => {
           columns={columns}
           rowKey="clientId"
           loading={loading}
+          scroll={{ x: isMobile ? 800 : undefined }}
+          pagination={{ pageSize: isMobile ? 5 : 10 }}
         />
 
         {selectedClient && selectedClient.proposedRevision && (
