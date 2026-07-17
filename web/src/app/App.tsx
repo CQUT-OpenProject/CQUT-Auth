@@ -9,8 +9,8 @@ import { AppRouter } from "./router";
 import { BrowserRouter } from "react-router-dom";
 import routerProvider from "@refinedev/react-router";
 import { ConfigProvider, App as AntdApp } from "antd";
+import zhCN from "antd/locale/zh_CN";
 import { getThemeConfig } from "../theme/theme";
-import { ProjectProvider } from "../contexts/project-context";
 import { ThemeModeProvider, useThemeMode } from "../contexts/theme-context";
 
 export const AppContent: React.FC = () => {
@@ -18,24 +18,22 @@ export const AppContent: React.FC = () => {
   const dynamicTheme = getThemeConfig(themeMode === "dark");
 
   return (
-    <ConfigProvider theme={dynamicTheme}>
+    <ConfigProvider locale={zhCN} theme={dynamicTheme}>
       <AntdApp>
-        <ProjectProvider>
-          <Refine
-            routerProvider={routerProvider}
-            dataProvider={dataProvider}
-            authProvider={authProvider}
-            accessControlProvider={accessControlProvider}
-            notificationProvider={notificationProvider}
-            resources={resources}
-            options={{
-              syncWithLocation: true,
-              warnWhenUnsavedChanges: false,
-            }}
-          >
-            <AppRouter />
-          </Refine>
-        </ProjectProvider>
+        <Refine
+          routerProvider={routerProvider}
+          dataProvider={dataProvider}
+          authProvider={authProvider}
+          accessControlProvider={accessControlProvider}
+          notificationProvider={notificationProvider}
+          resources={resources}
+          options={{
+            syncWithLocation: true,
+            warnWhenUnsavedChanges: false,
+          }}
+        >
+          <AppRouter />
+        </Refine>
       </AntdApp>
     </ConfigProvider>
   );

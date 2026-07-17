@@ -654,6 +654,7 @@ export const ClientDetail: React.FC = () => {
                                       </Form.Item>
                                       {fields.length > 1 && (
                                         <Button
+                                          aria-label="删除 Redirect URI"
                                           type="text"
                                           danger
                                           icon={<DeleteOutlined />}
@@ -713,6 +714,7 @@ export const ClientDetail: React.FC = () => {
                                         />
                                       </Form.Item>
                                       <Button
+                                        aria-label="删除 Logout URI"
                                         type="text"
                                         danger
                                         icon={<DeleteOutlined />}
@@ -865,7 +867,7 @@ export const ClientDetail: React.FC = () => {
                   dataSource={client.secrets}
                   rowKey="secretId"
                   pagination={{ pageSize: 5 }}
-                  scroll={{ x: isMobile ? 800 : undefined }}
+                  scroll={{ x: isMobile ? "max-content" : undefined }}
                   columns={[
                     {
                       title: "Secret ID (标识前缀)",
@@ -1054,7 +1056,7 @@ export const ClientDetail: React.FC = () => {
                   rowKey="id"
                   loading={auditsLoading}
                   pagination={false}
-                  scroll={{ x: isMobile ? 900 : undefined }}
+                  scroll={{ x: isMobile ? "max-content" : undefined }}
                   columns={[
                     {
                       title: "时间",

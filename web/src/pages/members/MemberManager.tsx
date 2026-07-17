@@ -230,7 +230,12 @@ export const MemberManager: React.FC = () => {
       <Space direction="vertical" style={{ width: "100%" }} size="large">
         {canManageMembers && !isArchived && (
           <Card type="inner" title="添加项目成员">
-            <Form form={addForm} layout="inline" onFinish={handleAdd}>
+            <Form
+              className="responsive-inline-form"
+              form={addForm}
+              layout="inline"
+              onFinish={handleAdd}
+            >
               <Form.Item
                 label="Subject ID"
                 name="subjectId"
@@ -265,6 +270,7 @@ export const MemberManager: React.FC = () => {
           dataSource={members}
           columns={columns}
           rowKey="subjectId"
+          scroll={{ x: "max-content" }}
           loading={loading}
           pagination={false}
         />

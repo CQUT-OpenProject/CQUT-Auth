@@ -6,10 +6,12 @@ const allowed = new Set([
   "src/scripts/seed-oidc-client.ts",
   "src/scripts/seed-oidc-signing-key.ts",
 ]);
-const violations = globSync("src/**/*.ts").filter(
-  (file) =>
-    !allowed.has(file) && readFileSync(file, "utf8").includes("process.env"),
-);
+const violations = globSync("src/**/*.ts")
+  .map((file) => file.replaceAll("\\", "/"))
+  .filter(
+    (file) =>
+      !allowed.has(file) && readFileSync(file, "utf8").includes("process.env"),
+  );
 
 if (violations.length > 0) {
   process.stderr.write(

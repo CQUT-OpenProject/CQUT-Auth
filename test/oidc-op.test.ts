@@ -1840,6 +1840,7 @@ test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
   assert.match(logoutPage.text, /确认退出登录/);
   assert.doesNotMatch(logoutPage.text, /logout-auto-submit/);
   assert.doesNotMatch(logoutPage.text, /<script/i);
+  assert.equal(logoutPage.text.match(/name="logout"/g)?.length, 1);
   const formAction = extractFormAction(logoutPage.text);
   assert.equal(typeof formAction, "string");
 
@@ -1847,10 +1848,7 @@ test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
   const submit = await agent
     .post(normalizeActionPath(formAction as string))
     .type("form")
-    .send({
-      ...hiddenFields,
-      logout: "yes",
-    });
+    .send(hiddenFields);
   const externalRedirect = await followToRedirectUriOrigin(
     agent,
     submit,
@@ -1879,6 +1877,7 @@ test("rp initiated logout shows success page when no redirect uri is provided", 
   assert.match(logoutPage.text, /确认退出登录/);
   assert.doesNotMatch(logoutPage.text, /logout-auto-submit/);
   assert.doesNotMatch(logoutPage.text, /<script/i);
+  assert.equal(logoutPage.text.match(/name="logout"/g)?.length, 1);
   const formAction = extractFormAction(logoutPage.text);
   assert.equal(typeof formAction, "string");
 
@@ -1886,10 +1885,7 @@ test("rp initiated logout shows success page when no redirect uri is provided", 
   const submit = await agent
     .post(normalizeActionPath(formAction as string))
     .type("form")
-    .send({
-      ...hiddenFields,
-      logout: "yes",
-    });
+    .send(hiddenFields);
   let successResponse = submit;
   if (submit.status >= 300 && submit.status < 400) {
     const location = submit.headers["location"];

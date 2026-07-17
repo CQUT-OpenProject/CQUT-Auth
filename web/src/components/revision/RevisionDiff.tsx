@@ -46,8 +46,8 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
         <Text strong style={{ display: "block", marginBottom: "8px" }}>
           {label}
         </Text>
-        <Row gutter={16}>
-          <Col span={12}>
+        <Row className="revision-diff-grid" gutter={[16, 12]}>
+          <Col xs={24} md={12}>
             <div style={panelStyle}>
               <Text
                 type="secondary"
@@ -66,6 +66,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
               ) : (
                 activeItems.map((item) => (
                   <div
+                    className="revision-diff-value"
                     key={item}
                     style={{ fontFamily: "monospace", margin: "2px 0" }}
                   >
@@ -75,7 +76,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
               )}
             </div>
           </Col>
-          <Col span={12}>
+          <Col xs={24} md={12}>
             <div style={panelStyle}>
               <Text
                 type="secondary"
@@ -99,6 +100,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
                 <>
                   {unchanged.map((item) => (
                     <div
+                      className="revision-diff-value"
                       key={item}
                       style={{
                         fontFamily: "monospace",
@@ -111,6 +113,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
                   ))}
                   {added.map((item) => (
                     <div
+                      className="revision-diff-value"
                       key={item}
                       style={{
                         fontFamily: "monospace",
@@ -125,6 +128,7 @@ export const RevisionDiff: React.FC<RevisionDiffProps> = ({
                   ))}
                   {removed.map((item) => (
                     <div
+                      className="revision-diff-value"
                       key={item}
                       style={{
                         fontFamily: "monospace",

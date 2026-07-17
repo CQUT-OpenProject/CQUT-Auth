@@ -6,6 +6,22 @@ import type { AuditLog } from "../../api/types";
 
 const { Text } = Typography;
 
+function auditDetails(audit: AuditLog) {
+  return Object.fromEntries(
+    Object.entries({
+      changedFields: audit.changedFields,
+      revisionId: audit.revisionId,
+      revisionNumber: audit.revisionNumber,
+      secretId: audit.secretId,
+      previousClientStatus: audit.previousClientStatus,
+      newClientStatus: audit.newClientStatus,
+      previousRevisionStatus: audit.previousRevisionStatus,
+      newRevisionStatus: audit.newRevisionStatus,
+      reason: audit.reason,
+    }).filter(([, value]) => value !== undefined),
+  );
+}
+
 export const ProjectAudit: React.FC = () => {
   const { activeProject } = useProject();
   const [audits, setAudits] = useState<AuditLog[]>([]);
@@ -63,6 +79,7 @@ export const ProjectAudit: React.FC = () => {
           rowKey="id"
           loading={loading && audits.length === 0}
           pagination={false}
+          scroll={{ x: "max-content" }}
           columns={[
             {
               title: "时间",
@@ -72,8 +89,8 @@ export const ProjectAudit: React.FC = () => {
             },
             {
               title: "操作人",
-              dataIndex: "subjectId",
-              key: "subjectId",
+              dataIndex: "actorSubjectId",
+              key: "actorSubjectId",
               render: (text: string) => <Text code>{text || "系统"}</Text>,
             },
             {
@@ -89,15 +106,14 @@ export const ProjectAudit: React.FC = () => {
             },
             {
               title: "来源 IP",
-              dataIndex: "details",
+              dataIndex: "sourceIp",
               key: "ip",
-              render: (details: any) => details?.ip || "未知",
+              render: (sourceIp: string | undefined) => sourceIp || "未知",
             },
             {
               title: "变更细节",
-              dataIndex: "details",
               key: "details",
-              render: (details: any) => (
+              render: (_: unknown, audit: AuditLog) => (
                 <pre
                   style={{
                     margin: 0,
@@ -106,7 +122,7 @@ export const ProjectAudit: React.FC = () => {
                     wordBreak: "break-all",
                   }}
                 >
-                  {JSON.stringify(details, null, 2)}
+                  {JSON.stringify(auditDetails(audit), null, 2)}
                 </pre>
               ),
             },

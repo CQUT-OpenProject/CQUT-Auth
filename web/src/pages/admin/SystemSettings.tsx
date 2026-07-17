@@ -297,7 +297,7 @@ export const SystemSettings: React.FC = () => {
                       </>
                     )}
                     {provider !== "disabled" && (
-                      <Space align="end">
+                      <Space className="responsive-setting-test" align="end">
                         <Form.Item name="testRecipient" label="测试收件人">
                           <Input />
                         </Form.Item>
@@ -314,6 +314,7 @@ export const SystemSettings: React.FC = () => {
                 label: title,
                 children: (
                   <div
+                    className="responsive-setting-grid"
                     style={{
                       display: "grid",
                       gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))",
@@ -363,7 +364,7 @@ export const SystemSettings: React.FC = () => {
               },
             ]}
           />
-          <Space style={{ marginTop: 16 }}>
+          <Space className="responsive-form-actions" style={{ marginTop: 16 }}>
             <Button
               type="primary"
               htmlType="submit"

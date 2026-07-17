@@ -43,12 +43,11 @@ export const ClientCreate: React.FC = () => {
   // One time secret states
   const [secretVal, setSecretVal] = useState<string | null>(null);
   const [createdClientId, setCreatedClientId] = useState<string | null>(null);
+  const clientType = Form.useWatch("clientType", form) || "web";
 
   if (!activeProject) {
     return <Card loading title="项目信息正在加载" />;
   }
-
-  const clientType = Form.useWatch("clientType", form) || "web";
 
   const next = async () => {
     try {
@@ -167,7 +166,11 @@ export const ClientCreate: React.FC = () => {
     <Card
       title={
         <Space>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(-1)} />
+          <Button
+            aria-label="返回客户端列表"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate(-1)}
+          />
           <Title level={4} style={{ margin: 0 }}>
             创建客户端
           </Title>
@@ -175,6 +178,9 @@ export const ClientCreate: React.FC = () => {
       }
     >
       <Steps
+        className="client-create-steps"
+        responsive
+        size="small"
         current={currentStep}
         items={[
           { title: "基本信息" },
@@ -301,7 +307,7 @@ export const ClientCreate: React.FC = () => {
                       key={field.key}
                       style={{ marginBottom: "8px" }}
                     >
-                      <Space align="baseline">
+                      <Space className="responsive-uri-row" align="baseline">
                         <Form.Item
                           {...field}
                           validateTrigger={["onChange", "onBlur"]}
@@ -316,11 +322,12 @@ export const ClientCreate: React.FC = () => {
                         >
                           <Input
                             placeholder="https://example.com/callback"
-                            style={{ width: 400 }}
+                            className="responsive-uri-input"
                           />
                         </Form.Item>
                         {fields.length > 1 ? (
                           <Button
+                            aria-label="删除 Redirect URI"
                             type="text"
                             danger
                             icon={<DeleteOutlined />}
@@ -335,7 +342,7 @@ export const ClientCreate: React.FC = () => {
                       type="dashed"
                       onClick={() => add()}
                       icon={<PlusOutlined />}
-                      style={{ width: 400 }}
+                      className="responsive-uri-add"
                     >
                       添加 Redirect URI
                     </Button>
@@ -361,7 +368,7 @@ export const ClientCreate: React.FC = () => {
                       key={field.key}
                       style={{ marginBottom: "8px" }}
                     >
-                      <Space align="baseline">
+                      <Space className="responsive-uri-row" align="baseline">
                         <Form.Item
                           {...field}
                           validateTrigger={["onChange", "onBlur"]}
@@ -376,10 +383,11 @@ export const ClientCreate: React.FC = () => {
                         >
                           <Input
                             placeholder="https://example.com/logged-out"
-                            style={{ width: 400 }}
+                            className="responsive-uri-input"
                           />
                         </Form.Item>
                         <Button
+                          aria-label="删除 Logout URI"
                           type="text"
                           danger
                           icon={<DeleteOutlined />}
@@ -393,7 +401,7 @@ export const ClientCreate: React.FC = () => {
                       type="dashed"
                       onClick={() => add()}
                       icon={<PlusOutlined />}
-                      style={{ width: 400 }}
+                      className="responsive-uri-add"
                     >
                       添加 Logout URI
                     </Button>
@@ -514,7 +522,7 @@ export const ClientCreate: React.FC = () => {
         )}
 
         <div style={{ marginTop: "24px" }}>
-          <Space>
+          <Space className="responsive-form-actions">
             {currentStep > 0 && <Button onClick={prev}>上一步</Button>}
             {currentStep < 4 ? (
               <Button type="primary" onClick={next}>
