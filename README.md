@@ -114,6 +114,17 @@ OIDC_AUTO_SEED_SIGNING_KEY=true
 docker compose -f deploy/docker-compose.prod.yml up -d --build
 ```
 
+主仓库的 `master` 分支和 `v*` 版本标签会通过 GitHub Actions 自动构建
+`linux/amd64`、`linux/arm64` 镜像并发布到 GitHub Container Registry：
+
+```bash
+docker pull ghcr.io/cqut-openproject/cqut-auth:latest
+```
+
+`master` 会生成 `latest`、`master` 和 `sha-<commit>` 标签；例如 `v1.2.3`
+版本标签还会生成 `v1.2.3`、`1.2.3`、`1.2` 和 `1`。如果镜像包未设置为公开，
+拉取前需要先使用具有 `read:packages` 权限的 GitHub Token 登录 `ghcr.io`。
+
 确认 `/health/live` 和 Discovery 正常后，将 `OIDC_AUTO_SEED_SIGNING_KEY` 改回 `false` 并重启。后续签名密钥由数据库管理，不需要每次启动重新生成。此时 `/health/ready` 仍可能因为邮件尚未配置而返回 `503`。
 
 ### 3. 配置反向代理
