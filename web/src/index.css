@@ -6,6 +6,292 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
+  min-width: 320px;
+  width: 100%;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+button,
+a,
+input,
+select,
+[role="button"] {
+  touch-action: manipulation;
+}
+
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 2000;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #055088;
+  transform: translateY(-160%);
+  transition: transform 150ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.dashboard-shell,
+.dashboard-inner-layout {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.dashboard-header-main,
+.dashboard-header-actions {
+  min-width: 0;
+}
+
+.dashboard-header .ant-btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.dashboard-breadcrumb {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  white-space: nowrap;
+}
+
+.dashboard-breadcrumb::-webkit-scrollbar {
+  display: none;
+}
+
+.dashboard-main-content {
+  padding-bottom: max(24px, env(safe-area-inset-bottom));
+}
+
+.responsive-uri-row {
+  display: flex !important;
+  width: 100%;
+  max-width: 448px;
+}
+
+.responsive-uri-row > .ant-space-item:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.responsive-uri-input,
+.responsive-uri-add {
+  width: 100% !important;
+  max-width: 400px;
+}
+
+.revision-diff-value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.responsive-form-actions {
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  .management-login-page {
+    padding: max(24px, env(safe-area-inset-top))
+      max(16px, env(safe-area-inset-right))
+      max(24px, env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left)) !important;
+  }
+
+  .dashboard-header {
+    min-height: 64px;
+    height: auto !important;
+    padding: max(8px, env(safe-area-inset-top)) 8px 8px !important;
+    gap: 8px;
+    line-height: normal !important;
+  }
+
+  .dashboard-header-main {
+    flex: 1 1 auto;
+    gap: 4px !important;
+  }
+
+  .dashboard-header-actions {
+    flex: 0 0 auto;
+    gap: 0 !important;
+  }
+
+  .dashboard-content {
+    margin: 12px 12px 0 !important;
+  }
+
+  .dashboard-breadcrumb {
+    margin: 0 -4px 12px;
+    padding: 0 4px 4px;
+  }
+
+  .ant-drawer .ant-drawer-close,
+  .ant-drawer .ant-menu-item {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .ant-drawer .ant-menu-item {
+    line-height: 44px;
+  }
+
+  .responsive-inline-form {
+    display: block !important;
+  }
+
+  .responsive-inline-form .ant-form-item {
+    margin-inline-end: 0;
+  }
+
+  .responsive-inline-form .ant-input,
+  .responsive-inline-form .ant-select {
+    width: 100% !important;
+  }
+
+  .responsive-uri-row {
+    align-items: flex-start !important;
+    max-width: none;
+  }
+
+  .responsive-uri-row .ant-btn,
+  .responsive-form-actions .ant-btn,
+  .ant-modal-footer .ant-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .client-create-steps {
+    margin-bottom: 24px !important;
+  }
+
+  .client-create-steps .ant-steps-item-title {
+    font-size: 13px;
+  }
+
+  .responsive-form-actions {
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 8px !important;
+  }
+
+  .responsive-form-actions > .ant-space-item {
+    margin: 0 !important;
+  }
+
+  .responsive-setting-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .responsive-setting-test {
+    display: flex !important;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .responsive-setting-test > .ant-space-item:first-child,
+  .responsive-setting-test .ant-form-item,
+  .responsive-setting-test .ant-input {
+    width: 100%;
+  }
+
+  .ant-btn {
+    min-height: 44px;
+  }
+
+  .ant-btn.ant-btn-icon-only {
+    min-width: 44px;
+  }
+
+  .ant-input,
+  .ant-input-affix-wrapper input,
+  .ant-input-number-input,
+  .ant-select-selection-item,
+  .ant-select-selection-placeholder {
+    font-size: 16px !important;
+  }
+
+  .ant-input:not(textarea),
+  .ant-input-affix-wrapper,
+  .ant-input-number,
+  .ant-select-single,
+  .ant-select-single .ant-select-selector {
+    min-height: 44px;
+  }
+
+  .ant-select-single .ant-select-selector {
+    align-items: center;
+  }
+
+  .ant-input-number-input {
+    height: 42px;
+  }
+
+  .ant-pagination-item,
+  .ant-pagination-prev,
+  .ant-pagination-next {
+    min-width: 44px;
+    height: 44px;
+    line-height: 42px;
+  }
+
+  .ant-typography code {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .ant-modal {
+    top: 0;
+    width: calc(100vw - 24px) !important;
+    max-width: calc(100vw - 24px);
+    margin: 12px auto;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+
+  .ant-modal .ant-modal-content {
+    padding: 20px 16px;
+  }
+
+  .ant-modal .ant-modal-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .ant-modal .ant-modal-footer > .ant-btn {
+    margin-inline-start: 0;
+  }
+
+  .ant-descriptions-view {
+    overflow-x: auto;
+  }
+
+  .revision-diff-grid {
+    row-gap: 12px;
+  }
+}
+
+@media (max-width: 767px) and (orientation: landscape) {
+  .management-login-page {
+    padding-block: 16px max(24px, env(safe-area-inset-bottom)) !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }
 
 .dashboard-page-scroll {

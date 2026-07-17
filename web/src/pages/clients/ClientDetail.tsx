@@ -866,9 +866,8 @@ export const ClientDetail: React.FC = () => {
                 <Table
                   dataSource={client.secrets}
                   rowKey="secretId"
-                  scroll={{ x: "max-content" }}
                   pagination={{ pageSize: 5 }}
-                  scroll={{ x: isMobile ? 800 : undefined }}
+                  scroll={{ x: isMobile ? "max-content" : undefined }}
                   columns={[
                     {
                       title: "Secret ID (标识前缀)",
@@ -1056,9 +1055,8 @@ export const ClientDetail: React.FC = () => {
                   dataSource={audits}
                   rowKey="id"
                   loading={auditsLoading}
-                  scroll={{ x: "max-content" }}
                   pagination={false}
-                  scroll={{ x: isMobile ? 900 : undefined }}
+                  scroll={{ x: isMobile ? "max-content" : undefined }}
                   columns={[
                     {
                       title: "时间",

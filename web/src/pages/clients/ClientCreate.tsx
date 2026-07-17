@@ -178,6 +178,9 @@ export const ClientCreate: React.FC = () => {
       }
     >
       <Steps
+        className="client-create-steps"
+        responsive
+        size="small"
         current={currentStep}
         items={[
           { title: "基本信息" },
@@ -304,7 +307,7 @@ export const ClientCreate: React.FC = () => {
                       key={field.key}
                       style={{ marginBottom: "8px" }}
                     >
-                      <Space align="baseline">
+                      <Space className="responsive-uri-row" align="baseline">
                         <Form.Item
                           {...field}
                           validateTrigger={["onChange", "onBlur"]}
@@ -319,7 +322,7 @@ export const ClientCreate: React.FC = () => {
                         >
                           <Input
                             placeholder="https://example.com/callback"
-                            style={{ width: 400 }}
+                            className="responsive-uri-input"
                           />
                         </Form.Item>
                         {fields.length > 1 ? (
@@ -339,7 +342,7 @@ export const ClientCreate: React.FC = () => {
                       type="dashed"
                       onClick={() => add()}
                       icon={<PlusOutlined />}
-                      style={{ width: 400 }}
+                      className="responsive-uri-add"
                     >
                       添加 Redirect URI
                     </Button>
@@ -365,7 +368,7 @@ export const ClientCreate: React.FC = () => {
                       key={field.key}
                       style={{ marginBottom: "8px" }}
                     >
-                      <Space align="baseline">
+                      <Space className="responsive-uri-row" align="baseline">
                         <Form.Item
                           {...field}
                           validateTrigger={["onChange", "onBlur"]}
@@ -380,7 +383,7 @@ export const ClientCreate: React.FC = () => {
                         >
                           <Input
                             placeholder="https://example.com/logged-out"
-                            style={{ width: 400 }}
+                            className="responsive-uri-input"
                           />
                         </Form.Item>
                         <Button
@@ -398,7 +401,7 @@ export const ClientCreate: React.FC = () => {
                       type="dashed"
                       onClick={() => add()}
                       icon={<PlusOutlined />}
-                      style={{ width: 400 }}
+                      className="responsive-uri-add"
                     >
                       添加 Logout URI
                     </Button>
@@ -519,7 +522,7 @@ export const ClientCreate: React.FC = () => {
         )}
 
         <div style={{ marginTop: "24px" }}>
-          <Space>
+          <Space className="responsive-form-actions">
             {currentStep > 0 && <Button onClick={prev}>上一步</Button>}
             {currentStep < 4 ? (
               <Button type="primary" onClick={next}>

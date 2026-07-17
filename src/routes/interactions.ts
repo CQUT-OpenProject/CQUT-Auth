@@ -199,6 +199,7 @@ function renderInteractionPageStyles(): string {
           margin: 0;
           padding: 2rem 1.25rem;
           min-height: 100vh;
+          min-height: 100dvh;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -540,8 +541,11 @@ function renderInteractionPageStyles(): string {
           justify-content: flex-start;
           background: var(--paper);
           background-image: none;
+          overflow-x: hidden;
         }
-        .page-header { padding: 24px; }
+        .page-header {
+          padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 24px max(24px, env(safe-area-inset-left));
+        }
         .brand-logo {
           display: block;
           width: min(256px, 100%);
@@ -552,7 +556,7 @@ function renderInteractionPageStyles(): string {
           flex: 1;
           display: grid;
           place-items: center;
-          padding: 32px 16px 64px;
+          padding: 32px max(16px, env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
         }
         .container {
           max-width: 400px;
@@ -603,6 +607,7 @@ function renderInteractionPageStyles(): string {
           border: 1px solid var(--line-strong);
           border-radius: 8px;
           transition: border-color 150ms ease;
+          touch-action: manipulation;
         }
         .password-control input { padding-right: 44px; }
         button {
@@ -614,6 +619,7 @@ function renderInteractionPageStyles(): string {
           border-radius: 8px;
           letter-spacing: 0;
           transition: background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
+          touch-action: manipulation;
         }
         input:focus, input:focus-visible, button:focus-visible {
           background: var(--card);
@@ -632,10 +638,20 @@ function renderInteractionPageStyles(): string {
           line-height: 1.65;
         }
         @media (max-width: 480px) {
-          .page-header { padding: 16px; }
+          .page-header {
+            padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
+          }
           .brand-logo { width: min(224px, 100%); }
-          .page-shell { padding: 24px 16px 48px; align-items: start; }
+          .page-shell {
+            padding: 24px max(16px, env(safe-area-inset-right)) max(48px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+            align-items: start;
+          }
           .container { padding: 24px; }
+        }
+        @media (max-width: 767px) and (orientation: landscape) {
+          .page-header { padding-block: 12px; }
+          .brand-logo { width: min(192px, 100%); }
+          .page-shell { padding-block: 16px max(24px, env(safe-area-inset-bottom)); }
         }
         @media (prefers-color-scheme: dark) {
           :root:not([data-theme="light"]) {
@@ -693,11 +709,11 @@ function renderInteractionPageStyles(): string {
         }
         :root .password-control > button.password-toggle {
           position: absolute;
-          top: 4px;
-          right: 4px;
-          min-height: 36px;
-          width: 36px;
-          padding: 8px;
+          top: 0;
+          right: 0;
+          min-height: 44px;
+          width: 44px;
+          padding: 12px;
           background: transparent;
           border: 0;
           border-radius: 0;

@@ -216,22 +216,23 @@ export const DashboardLayout: React.FC = () => {
   );
 
   return (
-    <Layout style={{ height: "100vh", overflow: "hidden" }}>
+    <Layout
+      className="dashboard-shell"
+      style={{ height: "100dvh", overflow: "hidden" }}
+    >
+      <a className="skip-link" href="#dashboard-main-content">
+        跳到主要内容
+      </a>
       {/* Desktop Sider */}
       <Sider
         breakpoint="lg"
         collapsedWidth="0"
-        onBreakpoint={(broken) => {
-          setIsMobile(broken);
-          setCollapsed(broken);
-          if (!broken) setMobileVisible(false);
-        }}
         trigger={null}
         collapsible
         collapsed={collapsed}
         style={{
           overflow: "auto",
-          height: "100vh",
+          height: "100dvh",
           position: "sticky",
           top: 0,
           left: 0,
@@ -256,9 +257,13 @@ export const DashboardLayout: React.FC = () => {
         {menuElement}
       </Sider>
 
-      <Layout style={{ height: "100vh", minHeight: 0 }}>
+      <Layout
+        className="dashboard-inner-layout"
+        style={{ height: "100dvh", minHeight: 0 }}
+      >
         <div className="wb-weave" />
         <Header
+          className="dashboard-header"
           style={{
             background: token.colorBgContainer,
             padding: isMobile ? "0 12px" : "0 24px",
@@ -268,7 +273,10 @@ export const DashboardLayout: React.FC = () => {
             borderBottom: `1px solid ${token.colorBorderSecondary}`,
           }}
         >
-          <Space size={isMobile ? "small" : "middle"}>
+          <Space
+            className="dashboard-header-main"
+            size={isMobile ? "small" : "middle"}
+          >
             <Button
               type="text"
               icon={
@@ -315,31 +323,26 @@ export const DashboardLayout: React.FC = () => {
             )}
           </Space>
 
-          <Space size={isMobile ? 4 : "middle"}>
-            {identity && (
-              <>
-                {isMobile ? (
-                  <Text strong style={{ fontSize: "13px" }}>
-                    {identity.displayName}
-                  </Text>
-                ) : (
-                  <Space size={8}>
-                    <Space size={4}>
-                      <Text strong>{identity.displayName}</Text>
-                      {identity.isAdmin && (
-                        <Badge status="success" text="系统管理员" />
-                      )}
-                    </Space>
-                    <Text
-                      type="secondary"
-                      copyable={{ tooltips: ["复制 Subject ID", "已复制"] }}
-                      style={{ fontSize: "12px", fontFamily: "monospace" }}
-                    >
-                      {identity.subjectId}
-                    </Text>
-                  </Space>
-                )}
-              </>
+          <Space
+            className="dashboard-header-actions"
+            size={isMobile ? 4 : "middle"}
+          >
+            {identity && !isMobile && (
+              <Space size={8}>
+                <Space size={4}>
+                  <Text strong>{identity.displayName}</Text>
+                  {identity.isAdmin && (
+                    <Badge status="success" text="系统管理员" />
+                  )}
+                </Space>
+                <Text
+                  type="secondary"
+                  copyable={{ tooltips: ["复制 Subject ID", "已复制"] }}
+                  style={{ fontSize: "12px", fontFamily: "monospace" }}
+                >
+                  {identity.subjectId}
+                </Text>
+              </Space>
             )}
             <Button
               type="text"
@@ -376,7 +379,7 @@ export const DashboardLayout: React.FC = () => {
           onClose={() => setMobileDrawerVisible(false)}
           open={usesDrawerNavigation && mobileDrawerVisible}
           styles={{ body: { padding: 0, background: "#0b1f33" } }}
-          width={280}
+          width="min(320px, calc(100vw - 24px))"
         >
           {menuElement}
         </Drawer>
@@ -393,8 +396,16 @@ export const DashboardLayout: React.FC = () => {
             } as React.CSSProperties
           }
         >
-          <Content style={{ margin: isMobile ? "16px 12px 0" : "24px 24px 0" }}>
-            <div style={{ marginBottom: isMobile ? "12px" : "16px" }}>
+          <Content
+            id="dashboard-main-content"
+            tabIndex={-1}
+            className="dashboard-content dashboard-main-content"
+            style={{ margin: isMobile ? "16px 12px 0" : "24px 24px 0" }}
+          >
+            <div
+              className="dashboard-breadcrumb"
+              style={{ marginBottom: isMobile ? "12px" : "16px" }}
+            >
               <Breadcrumb
                 items={getBreadcrumbs().map((b) => ({
                   title: <a onClick={b.onClick}>{b.title}</a>,

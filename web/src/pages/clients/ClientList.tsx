@@ -179,7 +179,10 @@ export const ClientList: React.FC = () => {
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
             prefix={<SearchOutlined />}
-            style={{ width: isMobile ? "100%" : 220, minWidth: isMobile ? "100%" : "auto" }}
+            style={{
+              width: isMobile ? "100%" : 220,
+              minWidth: isMobile ? "100%" : "auto",
+            }}
             allowClear
           />
           <Select
@@ -188,8 +191,12 @@ export const ClientList: React.FC = () => {
             style={{ width: isMobile ? "48%" : 130 }}
           >
             <Select.Option value="all">所有类型</Select.Option>
-            <Select.Option value="web">Web{!isMobile && " (服务端保密)"}</Select.Option>
-            <Select.Option value="spa">SPA{!isMobile && " (公开客户端)"}</Select.Option>
+            <Select.Option value="web">
+              Web{!isMobile && " (服务端保密)"}
+            </Select.Option>
+            <Select.Option value="spa">
+              SPA{!isMobile && " (公开客户端)"}
+            </Select.Option>
           </Select>
           <Select
             value={statusFilter}

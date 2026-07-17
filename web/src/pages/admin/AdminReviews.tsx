@@ -199,9 +199,8 @@ export const AdminReviews: React.FC = () => {
           dataSource={pendingClients}
           columns={columns}
           rowKey="clientId"
-          scroll={{ x: "max-content" }}
           loading={loading}
-          scroll={{ x: isMobile ? 800 : undefined }}
+          scroll={{ x: isMobile ? "max-content" : undefined }}
           pagination={{ pageSize: isMobile ? 5 : 10 }}
         />
 
@@ -257,7 +256,7 @@ export const AdminReviews: React.FC = () => {
             ]}
           >
             <Space direction="vertical" style={{ width: "100%" }} size="middle">
-              <Descriptions bordered column={2} size="small">
+              <Descriptions bordered column={{ xs: 1, sm: 2 }} size="small">
                 <Descriptions.Item label="项目">
                   <Space direction="vertical" size={0}>
                     <Text>

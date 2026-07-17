@@ -31,9 +31,9 @@ export const Login: React.FC = () => {
 
   return (
     <main
-      className="wb-paper-bg"
+      className="management-login-page wb-paper-bg"
       style={{
-        minHeight: "100vh",
+        minHeight: "100dvh",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
