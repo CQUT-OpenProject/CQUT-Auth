@@ -10,7 +10,7 @@ const { Title, Paragraph } = Typography;
 
 export const Login: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState("");
-  const { mutate: login, isLoading } = useLogin();
+  const { mutate: login, isPending: isLoading } = useLogin();
   const { themeMode } = useThemeMode();
   const { token } = theme.useToken();
   const { isMobile } = useBreakpoint();

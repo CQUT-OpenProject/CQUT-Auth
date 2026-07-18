@@ -38,7 +38,7 @@ export const dataProvider: DataProvider = {
     if (resource === "projectAuditLogs") {
       if (!projectId) throw new Error("projectId is required in meta");
       // Read query params from meta or pagination filters
-      const limit = pagination?.current ? pagination.pageSize : 50;
+      const limit = pagination?.currentPage ? pagination.pageSize : 50;
       const beforeId = meta?.beforeId;
       const query = new URLSearchParams();
       if (limit) query.set("limit", String(limit));
