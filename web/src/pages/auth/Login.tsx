@@ -6,7 +6,7 @@ import { useBreakpoint } from "../../hooks/useBreakpoint";
 import logoMonoLight from "../../assets/logo-mono-light.svg";
 import logoColor from "../../assets/logo-color.svg";
 
-const { Title, Paragraph, Text } = Typography;
+const { Title, Paragraph } = Typography;
 
 export const Login: React.FC = () => {
   const [errorMsg, setErrorMsg] = useState("");
@@ -31,120 +31,122 @@ export const Login: React.FC = () => {
 
   return (
     <main
-      className="management-login-page wb-paper-bg"
+      className="management-login-page login-split-layout"
       style={{
         minHeight: "100dvh",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: isMobile ? "24px 16px" : "32px 20px",
+        display: "grid",
+        gridTemplateColumns: isMobile ? "1fr" : "1.5fr 1px 1fr",
+        background: token.colorBgLayout,
       }}
     >
-      <div
-        className="wb-card wb-card-in"
+      {!isMobile && (
+        <>
+          <section
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "48px",
+              background: isDark
+                ? `radial-gradient(circle at 30% 30%, #15293d, transparent 60%), ${token.colorBgLayout}`
+                : `radial-gradient(circle at 30% 30%, #dceef5, transparent 60%), ${token.colorBgLayout}`,
+              position: "relative",
+              overflow: "hidden",
+            }}
+            className="login-hero-pane"
+          >
+            <div style={{ maxWidth: "600px" }} className="login-hero-content">
+              <img
+                src={isDark ? logoMonoLight : logoColor}
+                alt="CQUT-AUTH Logo"
+                style={{ height: "80px", width: "auto" }}
+              />
+            </div>
+          </section>
+          <div
+            style={{ backgroundColor: token.colorBorderSecondary }}
+            className="login-divider"
+          ></div>
+        </>
+      )}
+      <section
         style={{
-          width: "100%",
-          maxWidth: 420,
-          padding: isMobile ? "24px 20px 20px" : "36px 36px 32px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: isMobile ? "32px 16px" : "48px 36px",
+          background: token.colorBgContainer,
         }}
+        className="login-form-pane"
       >
         <div
-          className="wb-rise-in"
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 12,
-            marginBottom: 20,
-          }}
+          style={{ width: "100%", maxWidth: "320px" }}
+          className="login-form-content"
         >
-          <img
-            src={isDark ? logoMonoLight : logoColor}
-            alt="CQUT-Auth Logo"
-            width={isMobile ? 192 : 224}
-            height={isMobile ? 48 : 56}
-          />
-          <div style={{ textAlign: "center" }}>
-            <Title
-              level={isMobile ? 4 : 3}
-              className="wb-serif"
-              style={{ margin: 0, letterSpacing: "0.08em" }}
+          {isMobile && (
+            <img
+              src={isDark ? logoMonoLight : logoColor}
+              alt="CQUT-AUTH Logo"
+              style={{
+                height: "56px",
+                width: "auto",
+                display: "block",
+                margin: "0 auto 24px",
+              }}
+            />
+          )}
+          <Title level={2} style={{ margin: "0 0 8px 0", fontWeight: 750 }}>
+            登录管理台
+          </Title>
+          <Paragraph type="secondary" style={{ marginBottom: "24px" }}>
+            使用校园统一身份认证账号登录。密码仅用于本次认证，不会被保存。
+          </Paragraph>
+          {errorMsg && (
+            <Alert
+              message={errorMsg}
+              type="error"
+              showIcon
+              style={{ marginBottom: "20px" }}
+            />
+          )}
+          <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
+            <Form.Item
+              label="账号"
+              name="account"
+              rules={[{ required: true, message: "请输入账号" }]}
             >
-              登录管理台
-            </Title>
-            <Text
-              type="secondary"
-              style={{ fontSize: 11, letterSpacing: "0.32em" }}
+              <Input
+                size="large"
+                placeholder="学号/工号"
+                autoComplete="username"
+                spellCheck={false}
+              />
+            </Form.Item>
+            <Form.Item
+              label="密码"
+              name="password"
+              rules={[{ required: true, message: "请输入密码" }]}
             >
-              CQUT UNIFIED AUTH
-            </Text>
-          </div>
+              <Input.Password
+                size="large"
+                placeholder="密码"
+                autoComplete="current-password"
+              />
+            </Form.Item>
+            <Form.Item>
+              <Button
+                type="primary"
+                htmlType="submit"
+                size="large"
+                block
+                loading={isLoading}
+              >
+                登录管理台
+              </Button>
+            </Form.Item>
+          </Form>
         </div>
-        <hr className="wb-rule" />
-        <Paragraph
-          type="secondary"
-          style={{ textAlign: "center", marginBottom: 24 }}
-        >
-          使用校园统一身份认证账号登录。
-        </Paragraph>
-        {errorMsg && (
-          <Alert
-            message={errorMsg}
-            type="error"
-            showIcon
-            style={{ marginBottom: 20 }}
-          />
-        )}
-        <Form layout="vertical" onFinish={onFinish} requiredMark={false}>
-          <Form.Item
-            label="账号"
-            name="account"
-            rules={[{ required: true, message: "请输入账号" }]}
-          >
-            <Input
-              size="large"
-              placeholder="学号/工号"
-              autoComplete="username"
-              spellCheck={false}
-            />
-          </Form.Item>
-          <Form.Item
-            label="密码"
-            name="password"
-            rules={[{ required: true, message: "请输入密码" }]}
-          >
-            <Input.Password
-              size="large"
-              placeholder="密码"
-              autoComplete="current-password"
-            />
-          </Form.Item>
-          <Form.Item style={{ marginBottom: 0 }}>
-            <Button
-              type="primary"
-              htmlType="submit"
-              size="large"
-              block
-              loading={isLoading}
-            >
-              登录管理台
-            </Button>
-          </Form.Item>
-        </Form>
-      </div>
-      <p
-        className="wb-rise-in"
-        style={{
-          marginTop: 22,
-          fontSize: 12,
-          letterSpacing: "0.18em",
-          textAlign: "center",
-          color: token.colorTextSecondary,
-        }}
-      >
-        密码仅用于本次认证，不会被保存
-      </p>
+      </section>
     </main>
   );
 };
