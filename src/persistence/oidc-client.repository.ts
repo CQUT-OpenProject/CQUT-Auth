@@ -273,7 +273,10 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
 
   async updateOidcClientMetadata(
     clientId: string,
-    patch: Pick<OidcClientRecord, "displayName" | "description" | "updatedAt">,
+    patch: Pick<
+      OidcClientRecord,
+      "displayName" | "description" | "requirePkce" | "updatedAt"
+    >,
     expectedVersion: number,
     audit: OidcClientAuditRecord,
     authorization: ProjectWriteAuthorization,
@@ -302,12 +305,13 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
         await this.authorizeProjectWrite(connection, authorization, clientId);
         const result = await connection.query(
           `update oidc_clients set display_name = $2, description = $3,
-           updated_at = $4::timestamptz, version = version + 1
-         where client_id = $1 and version = $5`,
+           require_pkce = $4, updated_at = $5::timestamptz, version = version + 1
+         where client_id = $1 and version = $6`,
           [
             clientId,
             patch.displayName,
             patch.description,
+            patch.requirePkce,
             patch.updatedAt,
             expectedVersion,
           ],
@@ -1387,7 +1391,8 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
         : ["authorization_code"],
       responseTypes: ["code"],
       scopeWhitelist: revision.scopeWhitelist,
-      requirePkce: true,
+      // Public (SPA) clients must always use PKCE (RFC 9700); web clients may opt out.
+      requirePkce: web ? client.requirePkce : true,
       allowRefreshTokenForPublicClient: false,
       clientSecretDigests: web
         ? secrets.map((secret) => secret.secretDigest)
@@ -1405,6 +1410,7 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
       createdBySubjectId: client.createdBySubjectId,
       clientType: client.clientType,
       autoConsent: client.autoConsent,
+      requirePkce: client.requirePkce,
       lifecycleStatus: client.lifecycleStatus,
       activeRevisionId: client.activeRevisionId,
       authorizationGeneration: client.authorizationGeneration,
@@ -1572,8 +1578,8 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
   private insertClientSql() {
     return `insert into oidc_clients (client_id, project_id, display_name, description,
       created_by_subject_id, client_type, auto_consent, lifecycle_status, active_revision_id,
-      authorization_generation, created_at, updated_at, version)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::timestamptz, $13)`;
+      authorization_generation, created_at, updated_at, version, require_pkce)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::timestamptz, $12::timestamptz, $13, $14)`;
   }
 
   private clientValues(client: OidcClientRecord) {
@@ -1748,7 +1754,8 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
        display_name = excluded.display_name,
        description = excluded.description, project_id = excluded.project_id,
        created_by_subject_id = excluded.created_by_subject_id,
-       client_type = excluded.client_type, auto_consent = excluded.auto_consent, lifecycle_status = excluded.lifecycle_status,
+       client_type = excluded.client_type, auto_consent = excluded.auto_consent,
+       require_pkce = excluded.require_pkce, lifecycle_status = excluded.lifecycle_status,
        updated_at = excluded.updated_at, version = excluded.version`,
       this.clientValues(base),
     );
@@ -1867,6 +1874,7 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
         (row["created_by_subject_id"] as string | null) ?? null,
       clientType: row["client_type"] as OidcClientRecord["clientType"],
       autoConsent: Boolean(row["auto_consent"]),
+      requirePkce: row["require_pkce"] == null ? true : Boolean(row["require_pkce"]),
       lifecycleStatus: row[
         "lifecycle_status"
       ] as OidcClientRecord["lifecycleStatus"],

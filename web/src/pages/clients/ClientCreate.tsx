@@ -11,6 +11,8 @@ import {
   Typography,
   List,
   Divider,
+  Switch,
+  Alert,
   message,
 } from "antd";
 import {
@@ -64,6 +66,8 @@ export const ClientCreate: React.FC = () => {
             "scopeWhitelist",
             currentScopes.filter((s: string) => s !== "offline_access"),
           );
+          // SPA(公开客户端)必须强制开启 PKCE
+          form.setFieldValue("requirePkce", true);
         }
       } else if (currentStep === 2) {
         await form.validateFields(["redirectUris", "postLogoutRedirectUris"]);
@@ -110,6 +114,9 @@ export const ClientCreate: React.FC = () => {
         redirectUris: cleanRedirectUris,
         postLogoutRedirectUris: cleanPostLogoutRedirectUris,
         scopeWhitelist: values.scopeWhitelist || ["openid"],
+        // SPA(公开客户端)必须开启 PKCE;仅 Web 客户端允许关闭。
+        requirePkce:
+          values.clientType === "spa" ? true : values.requirePkce !== false,
       };
 
       const res = await request<{ client: any; clientSecret?: string }>(
@@ -197,6 +204,7 @@ export const ClientCreate: React.FC = () => {
         layout="vertical"
         initialValues={{
           clientType: "web",
+          requirePkce: true,
           redirectUris: [""],
           postLogoutRedirectUris: [],
           scopeWhitelist: ["openid", "profile"],
@@ -279,6 +287,25 @@ export const ClientCreate: React.FC = () => {
                 </Space>
               </Radio.Group>
             </Form.Item>
+
+            {clientType === "web" ? (
+              <Form.Item
+                label="PKCE 安全增强"
+                name="requirePkce"
+                valuePropName="checked"
+                extra="PKCE 可防止授权码被拦截利用。建议保持开启；仅在客户端确实无法支持 PKCE 时关闭。"
+                style={{ maxWidth: 640 }}
+              >
+                <Switch checkedChildren="强制开启" unCheckedChildren="已关闭" />
+              </Form.Item>
+            ) : (
+              <Alert
+                type="info"
+                showIcon
+                style={{ maxWidth: 640 }}
+                message="SPA（公开客户端）必须强制使用 PKCE，不可关闭。"
+              />
+            )}
           </div>
         )}
 
@@ -472,6 +499,17 @@ export const ClientCreate: React.FC = () => {
                     {formValues.clientType === "web"
                       ? "Web (保密客户端)"
                       : "SPA (公开客户端)"}
+                  </Text>
+                </Space>
+              </List.Item>
+              <List.Item>
+                <Space direction="vertical" size={2}>
+                  <Text type="secondary">PKCE 安全增强</Text>
+                  <Text>
+                    {formValues.clientType === "spa" ||
+                    formValues.requirePkce !== false
+                      ? "已开启"
+                      : "已关闭"}
                   </Text>
                 </Space>
               </List.Item>

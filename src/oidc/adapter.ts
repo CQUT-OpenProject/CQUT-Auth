@@ -24,6 +24,7 @@ function providerClientMetadata(client: ActiveOidcClientRecord) {
     scope: client.scopeWhitelist.join(" "),
     allowRefreshTokenForPublicClient: client.allowRefreshTokenForPublicClient,
     clientSecretDigests: client.clientSecretDigests,
+    requirePkce: client.requirePkce,
   };
   if (client.clientType === "web") {
     metadata["client_secret"] = `placeholder:${client.clientId}`;

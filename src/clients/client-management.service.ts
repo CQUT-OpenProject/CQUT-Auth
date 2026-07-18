@@ -47,6 +47,7 @@ export type PublicOidcClient = {
   description: string;
   createdBySubjectId: string | null;
   clientType: ManagedClientType;
+  requirePkce: boolean;
   lifecycleStatus: ClientLifecycleStatus;
   activeRevision: PublicClientRevision | null;
   proposedRevision: PublicClientRevision | null;
@@ -90,6 +91,7 @@ const createFields = [
   "clientType",
   "displayName",
   "description",
+  "requirePkce",
   ...configurationFields,
 ] as const;
 
@@ -172,6 +174,7 @@ export class ClientManagementService {
       createdBySubjectId: actor.subjectId,
       clientType: configuration.clientType,
       autoConsent: false,
+      requirePkce: configuration.requirePkce,
       lifecycleStatus: "draft",
       activeRevisionId: null,
       authorizationGeneration: 1,
@@ -267,6 +270,7 @@ export class ClientManagementService {
       "clientVersion",
       "displayName",
       "description",
+      "requirePkce",
     ]);
     const current = await this.requireAccessible(
       actor,
@@ -287,9 +291,14 @@ export class ClientManagementService {
       body["description"] === undefined
         ? current.client.description
         : this.parseText(body["description"], "description", 0, 1000);
+    const requirePkce =
+      body["requirePkce"] === undefined
+        ? current.client.requirePkce
+        : this.parseRequirePkce(body["requirePkce"], current.client.clientType);
     const changedFields = [
       ...(displayName !== current.client.displayName ? ["displayName"] : []),
       ...(description !== current.client.description ? ["description"] : []),
+      ...(requirePkce !== current.client.requirePkce ? ["requirePkce"] : []),
     ];
     if (!changedFields.length)
       throw new ClientManagementError(
@@ -300,7 +309,7 @@ export class ClientManagementService {
     const timestamp = this.now().toISOString();
     const updated = await this.repository.updateOidcClientMetadata(
       clientId,
-      { displayName, description, updatedAt: timestamp },
+      { displayName, description, requirePkce, updatedAt: timestamp },
       clientVersion,
       this.audit(actor, clientId, "client.updated", changedFields, timestamp),
       this.authorization(actor, projectId, "write_client"),
@@ -1072,6 +1081,25 @@ export class ClientManagementService {
     return result.client;
   }
 
+  // PKCE 默认开启。SPA(公开客户端)必须开启,不允许关闭(RFC 9700)。
+  private parseRequirePkce(value: unknown, clientType: ManagedClientType) {
+    if (typeof value !== "boolean")
+      throw new ClientManagementError(
+        400,
+        "invalid_request",
+        "requirePkce must be a boolean",
+        "requirePkce",
+      );
+    if (clientType === "spa" && value === false)
+      throw new ClientManagementError(
+        400,
+        "invalid_request",
+        "SPA clients must keep PKCE enabled",
+        "requirePkce",
+      );
+    return value;
+  }
+
   private parseText(value: unknown, field: string, min: number, max: number) {
     if (typeof value !== "string")
       throw new ClientManagementError(
@@ -1130,6 +1158,7 @@ export function toPublicClient(
     description: client.description,
     createdBySubjectId: client.createdBySubjectId,
     clientType: client.clientType,
+    requirePkce: client.requirePkce,
     lifecycleStatus: client.lifecycleStatus,
     activeRevision: toPublicRevision(managed.activeRevision),
     proposedRevision: toPublicRevision(managed.proposedRevision),

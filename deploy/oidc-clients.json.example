@@ -9,6 +9,7 @@
       "scopeWhitelist": ["openid", "profile", "email", "student"],
       "redirectUris": ["https://demo.xxx.com/callback"],
       "postLogoutRedirectUris": ["https://demo.xxx.com/logout-complete"],
+      "requirePkce": true,
       "autoConsent": false
     }
   ]

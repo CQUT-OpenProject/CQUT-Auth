@@ -21,6 +21,7 @@ import {
   Spin,
   InputNumber,
   Divider,
+  Switch,
   message,
 } from "antd";
 import {
@@ -35,7 +36,7 @@ import {
   PlusOutlined,
 } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
-import { useOne, useUpdate } from "@refinedev/core";
+import { useOne } from "@refinedev/core";
 import { ClientStatusTag, SecretStatusTag } from "../../components/status/Tags";
 import { request } from "../../api/client";
 import { RevisionDiff } from "../../components/revision/RevisionDiff";
@@ -119,6 +120,7 @@ export const ClientDetail: React.FC = () => {
       metaForm.setFieldsValue({
         displayName: client.displayName,
         description: client.description,
+        requirePkce: client.requirePkce,
       });
 
       // Prepare configuration form values
@@ -202,6 +204,9 @@ export const ClientDetail: React.FC = () => {
           body: JSON.stringify({
             displayName: values.displayName,
             description: values.description || "",
+            ...(client.clientType === "web"
+              ? { requirePkce: values.requirePkce }
+              : {}),
             clientVersion: client.clientVersion,
           }),
         },
@@ -515,6 +520,26 @@ export const ClientDetail: React.FC = () => {
                         <Form.Item label="描述" name="description">
                           <Input.TextArea maxLength={1000} showCount rows={3} />
                         </Form.Item>
+                        {client.clientType === "web" ? (
+                          <Form.Item
+                            label="PKCE 安全增强"
+                            name="requirePkce"
+                            valuePropName="checked"
+                            extra="PKCE 可防止授权码被拦截利用。建议保持开启；仅在客户端确实无法支持 PKCE 时关闭。"
+                          >
+                            <Switch
+                              checkedChildren="强制开启"
+                              unCheckedChildren="已关闭"
+                            />
+                          </Form.Item>
+                        ) : (
+                          <Alert
+                            type="info"
+                            showIcon
+                            style={{ marginBottom: 16 }}
+                            message="SPA（公开客户端）必须强制使用 PKCE，不可关闭。"
+                          />
+                        )}
                         {canWrite && (
                           <Form.Item>
                             <Button
@@ -537,6 +562,13 @@ export const ClientDetail: React.FC = () => {
                         <Tag color="purple">
                           {client.clientType.toUpperCase()}
                         </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="PKCE">
+                        {client.requirePkce ? (
+                          <Tag color="green">强制开启</Tag>
+                        ) : (
+                          <Tag color="orange">已关闭</Tag>
+                        )}
                       </Descriptions.Item>
                       <Descriptions.Item label="乐观锁版本">
                         <Text code>{client.clientVersion}</Text>
@@ -796,7 +828,7 @@ export const ClientDetail: React.FC = () => {
                     <Card
                       title="管理员审核入口"
                       type="inner"
-                      style={{ border: "1px solid var(--wb-brand-2)" }}
+                      style={{ border: "1px solid #1890ff" }}
                     >
                       <Alert
                         message="审核提示"

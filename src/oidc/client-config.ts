@@ -21,6 +21,7 @@ export type ManagedClientConfiguration = {
   redirectUris: string[];
   postLogoutRedirectUris: string[];
   scopeWhitelist: OidcScope[];
+  requirePkce: boolean;
 };
 
 export class ClientValidationError extends Error {
@@ -231,7 +232,33 @@ export function validateManagedClientConfiguration(
     redirectUris,
     postLogoutRedirectUris,
     scopeWhitelist,
+    requirePkce: parseRequirePkce(raw["requirePkce"], clientType, label),
   };
+}
+
+// PKCE 默认开启。SPA(公开客户端)必须开启,不允许关闭(RFC 9700)。
+// 仅 Web(保密客户端)可显式关闭。
+function parseRequirePkce(
+  value: unknown,
+  clientType: ManagedClientType,
+  label: string,
+): boolean {
+  if (value === undefined) {
+    return true;
+  }
+  if (typeof value !== "boolean") {
+    throw new ClientValidationError(
+      `${label}: requirePkce must be a boolean`,
+      "requirePkce",
+    );
+  }
+  if (clientType === "spa" && value === false) {
+    throw new ClientValidationError(
+      `${label}: SPA clients must keep PKCE enabled`,
+      "requirePkce",
+    );
+  }
+  return value;
 }
 
 export function configurationToProtocolFields(
@@ -247,7 +274,7 @@ export function configurationToProtocolFields(
       ? ["authorization_code", "refresh_token"]
       : ["authorization_code"],
     responseTypes: ["code"],
-    requirePkce: true,
+    requirePkce: configuration.clientType === "spa" ? true : configuration.requirePkce,
     allowRefreshTokenForPublicClient: false,
     autoConsent: false,
   };
@@ -297,6 +324,7 @@ function parseBootstrapClient(
       redirectUris: raw["redirectUris"],
       postLogoutRedirectUris: raw["postLogoutRedirectUris"] ?? [],
       scopeWhitelist: raw["scopeWhitelist"],
+      requirePkce: raw["requirePkce"],
     },
     appEnv,
     `oidc client ${clientId}`,
@@ -332,12 +360,6 @@ function parseBootstrapClient(
     throw new ClientValidationError(
       `oidc client ${clientId}: responseTypes must be code`,
       "responseTypes",
-    );
-  }
-  if (raw["requirePkce"] === false) {
-    throw new ClientValidationError(
-      `oidc client ${clientId}: requirePkce must be true`,
-      "requirePkce",
     );
   }
   if (raw["allowRefreshTokenForPublicClient"] === true) {
