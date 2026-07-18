@@ -421,7 +421,10 @@ export class PersistenceRuntimeImpl {
 
   async updateOidcClientMetadata(
     clientId: string,
-    patch: Pick<OidcClientRecord, "displayName" | "description" | "updatedAt">,
+    patch: Pick<
+      OidcClientRecord,
+      "displayName" | "description" | "requirePkce" | "updatedAt"
+    >,
     expectedVersion: number,
     audit: OidcClientAuditRecord,
     authorization: ProjectWriteAuthorization,

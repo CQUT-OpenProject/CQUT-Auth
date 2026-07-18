@@ -714,8 +714,13 @@ export async function createOidcRuntime(
     clientAuthMethods: ["client_secret_basic", "none"],
     responseTypes: ["code"],
     pkce: {
-      required() {
-        return true;
+      required(_ctx: any, client: any) {
+        // 公开客户端(SPA / token_endpoint_auth_method=none)必须强制 PKCE
+        // (RFC 9700 §2.1.1);仅保密客户端允许通过 requirePkce 关闭。
+        if (client?.tokenEndpointAuthMethod === "none") {
+          return true;
+        }
+        return client?.metadata().requirePkce !== false;
       },
     },
     claims: {
@@ -809,7 +814,11 @@ export async function createOidcRuntime(
       },
     },
     extraClientMetadata: {
-      properties: ["clientSecretDigests", "allowRefreshTokenForPublicClient"],
+      properties: [
+        "clientSecretDigests",
+        "allowRefreshTokenForPublicClient",
+        "requirePkce",
+      ],
       validator() {},
     },
     findAccount: async (_ctx: any, sub: string) => {

@@ -48,6 +48,7 @@ export type OidcClientRecord = {
   createdBySubjectId: string | null;
   clientType: "web" | "spa";
   autoConsent: boolean;
+  requirePkce: boolean;
   lifecycleStatus: ClientLifecycleStatus;
   activeRevisionId: number | null;
   authorizationGeneration: number;
@@ -103,7 +104,6 @@ export type ActiveOidcClientRecord = OidcClientRecord & {
   grantTypes: string[];
   responseTypes: string[];
   scopeWhitelist: OidcScope[];
-  requirePkce: boolean;
   allowRefreshTokenForPublicClient: boolean;
   clientSecretDigests: string[];
 };
@@ -290,7 +290,10 @@ export interface OidcClientRepository {
   ): Promise<ManagedOidcClientRecord | null>;
   updateOidcClientMetadata(
     clientId: string,
-    patch: Pick<OidcClientRecord, "displayName" | "description" | "updatedAt">,
+    patch: Pick<
+      OidcClientRecord,
+      "displayName" | "description" | "requirePkce" | "updatedAt"
+    >,
     expectedVersion: number,
     audit: OidcClientAuditRecord,
     authorization: ProjectWriteAuthorization,

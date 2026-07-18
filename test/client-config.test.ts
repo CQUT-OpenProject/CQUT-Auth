@@ -69,6 +69,51 @@ test("loadOidcClientsFromConfig applies safer defaults for public client config"
   assert.deepEqual(clients[0]?.grantTypes, ["authorization_code"]);
   assert.deepEqual(clients[0]?.scopeWhitelist, ["openid", "profile"]);
   assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
+  assert.equal(clients[0]?.requirePkce, true);
+});
+
+test("loadOidcClientsFromConfig allows disabling PKCE for web clients", async () => {
+  const digest = await createClientSecretDigest("test-client-secret");
+  const filePath = await writeClientsConfig({
+    clients: [
+      {
+        clientId: "legacy-web",
+        clientSecretDigest: digest,
+        redirectUris: ["http://localhost:3002/callback"],
+        postLogoutRedirectUris: ["http://localhost:3002/logout"],
+        requirePkce: false,
+      },
+    ],
+  });
+  const clients = await loadOidcClientsFromConfig({
+    appEnv: "test",
+    oidcClientsConfigPath: filePath,
+  });
+  assert.equal(clients.length, 1);
+  assert.equal(clients[0]?.clientType, "web");
+  assert.equal(clients[0]?.requirePkce, false);
+});
+
+test("loadOidcClientsFromConfig rejects disabling PKCE for SPA clients", async () => {
+  const filePath = await writeClientsConfig({
+    clients: [
+      {
+        clientId: "public-site",
+        tokenEndpointAuthMethod: "none",
+        redirectUris: ["http://localhost:3002/callback"],
+        postLogoutRedirectUris: ["http://localhost:3002/logout"],
+        requirePkce: false,
+      },
+    ],
+  });
+  await assert.rejects(
+    () =>
+      loadOidcClientsFromConfig({
+        appEnv: "test",
+        oidcClientsConfigPath: filePath,
+      }),
+    /SPA clients must keep PKCE enabled/,
+  );
 });
 
 test("loadOidcClientsFromConfig rejects refresh tokens for SPA clients", async () => {

@@ -67,6 +67,7 @@ create table if not exists oidc_clients (
   created_by_subject_id text references subjects(subject_id),
   client_type text not null check (client_type in ('web', 'spa')),
   auto_consent boolean not null default false,
+  require_pkce boolean not null default true,
   lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
   active_revision_id bigint,
   authorization_generation integer not null default 1 check (authorization_generation > 0),
@@ -119,6 +120,9 @@ create table if not exists oidc_client_revisions (
   unique (client_id, revision_number),
   unique (client_id, revision_id)
 );
+
+alter table oidc_clients
+  add column if not exists require_pkce boolean not null default true;
 
 do $$ begin
   alter table oidc_clients

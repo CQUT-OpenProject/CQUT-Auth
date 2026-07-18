@@ -685,3 +685,78 @@ test("client and pending revision quotas cannot be bypassed", async () => {
     await store.close();
   }
 });
+
+test("web clients can disable PKCE on creation and toggle it via update", async () => {
+  const store = new PersistenceRuntimeImpl(config());
+  await store.init();
+  try {
+    const service = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+    );
+    const created = await service.create(owner, SYSTEM_PROJECT_ID, {
+      ...webInput,
+      requirePkce: false,
+    });
+    assert.equal(created.client.requirePkce, false);
+
+    const updated = await service.update(
+      owner,
+      SYSTEM_PROJECT_ID,
+      created.client.clientId,
+      { clientVersion: created.client.clientVersion, requirePkce: true },
+    );
+    assert.equal(updated.requirePkce, true);
+    assert.ok(
+      (await store.listOidcClientAuditLogs(created.client.clientId)).some(
+        (entry) =>
+          entry.action === "client.updated" &&
+          entry.changedFields.includes("requirePkce"),
+      ),
+    );
+  } finally {
+    await store.close();
+  }
+});
+
+test("SPA clients cannot disable PKCE on creation or update", async () => {
+  const store = new PersistenceRuntimeImpl(config());
+  await store.init();
+  try {
+    const service = new ClientManagementService(
+      store,
+      new ProjectAccessService(store),
+      "test",
+    );
+    await assert.rejects(
+      () =>
+        service.create(owner, SYSTEM_PROJECT_ID, {
+          ...webInput,
+          clientType: "spa",
+          requirePkce: false,
+        }),
+      (error: unknown) =>
+        error instanceof ClientManagementError &&
+        error.field === "requirePkce",
+    );
+
+    const created = await service.create(owner, SYSTEM_PROJECT_ID, {
+      ...webInput,
+      clientType: "spa",
+    });
+    assert.equal(created.client.requirePkce, true);
+    await assert.rejects(
+      () =>
+        service.update(owner, SYSTEM_PROJECT_ID, created.client.clientId, {
+          clientVersion: created.client.clientVersion,
+          requirePkce: false,
+        }),
+      (error: unknown) =>
+        error instanceof ClientManagementError &&
+        error.field === "requirePkce",
+    );
+  } finally {
+    await store.close();
+  }
+});

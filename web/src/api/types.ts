@@ -73,6 +73,7 @@ export type Client = {
   displayName: string;
   description: string;
   clientType: "web" | "spa";
+  requirePkce: boolean;
   lifecycleStatus: "draft" | "active" | "disabled";
   activeRevision: ClientRevision | null;
   proposedRevision: ClientRevision | null;
