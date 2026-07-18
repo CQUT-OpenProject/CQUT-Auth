@@ -250,10 +250,6 @@ export const DashboardLayout: React.FC = () => {
             style={{ maxWidth: "100%" }}
           />
         </div>
-        <hr
-          className="wb-rule wb-rule-on-dark"
-          style={{ margin: "0 16px 8px" }}
-        />
         {menuElement}
       </Sider>
 
@@ -261,7 +257,6 @@ export const DashboardLayout: React.FC = () => {
         className="dashboard-inner-layout"
         style={{ height: "100dvh", minHeight: 0 }}
       >
-        <div className="wb-weave" />
         <Header
           className="dashboard-header"
           style={{
@@ -385,7 +380,7 @@ export const DashboardLayout: React.FC = () => {
         </Drawer>
 
         <div
-          className="dashboard-page-scroll wb-paper-bg"
+          className="dashboard-page-scroll"
           style={
             {
               flex: 1,
