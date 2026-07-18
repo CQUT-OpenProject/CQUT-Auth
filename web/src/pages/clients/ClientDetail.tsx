@@ -1018,7 +1018,7 @@ export const ClientDetail: React.FC = () => {
                   size="large"
                 >
                   <div>
-                    <Title level={5} danger>
+                    <Title level={5} type="danger">
                       撤销客户端全部授权
                     </Title>
                     <Paragraph type="secondary">
@@ -1046,7 +1046,7 @@ export const ClientDetail: React.FC = () => {
                   <Divider />
 
                   <div>
-                    <Title level={5} danger>
+                    <Title level={5} type="danger">
                       紧急停用客户端
                     </Title>
                     <Paragraph type="secondary">
