@@ -812,6 +812,7 @@ export class PersistenceRuntimeImpl {
         created_by_subject_id text references subjects(subject_id),
         client_type text not null check (client_type in ('web', 'spa')),
         auto_consent boolean not null default false,
+        require_pkce boolean not null default true,
         lifecycle_status text not null default 'draft' check (lifecycle_status in ('draft', 'active', 'disabled')),
         active_revision_id bigint,
         authorization_generation integer not null default 1 check (authorization_generation > 0),
@@ -819,6 +820,10 @@ export class PersistenceRuntimeImpl {
         updated_at timestamptz not null default now(),
         version integer not null default 1 check (version > 0)
       );
+    `);
+    await this.pool.query(`
+      alter table oidc_clients
+      add column if not exists require_pkce boolean not null default true;
     `);
     await this.pool.query(`
       create table if not exists oidc_client_secrets (
@@ -1045,6 +1050,7 @@ export class PersistenceRuntimeImpl {
       "project_id",
       "created_by_subject_id",
       "client_type",
+      "require_pkce",
       "lifecycle_status",
       "active_revision_id",
       "authorization_generation",
