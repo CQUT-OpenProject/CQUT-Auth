@@ -918,6 +918,28 @@ export async function createOidcRuntime(
     },
   });
   provider.proxy = true;
+  // Token / userinfo / end-session failures respond with JSON and never reach
+  // renderError, so without these listeners the server logs stay silent while
+  // downstream clients only surface a generic "failed to obtain token".
+  for (const eventName of [
+    "authorization.error",
+    "grant.error",
+    "userinfo.error",
+    "end_session.error",
+    "server_error",
+  ]) {
+    provider.on(eventName, (ctx: any, error: any) => {
+      console.error(`[oidc-op] ${eventName}`, {
+        error: error?.error ?? error?.name,
+        description: error?.error_description ?? error?.message,
+        detail: error?.error_detail,
+        status: error?.statusCode ?? error?.status,
+        clientId: ctx?.oidc?.params?.client_id ?? ctx?.oidc?.client?.clientId,
+        grantType: ctx?.oidc?.params?.grant_type,
+        endpoint: ctx?.oidc?.route,
+      });
+    });
+  }
   installClientSecretDigestValidation(provider);
   const stopSigningKeyRefresh = startSigningKeyRefreshLoop(
     provider,
