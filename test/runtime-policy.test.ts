@@ -3,6 +3,10 @@ import test from "node:test";
 import { readConfig } from "../src/config.js";
 import { encryptJson } from "../src/crypto.js";
 import { emptyEmailSettings } from "../src/email/email-settings.js";
+import type {
+  EmailSender,
+  SendVerificationCodeInput,
+} from "../src/email/email-sender.js";
 import { AppSettingsRepositoryImpl } from "../src/persistence/app-settings.repository.js";
 import {
   defaultRuntimePolicy,
@@ -10,6 +14,13 @@ import {
 } from "../src/runtime-policy.js";
 
 const secret = "test-runtime-policy-key";
+
+class FakeEmailSender implements EmailSender {
+  readonly sent: SendVerificationCodeInput[] = [];
+  async sendVerificationCode(input: SendVerificationCodeInput): Promise<void> {
+    this.sent.push(input);
+  }
+}
 
 function config() {
   return readConfig({
@@ -77,6 +88,135 @@ test("runtime policy rejects cross-field violations atomically", async () => {
     /session idle TTL must not exceed session TTL/,
   );
   assert.equal((await service.getView()).version, 0);
+});
+
+test("runtime policy normalizes the sender and rejects malformed from addresses", async () => {
+  const store = new AppSettingsRepositoryImpl(() => undefined);
+  const defaults = defaultRuntimePolicy(config());
+  const service = new RuntimePolicyModule(store, secret, defaults);
+  await service.initialize();
+
+  const saved = await service.update(
+    {
+      expectedVersion: 0,
+      policy: defaults.policy,
+      email: {
+        provider: "resend",
+        resend: { apiKey: "re_test", from: "Cialli Dev<noreply@example.com>" },
+      },
+    },
+    { subjectId: "admin" },
+  );
+  assert.equal(saved.email.resend.from, "Cialli Dev <noreply@example.com>");
+
+  await assert.rejects(
+    service.update(
+      {
+        expectedVersion: saved.version,
+        policy: defaults.policy,
+        email: {
+          provider: "resend",
+          resend: { apiKey: "re_test", from: "CQUT-Auth" },
+        },
+      },
+      { subjectId: "admin" },
+    ),
+    /sender must be 'email@example\.com' or 'Name <email@example\.com>'/,
+  );
+});
+
+test("send test exercises the submitted draft without stamping the stored config", async () => {
+  const store = new AppSettingsRepositoryImpl(() => undefined);
+  const defaults = defaultRuntimePolicy(config());
+  const service = new RuntimePolicyModule(store, secret, defaults);
+  await service.initialize();
+  await service.update(
+    {
+      expectedVersion: 0,
+      policy: defaults.policy,
+      email: {
+        provider: "resend",
+        resend: { apiKey: "re_saved", from: "Saved <saved@example.com>" },
+      },
+    },
+    { subjectId: "admin" },
+  );
+  const sender = new FakeEmailSender();
+
+  // A draft that differs from the stored settings is validated and sent, but
+  // must not mark the stored configuration as verified nor bump its version.
+  const draftView = await service.sendTest(
+    {
+      expectedVersion: 1,
+      recipient: "Admin@Example.com",
+      email: {
+        provider: "resend",
+        resend: { apiKey: "", from: "Draft <draft@example.com>" },
+      },
+    },
+    { subjectId: "admin" },
+    sender,
+  );
+  assert.equal(sender.sent.length, 1);
+  assert.equal(sender.sent[0]?.to, "admin@example.com");
+  assert.equal(draftView.version, 1);
+  assert.equal(draftView.email.verification.status, "unverified");
+
+  // An invalid draft is rejected even though the stored settings are valid,
+  // proving the draft is what actually gets tested.
+  await assert.rejects(
+    service.sendTest(
+      {
+        expectedVersion: 1,
+        recipient: "admin@example.com",
+        email: { provider: "smtp", smtp: {} },
+      },
+      { subjectId: "admin" },
+      sender,
+    ),
+    /SMTP host, port and sender are required/,
+  );
+
+  // A draft identical to the stored settings keeps the legacy behaviour:
+  // the stored configuration is stamped verified.
+  const sameView = await service.sendTest(
+    {
+      expectedVersion: 1,
+      recipient: "admin@example.com",
+      email: {
+        provider: "resend",
+        resend: { apiKey: "", from: "Saved <saved@example.com>" },
+      },
+    },
+    { subjectId: "admin" },
+    sender,
+  );
+  assert.equal(sameView.version, 2);
+  assert.equal(sameView.email.verification.status, "verified");
+});
+
+test("send test works against a draft before anything is saved", async () => {
+  const store = new AppSettingsRepositoryImpl(() => undefined);
+  const defaults = defaultRuntimePolicy(config());
+  const service = new RuntimePolicyModule(store, secret, defaults);
+  await service.initialize();
+  const sender = new FakeEmailSender();
+
+  const view = await service.sendTest(
+    {
+      expectedVersion: 0,
+      recipient: "admin@example.com",
+      email: {
+        provider: "resend",
+        resend: { apiKey: "re_draft", from: "Draft <draft@example.com>" },
+      },
+    },
+    { subjectId: "admin" },
+    sender,
+  );
+  assert.equal(sender.sent.length, 1);
+  assert.equal(view.version, 0);
+  assert.equal(view.email.provider, "disabled");
 });
 
 test("runtime policy ignores the removed legacy email row", async () => {

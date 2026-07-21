@@ -13,6 +13,7 @@ import {
   Switch,
   Typography,
   Modal,
+  message,
 } from "antd";
 import {
   ReloadOutlined,
@@ -25,6 +26,27 @@ import type { EmailProviderKind, RuntimePolicyView } from "../../api/types";
 
 const { Text } = Typography;
 const SECRET_PLACEHOLDER = "已配置（留空则保持不变）";
+const FROM_EXAMPLE = "Cialli Dev <noreply@example.com>";
+const FROM_HINT = `支持 email@example.com 或 Name <email@example.com>（名称与 < 之间需有空格），示例：${FROM_EXAMPLE}`;
+
+const fromAddressRules = [
+  { required: true, message: "请输入发件人地址" },
+  {
+    validator: (_: unknown, value: string) => {
+      const text = (value ?? "").trim();
+      if (
+        !text ||
+        /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(text) ||
+        /^.*\S\s*<\s*[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+\s*>$/.test(text)
+      ) {
+        return Promise.resolve();
+      }
+      return Promise.reject(
+        new Error(`格式应为 email@example.com 或 Name <email@example.com>`),
+      );
+    },
+  },
+];
 
 const groups = [
   [
@@ -147,13 +169,28 @@ export const SystemSettings: React.FC = () => {
 
   const sendTest = async () => {
     if (!view) return;
+    const recipient = (form.getFieldValue("testRecipient") ?? "").trim();
+    if (!recipient) {
+      setError("请先填写测试收件人邮箱，如 yourname@example.com");
+      return;
+    }
     try {
-      const recipient = form.getFieldValue("testRecipient");
-      await request("/settings/runtime-policy/email/test", {
-        method: "POST",
-        body: JSON.stringify({ expectedVersion: view.version, recipient }),
-      });
-      await load();
+      // 把表单当前填写的邮件配置随请求发送：后端会与已保存的密钥合并后
+      // 直接测试这份配置，无需先保存。
+      const result = await request<{ settings: RuntimePolicyView }>(
+        "/settings/runtime-policy/email/test",
+        {
+          method: "POST",
+          body: JSON.stringify({
+            expectedVersion: view.version,
+            recipient,
+            email: form.getFieldValue("email"),
+          }),
+        },
+      );
+      setView(result.settings);
+      setError("");
+      message.success(`测试邮件已发送至 ${recipient}，请查收`);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "测试发送失败");
     }
@@ -210,6 +247,7 @@ export const SystemSettings: React.FC = () => {
               {
                 key: "email",
                 label: "邮件发送",
+                forceRender: true,
                 children: (
                   <>
                     <Form.Item
@@ -241,9 +279,10 @@ export const SystemSettings: React.FC = () => {
                         <Form.Item
                           name={["email", "resend", "from"]}
                           label="发件人"
-                          rules={[{ required: true }]}
+                          rules={fromAddressRules}
+                          extra={FROM_HINT}
                         >
-                          <Input />
+                          <Input placeholder={FROM_EXAMPLE} />
                         </Form.Item>
                       </>
                     )}
@@ -290,19 +329,31 @@ export const SystemSettings: React.FC = () => {
                         <Form.Item
                           name={["email", "smtp", "from"]}
                           label="发件人"
-                          rules={[{ required: true }]}
+                          rules={fromAddressRules}
+                          extra={FROM_HINT}
                         >
-                          <Input />
+                          <Input placeholder={FROM_EXAMPLE} />
                         </Form.Item>
                       </>
                     )}
                     {provider !== "disabled" && (
                       <Space className="responsive-setting-test" align="end">
-                        <Form.Item name="testRecipient" label="测试收件人">
-                          <Input />
+                        <Form.Item
+                          name="testRecipient"
+                          label="测试收件人"
+                          rules={[
+                            {
+                              type: "email",
+                              message:
+                                "请输入合法邮箱地址，如 yourname@example.com",
+                            },
+                          ]}
+                          extra="测试将直接使用上方当前填写的配置（密钥留空时沿用已保存的密钥）"
+                        >
+                          <Input placeholder="yourname@example.com" />
                         </Form.Item>
                         <Button icon={<SendOutlined />} onClick={sendTest}>
-                          测试待生效配置
+                          测试当前填写配置
                         </Button>
                       </Space>
                     )}
@@ -312,6 +363,7 @@ export const SystemSettings: React.FC = () => {
               ...groups.map(([title, fields]) => ({
                 key: title,
                 label: title,
+                forceRender: true,
                 children: (
                   <div
                     className="responsive-setting-grid"
@@ -345,6 +397,7 @@ export const SystemSettings: React.FC = () => {
               {
                 key: "exempt",
                 label: "管理员豁免",
+                forceRender: true,
                 children: (
                   <Space direction="vertical">
                     <Form.Item

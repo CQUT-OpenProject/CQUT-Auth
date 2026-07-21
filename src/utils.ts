@@ -61,3 +61,23 @@ export function parseScope(raw: string | undefined): string[] {
 export function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
+
+/**
+ * Sender addresses must be either `email@example.com` or
+ * `Name <email@example.com>` (the space before `<` is mandatory for Resend).
+ * normalizeEmailFromAddress repairs the common `Name<email>` typo so values
+ * saved through the management panel are always deliverable.
+ */
+export function normalizeEmailFromAddress(value: string): string {
+  const match = value.trim().match(/^(.*?)\s*<\s*([^<>\s]+)\s*>$/);
+  if (!match) return value.trim();
+  const name = match[1]?.trim();
+  const email = match[2] ?? "";
+  return name ? `${name} <${email}>` : email;
+}
+
+export function isValidEmailFromAddress(value: string): boolean {
+  if (isValidEmail(value)) return true;
+  const match = value.match(/^(.+) <([^<>\s]+)>$/);
+  return Boolean(match && match[1]?.trim() && isValidEmail(match[2] ?? ""));
+}

@@ -13,7 +13,7 @@ import type {
   AppSettingAuditRecord,
   AppSettingsRepository,
 } from "./persistence/contracts.js";
-import { isValidEmail } from "./utils.js";
+import { isValidEmail, isValidEmailFromAddress, normalizeEmailFromAddress } from "./utils.js";
 
 export const RUNTIME_POLICY_KEY = "runtime-policy";
 
@@ -174,8 +174,14 @@ export class RuntimePolicyModule {
       "expectedVersion",
     );
     if (expectedVersion !== (stored?.version ?? 0)) conflict();
-    validateEmail(current.email);
-    if (current.email.provider === "disabled")
+    // Test whatever the admin currently has in the form when the request
+    // carries a draft; otherwise fall back to the stored configuration.
+    const email =
+      input["email"] === undefined
+        ? current.email
+        : mergeEmail(current.email, input["email"]);
+    validateEmail(email);
+    if (email.provider === "disabled")
       invalid("email provider must be enabled", "email.provider");
     const recipient =
       typeof input["recipient"] === "string"
@@ -183,12 +189,21 @@ export class RuntimePolicyModule {
         : "";
     if (!isValidEmail(recipient))
       invalid("recipient must be a valid email address", "recipient");
-    await (_sender ?? buildEmailSender(current.email)).sendVerificationCode({
+    await (_sender ?? buildEmailSender(email)).sendVerificationCode({
       to: recipient,
       code: "000000",
       interactionUid: `runtime-policy-test-${randomUUID()}`,
       expiresInSeconds: current.policy.emailVerifyCodeTtlSeconds,
     });
+    if (!sameEmailConfig(email, current.email)) {
+      // The draft differs from the saved settings, so the send only proves the
+      // draft works; the stored config keeps its current verification status.
+      return this.toView(
+        current,
+        stored?.version ?? 0,
+        stored?.updatedAt ?? null,
+      );
+    }
     const verifiedAt = this.now().toISOString();
     const next = {
       ...current,
@@ -349,7 +364,7 @@ function mergeEmail(current: EmailSettings, raw: unknown): EmailSettings {
     provider,
     resend: {
       apiKey: secret(resend["apiKey"], current.resend.apiKey),
-      from: optionalText(resend["from"], current.resend.from),
+      from: fromAddress(resend["from"], current.resend.from, "email.resend.from"),
     },
     smtp: {
       host: optionalText(smtp["host"], current.smtp.host),
@@ -365,13 +380,20 @@ function mergeEmail(current: EmailSettings, raw: unknown): EmailSettings {
           : booleanValue(smtp["secure"], "email.smtp.secure"),
       user: optionalText(smtp["user"], current.smtp.user),
       password: secret(smtp["password"], current.smtp.password),
-      from: optionalText(smtp["from"], current.smtp.from),
+      from: fromAddress(smtp["from"], current.smtp.from, "email.smtp.from"),
     },
   };
   return JSON.stringify({ ...current, lastVerifiedAt: undefined }) ===
     JSON.stringify(next) && current.lastVerifiedAt
     ? { ...next, lastVerifiedAt: current.lastVerifiedAt }
     : next;
+}
+
+function sameEmailConfig(a: EmailSettings, b: EmailSettings) {
+  return (
+    JSON.stringify({ ...a, lastVerifiedAt: undefined }) ===
+    JSON.stringify({ ...b, lastVerifiedAt: undefined })
+  );
 }
 
 function normalizeEmail(email: EmailSettings): EmailSettings {
@@ -456,6 +478,19 @@ function optionalText(value: unknown, current?: string) {
   if (value === null) return undefined;
   if (typeof value !== "string") invalid("value must be a string");
   return value.trim() || undefined;
+}
+// Write-path only: stored legacy values are left untouched on read so a bad
+// historical sender never blocks startup, but every save repairs/rejects it.
+function fromAddress(value: unknown, current: string | undefined, field: string) {
+  const text = optionalText(value, current);
+  if (text === undefined) return undefined;
+  const normalized = normalizeEmailFromAddress(text);
+  if (!isValidEmailFromAddress(normalized))
+    invalid(
+      "sender must be 'email@example.com' or 'Name <email@example.com>'",
+      field,
+    );
+  return normalized;
 }
 function secret(value: unknown, current?: string) {
   return typeof value === "string" && value.trim() ? value.trim() : current;

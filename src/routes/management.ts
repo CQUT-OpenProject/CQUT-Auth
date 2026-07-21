@@ -19,7 +19,6 @@ import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
 import type { RuntimePolicyModule } from "../runtime-policy.js";
-import type { EmailSender } from "../email/email-sender.js";
 import {
   clearManagementSessionCookie,
   ensureManagementNonce,
@@ -33,7 +32,6 @@ import {
 type ManagementRouterServices = {
   interactiveAuthenticator: InteractiveAuthenticatorService;
   runtimePolicy: RuntimePolicyModule;
-  emailSender: EmailSender;
 };
 
 function managementLoginRateLimitKeys(
@@ -757,10 +755,12 @@ export function createManagementRouter(
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         requireAdmin(auth.actor);
+        // No sender is injected here on purpose: sendTest builds one from the
+        // submitted draft (falling back to stored settings), so the test
+        // exercises the configuration the admin is actually looking at.
         const settings = await emailSettings.sendTest(
           request.body ?? {},
           auth.actor,
-          services.emailSender,
         );
         response.json({ settings });
       });
