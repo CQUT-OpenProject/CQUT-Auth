@@ -20,10 +20,6 @@ export const resources: ResourceProps[] = [
     list: "/projects/:projectId/audit",
   },
   {
-    name: "adminReviews",
-    list: "/admin/reviews",
-  },
-  {
     name: "systemSettings",
     list: "/admin/settings/system",
   },

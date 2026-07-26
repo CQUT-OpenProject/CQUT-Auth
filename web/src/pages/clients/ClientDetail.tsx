@@ -28,7 +28,6 @@ import {
   ArrowLeftOutlined,
   ExclamationCircleOutlined,
   SaveOutlined,
-  SendOutlined,
   RetweetOutlined,
   PoweroffOutlined,
   CopyOutlined,
@@ -218,7 +217,6 @@ export const ClientDetail: React.FC = () => {
     }
   };
 
-  // OIDC Revision configuration update handler
   const handleSaveConfig = async (values: any) => {
     try {
       const cleanRedirectUris = (values.redirectUris || []).filter(
@@ -228,116 +226,23 @@ export const ClientDetail: React.FC = () => {
         values.postLogoutRedirectUris || []
       ).filter((u: string) => u && u.trim());
 
-      const payload: any = {
-        redirectUris: cleanRedirectUris,
-        postLogoutRedirectUris: cleanPostLogoutRedirectUris,
-        scopeWhitelist: values.scopeWhitelist || ["openid"],
-      };
-
-      // If there is an existing draft, pass its credentials
-      if (client.proposedRevision?.status === "draft") {
-        payload.revisionId = client.proposedRevision.revisionId;
-        payload.revisionVersion = client.proposedRevision.version;
-      }
-
       await request(
         `/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/revision`,
         {
           method: "PUT",
-          body: JSON.stringify(payload),
+          body: JSON.stringify({
+            redirectUris: cleanRedirectUris,
+            postLogoutRedirectUris: cleanPostLogoutRedirectUris,
+            scopeWhitelist: values.scopeWhitelist || ["openid"],
+          }),
         },
       );
 
-      message.success("OIDC 配置保存成功！");
+      message.success("OIDC 配置已生效！");
       setIsEditingConfig(false);
       refetch();
     } catch (error: any) {
       message.error(error.message || "保存配置失败");
-    }
-  };
-
-  // Revision submit review
-  const handleSubmitReview = async () => {
-    if (!client.proposedRevision) return;
-    try {
-      await request(
-        `/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/revision/submit`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            revisionId: client.proposedRevision.revisionId,
-            revisionVersion: client.proposedRevision.version,
-          }),
-        },
-      );
-      message.success("配置变更已提交审核。");
-      refetch();
-    } catch (error: any) {
-      message.error(error.message || "提交审核失败");
-    }
-  };
-
-  // Revision withdraw review
-  const handleWithdrawReview = async () => {
-    if (!client.proposedRevision) return;
-    try {
-      await request(
-        `/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/revision/withdraw`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            revisionId: client.proposedRevision.revisionId,
-            revisionVersion: client.proposedRevision.version,
-          }),
-        },
-      );
-      message.success("配置变更已撤回为草稿。");
-      refetch();
-    } catch (error: any) {
-      message.error(error.message || "撤回失败");
-    }
-  };
-
-  // Admin Approve
-  const handleApprove = async () => {
-    if (!client.proposedRevision) return;
-    try {
-      await request(
-        `/admin/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/revisions/${client.proposedRevision.revisionId}/approve`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            revisionId: client.proposedRevision.revisionId,
-            revisionVersion: client.proposedRevision.version,
-          }),
-        },
-      );
-      message.success("审核已批准，配置立即生效。");
-      refetch();
-    } catch (error: any) {
-      message.error(error.message || "批准失败");
-    }
-  };
-
-  // Admin Reject
-  const handleReject = async (reason: string) => {
-    if (!client.proposedRevision) return;
-    try {
-      await request(
-        `/admin/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/revisions/${client.proposedRevision.revisionId}/reject`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            revisionId: client.proposedRevision.revisionId,
-            revisionVersion: client.proposedRevision.version,
-            reason,
-          }),
-        },
-      );
-      message.success("已拒绝此配置变更。");
-      refetch();
-    } catch (error: any) {
-      message.error(error.message || "拒绝失败");
     }
   };
 
@@ -591,55 +496,24 @@ export const ClientDetail: React.FC = () => {
                 style={{ width: "100%" }}
                 size="large"
               >
-                {client.proposedRevision?.rejectionReason && (
-                  <Alert
-                    message="最近一次变更提案被驳回"
-                    description={`驳回原因：${client.proposedRevision.rejectionReason}`}
-                    type="error"
-                    showIcon
-                  />
-                )}
-
-                {client.proposedRevision?.status === "pending" && (
-                  <Alert
-                    message="配置变更审核中"
-                    description="该客户端存在一个正在审核的配置变更提案。审核通过前，OIDC 运行期将继续采用当前生效配置。审核期间禁止修改配置。"
-                    type="info"
-                    showIcon
-                    action={
-                      canWrite ? (
-                        <Button
-                          size="small"
-                          type="primary"
-                          onClick={handleWithdrawReview}
-                        >
-                          撤回审核
-                        </Button>
-                      ) : undefined
-                    }
-                  />
-                )}
-
                 <RevisionDiff
                   active={client.activeRevision}
                   proposed={client.proposedRevision}
                 />
 
-                {/* Edit Form for configuration */}
                 {canWrite && (
                   <>
-                    {client.proposedRevision?.status !== "pending" &&
-                      !isEditingConfig && (
-                        <Button
-                          type="primary"
-                          onClick={() => setIsEditingConfig(true)}
-                        >
-                          修改 OIDC 配置
-                        </Button>
-                      )}
+                    {!isEditingConfig && (
+                      <Button
+                        type="primary"
+                        onClick={() => setIsEditingConfig(true)}
+                      >
+                        修改 OIDC 配置
+                      </Button>
+                    )}
 
                     {isEditingConfig && (
-                      <Card title="编辑 OIDC 变更配置" type="inner">
+                      <Card title="编辑 OIDC 配置" type="inner">
                         <Form
                           form={configForm}
                           layout="vertical"
@@ -797,7 +671,7 @@ export const ClientDetail: React.FC = () => {
                                 htmlType="submit"
                                 icon={<SaveOutlined />}
                               >
-                                保存为草稿
+                                保存并生效
                               </Button>
                               <Button onClick={() => setIsEditingConfig(false)}>
                                 取消
@@ -807,74 +681,8 @@ export const ClientDetail: React.FC = () => {
                         </Form>
                       </Card>
                     )}
-
-                    {client.proposedRevision?.status === "draft" &&
-                      !isEditingConfig && (
-                        <Button
-                          type="primary"
-                          icon={<SendOutlined />}
-                          onClick={handleSubmitReview}
-                        >
-                          提交配置审核
-                        </Button>
-                      )}
                   </>
                 )}
-
-                {/* Admin review buttons */}
-                {activeProject.capabilities.includes("review") &&
-                  client.proposedRevision?.status === "pending" &&
-                  !isClientDisabled && (
-                    <Card
-                      title="管理员审核入口"
-                      type="inner"
-                      style={{ border: "1px solid #1890ff" }}
-                    >
-                      <Alert
-                        message="审核提示"
-                        description="您当前正在以管理员身份审核此项目的客户端配置变更。"
-                        type="info"
-                        showIcon
-                        style={{ marginBottom: "16px" }}
-                      />
-                      <Space>
-                        <Button type="primary" onClick={handleApprove}>
-                          批准变更并上线
-                        </Button>
-                        <Button
-                          type="primary"
-                          danger
-                          onClick={() => {
-                            Modal.confirm({
-                              title: "拒绝配置变更",
-                              content: (
-                                <Input
-                                  id="reject-reason-input"
-                                  placeholder="请输入拒绝原因（必填）"
-                                  style={{ marginTop: "12px" }}
-                                />
-                              ),
-                              okText: "确认拒绝",
-                              okType: "danger",
-                              onOk: () => {
-                                const input = document.getElementById(
-                                  "reject-reason-input",
-                                ) as HTMLInputElement;
-                                const reason = input?.value?.trim();
-                                if (!reason) {
-                                  message.error("必须填写拒绝原因");
-                                  return Promise.reject();
-                                }
-                                return handleReject(reason);
-                              },
-                            });
-                          }}
-                        >
-                          拒绝变更
-                        </Button>
-                      </Space>
-                    </Card>
-                  )}
               </Space>
             ),
           },

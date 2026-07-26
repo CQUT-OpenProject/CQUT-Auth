@@ -54,9 +54,7 @@ export const POLICY_KEYS = [
   "managementProjectCreateRateLimitWindowSeconds",
   "managementProjectQuotaAdminExempt",
   "managementClientMaxPerProject",
-  "managementClientMaxPendingPerProject",
   "managementClientMaxPerSubject",
-  "managementClientMaxPendingPerSubject",
   "managementClientCreateRateLimitSubjectMax",
   "managementClientCreateRateLimitIpMax",
   "managementClientCreateRateLimitWindowSeconds",
@@ -331,22 +329,6 @@ function validatePolicy(policy: PolicyValues) {
     invalid(
       "grant TTL must not be shorter than refresh token TTL",
       "grantTtlSeconds",
-    );
-  if (
-    policy.managementClientMaxPendingPerProject >
-    policy.managementClientMaxPerProject
-  )
-    invalid(
-      "pending clients per project must not exceed total",
-      "managementClientMaxPendingPerProject",
-    );
-  if (
-    policy.managementClientMaxPendingPerSubject >
-    policy.managementClientMaxPerSubject
-  )
-    invalid(
-      "pending clients per subject must not exceed total",
-      "managementClientMaxPendingPerSubject",
     );
   if (
     policy.clientSecretDefaultGraceSeconds > policy.clientSecretMaxGraceSeconds

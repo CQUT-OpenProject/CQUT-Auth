@@ -26,30 +26,16 @@ const webInput = {
   scopeWhitelist: ["openid", "profile"],
 };
 const owner = { subjectId: "subj_owner", isAdmin: true };
-const admin = { subjectId: "subj_admin", isAdmin: true };
 
 async function activeClient(
   service: ClientManagementService,
   input = webInput,
 ) {
   const created = await service.create(owner, SYSTEM_PROJECT_ID, input);
-  const draft = created.client.proposedRevision!;
-  const pending = await service.submit(
-    owner,
-    SYSTEM_PROJECT_ID,
-    created.client.clientId,
-    {
-      revisionId: draft.revisionId,
-      revisionVersion: draft.version,
-    },
-  );
-  return service.approve(admin, SYSTEM_PROJECT_ID, created.client.clientId, {
-    revisionId: pending.proposedRevision!.revisionId,
-    revisionVersion: pending.proposedRevision!.version,
-  });
+  return created.client;
 }
 
-test("client creation produces a draft revision and never exposes secrets in audit", async () => {
+test("client creation activates immediately and never exposes secrets in audit", async () => {
   const modules = await createPersistence(config());
   const store = modules.clients;
   const projects = modules.projects;
@@ -64,8 +50,9 @@ test("client creation produces a draft revision and never exposes secrets in aud
       },
     );
     const result = await service.create(owner, SYSTEM_PROJECT_ID, webInput);
-    assert.equal(result.client.lifecycleStatus, "draft");
-    assert.equal(result.client.proposedRevision?.status, "draft");
+    assert.equal(result.client.lifecycleStatus, "active");
+    assert.equal(result.client.activeRevision?.status, "approved");
+    assert.equal(result.client.proposedRevision, null);
     assert.equal(result.clientSecret, "one-time-plaintext-secret");
     assert.equal("clientSecretDigest" in result.client, false);
     const stored = await store.findManagedOidcClient("client_fixed");
@@ -80,7 +67,12 @@ test("client creation produces a draft revision and never exposes secrets in aud
     const audit = await store.listOidcClientAuditLogs("client_fixed");
     assert.deepEqual(
       audit.map((entry) => entry.action),
-      ["client.created", "revision.created", "client.secret_generated"],
+      [
+        "client.created",
+        "revision.created",
+        "revision.activated",
+        "client.secret_generated",
+      ],
     );
     assert.equal(
       audit.find((entry) => entry.action === "revision.created")
@@ -119,31 +111,13 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
     const originalValue = created.clientSecret!;
     assert.equal(created.client.secrets.length, 1);
     assert.equal("secretDigest" in created.client.secrets[0]!, false);
-    const submitted = await service.submit(
-      owner,
-      SYSTEM_PROJECT_ID,
-      created.client.clientId,
-      {
-        revisionId: created.client.proposedRevision!.revisionId,
-        revisionVersion: created.client.proposedRevision!.version,
-      },
-    );
-    const approved = await service.approve(
-      admin,
-      SYSTEM_PROJECT_ID,
-      created.client.clientId,
-      {
-        revisionId: submitted.proposedRevision!.revisionId,
-        revisionVersion: submitted.proposedRevision!.version,
-      },
-    );
 
     const rotated = await service.rotateSecret(
       owner,
       SYSTEM_PROJECT_ID,
       created.client.clientId,
       {
-        clientVersion: approved.clientVersion,
+        clientVersion: created.client.clientVersion,
         gracePeriodSeconds: 1,
       },
     );
@@ -325,7 +299,7 @@ test("secret rotation preflight and cooldown run before scrypt digest work", asy
   }
 });
 
-test("client type is immutable and pending changes keep the active revision online", async () => {
+test("client type is immutable and revision changes activate immediately", async () => {
   const modules = await createPersistence(config());
   const store = modules.clients;
   const projects = modules.projects;
@@ -347,7 +321,7 @@ test("client type is immutable and pending changes keep the active revision onli
         }),
       /unsupported request field: clientType/,
     );
-    const pending = await service.saveRevision(
+    const updated = await service.saveRevision(
       owner,
       SYSTEM_PROJECT_ID,
       active.clientId,
@@ -355,21 +329,20 @@ test("client type is immutable and pending changes keep the active revision onli
         redirectUris: ["http://localhost:3002/new-callback"],
       },
     );
-    assert.equal(pending.proposedRevision?.status, "pending");
-    assert.deepEqual(
-      pending.activeRevision?.redirectUris,
-      webInput.redirectUris,
-    );
+    assert.equal(updated.proposedRevision, null);
+    assert.deepEqual(updated.activeRevision?.redirectUris, [
+      "http://localhost:3002/new-callback",
+    ]);
     assert.deepEqual(
       (await store.findOidcClient(active.clientId))?.redirectUris,
-      webInput.redirectUris,
+      ["http://localhost:3002/new-callback"],
     );
   } finally {
     await modules.runtime.close();
   }
 });
 
-test("withdraw, edit, resubmit and rejection preserve the active configuration", async () => {
+test("revision save stacks approved active configurations", async () => {
   const modules = await createPersistence(config());
   const store = modules.clients;
   const projects = modules.projects;
@@ -383,7 +356,7 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
       },
     );
     const active = await activeClient(service);
-    const pending = await service.saveRevision(
+    const first = await service.saveRevision(
       owner,
       SYSTEM_PROJECT_ID,
       active.clientId,
@@ -391,155 +364,24 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
         scopeWhitelist: ["openid", "email"],
       },
     );
-    const withdrawn = await service.withdraw(
+    assert.equal(first.proposedRevision, null);
+    assert.deepEqual(first.activeRevision?.scopeWhitelist, ["openid", "email"]);
+    const second = await service.saveRevision(
       owner,
       SYSTEM_PROJECT_ID,
       active.clientId,
       {
-        revisionId: pending.proposedRevision!.revisionId,
-        revisionVersion: pending.proposedRevision!.version,
+        redirectUris: ["http://localhost:3002/revision-3"],
       },
     );
-    assert.equal(withdrawn.proposedRevision?.status, "draft");
-    const edited = await service.saveRevision(
-      owner,
-      SYSTEM_PROJECT_ID,
-      active.clientId,
-      {
-        revisionId: withdrawn.proposedRevision!.revisionId,
-        revisionVersion: withdrawn.proposedRevision!.version,
-        scopeWhitelist: ["openid", "profile", "email"],
-      },
-    );
-    const resubmitted = await service.submit(
-      owner,
-      SYSTEM_PROJECT_ID,
-      active.clientId,
-      {
-        revisionId: edited.proposedRevision!.revisionId,
-        revisionVersion: edited.proposedRevision!.version,
-      },
-    );
-    const rejected = await service.reject(
-      admin,
-      SYSTEM_PROJECT_ID,
-      active.clientId,
-      {
-        revisionId: resubmitted.proposedRevision!.revisionId,
-        revisionVersion: resubmitted.proposedRevision!.version,
-        reason: "scope purpose is unclear",
-      },
-    );
-    assert.equal(
-      rejected.proposedRevision?.rejectionReason,
-      "scope purpose is unclear",
-    );
-    assert.deepEqual(
-      rejected.activeRevision?.scopeWhitelist,
-      webInput.scopeWhitelist,
-    );
-    const newDraft = await service.saveRevision(
-      owner,
-      SYSTEM_PROJECT_ID,
-      active.clientId,
-      {
-        scopeWhitelist: ["openid", "email"],
-      },
-    );
-    assert.equal(newDraft.proposedRevision?.status, "draft");
-    assert.notEqual(
-      newDraft.proposedRevision?.revisionId,
-      rejected.proposedRevision?.revisionId,
-    );
-    assert.deepEqual(
-      (await store.findOidcClient(active.clientId))?.scopeWhitelist,
-      webInput.scopeWhitelist,
-    );
-    const secondPending = await service.submit(
-      owner,
-      SYSTEM_PROJECT_ID,
-      active.clientId,
-      {
-        revisionId: newDraft.proposedRevision!.revisionId,
-        revisionVersion: newDraft.proposedRevision!.version,
-      },
-    );
-    const secondApproved = await service.approve(
-      admin,
-      SYSTEM_PROJECT_ID,
-      active.clientId,
-      {
-        revisionId: secondPending.proposedRevision!.revisionId,
-        revisionVersion: secondPending.proposedRevision!.version,
-      },
-    );
-    assert.equal(secondApproved.proposedRevision, null);
-    const nextPending = await service.saveRevision(
-      owner,
-      SYSTEM_PROJECT_ID,
-      active.clientId,
-      {
-        redirectUris: ["http://localhost:3002/revision-4"],
-      },
-    );
-    assert.equal(nextPending.proposedRevision?.revisionNumber, 4);
-    assert.deepEqual(nextPending.proposedRevision?.scopeWhitelist, [
+    assert.equal(second.activeRevision?.revisionNumber, 3);
+    assert.deepEqual(second.activeRevision?.scopeWhitelist, [
       "openid",
       "email",
     ]);
-  } finally {
-    await modules.runtime.close();
-  }
-});
-
-test("concurrent approval atomically activates one revision", async () => {
-  const modules = await createPersistence(config());
-  const store = modules.clients;
-  const projects = modules.projects;
-  try {
-    const service = new ClientManagementService(
-      store,
-      new ProjectAccessService(projects),
-      "test",
-      {
-        createClientId: () => "client_concurrent",
-      },
-    );
-    const created = await service.create(owner, SYSTEM_PROJECT_ID, {
-      ...webInput,
-      clientType: "spa",
-    });
-    const draft = created.client.proposedRevision!;
-    const pending = await service.submit(
-      owner,
-      SYSTEM_PROJECT_ID,
-      created.client.clientId,
-      {
-        revisionId: draft.revisionId,
-        revisionVersion: draft.version,
-      },
-    );
-    const input = {
-      revisionId: pending.proposedRevision!.revisionId,
-      revisionVersion: pending.proposedRevision!.version,
-    };
-    const results = await Promise.allSettled([
-      service.approve(admin, SYSTEM_PROJECT_ID, created.client.clientId, input),
-      service.approve(admin, SYSTEM_PROJECT_ID, created.client.clientId, input),
-    ]);
-    assert.equal(
-      results.filter((result) => result.status === "fulfilled").length,
-      1,
-    );
-    const rejected = results.find(
-      (result) => result.status === "rejected",
-    ) as PromiseRejectedResult;
-    assert.ok(rejected.reason instanceof ClientManagementError);
-    assert.equal(rejected.reason.status, 409);
-    assert.equal(
-      (await store.findManagedOidcClient(created.client.clientId))?.client
-        .lifecycleStatus,
-      "active",
+    assert.deepEqual(
+      (await store.findOidcClient(active.clientId))?.redirectUris,
+      ["http://localhost:3002/revision-3"],
     );
   } finally {
     await modules.runtime.close();
@@ -578,96 +420,12 @@ test("configuration validation requires openid and forbids SPA offline_access", 
   }
 });
 
-test("client and pending revision quotas cannot be bypassed", async () => {
+test("client quotas cannot be bypassed", async () => {
   const modules = await createPersistence(config());
   const store = modules.clients;
   const projects = modules.projects;
   try {
     let id = 0;
-    const pendingLimited = new ClientManagementService(
-      store,
-      new ProjectAccessService(projects),
-      "test",
-      {
-        createClientId: () => `quota_${++id}`,
-        maxClientsPerProject: 3,
-        maxPendingClientsPerProject: 1,
-        adminQuotaExempt: false,
-      },
-    );
-    const first = await pendingLimited.create(owner, SYSTEM_PROJECT_ID, {
-      ...webInput,
-      clientType: "spa",
-    });
-    const second = await pendingLimited.create(owner, SYSTEM_PROJECT_ID, {
-      ...webInput,
-      clientType: "spa",
-    });
-    await pendingLimited.submit(
-      owner,
-      SYSTEM_PROJECT_ID,
-      first.client.clientId,
-      {
-        revisionId: first.client.proposedRevision!.revisionId,
-        revisionVersion: first.client.proposedRevision!.version,
-      },
-    );
-    await assert.rejects(
-      () =>
-        pendingLimited.submit(
-          owner,
-          SYSTEM_PROJECT_ID,
-          second.client.clientId,
-          {
-            revisionId: second.client.proposedRevision!.revisionId,
-            revisionVersion: second.client.proposedRevision!.version,
-          },
-        ),
-      (error: unknown) =>
-        error instanceof ClientManagementError &&
-        error.status === 409 &&
-        error.code === "pending_revision_quota_exceeded",
-    );
-
-    const firstPending = await pendingLimited.get(
-      owner,
-      SYSTEM_PROJECT_ID,
-      first.client.clientId,
-    );
-    await pendingLimited.disable(
-      owner,
-      SYSTEM_PROJECT_ID,
-      first.client.clientId,
-      {
-        clientVersion: firstPending.clientVersion,
-      },
-    );
-    const released = await pendingLimited.submit(
-      owner,
-      SYSTEM_PROJECT_ID,
-      second.client.clientId,
-      {
-        revisionId: second.client.proposedRevision!.revisionId,
-        revisionVersion: second.client.proposedRevision!.version,
-      },
-    );
-    assert.equal(released.proposedRevision?.status, "pending");
-    assert.equal(
-      (
-        await pendingLimited.get(
-          owner,
-          SYSTEM_PROJECT_ID,
-          first.client.clientId,
-        )
-      ).proposedRevision,
-      null,
-    );
-    assert.ok(
-      (await store.listOidcClientAuditLogs(first.client.clientId)).some(
-        (entry) => entry.action === "revision.cancelled",
-      ),
-    );
-
     const totalLimited = new ClientManagementService(
       store,
       new ProjectAccessService(projects),
@@ -675,10 +433,13 @@ test("client and pending revision quotas cannot be bypassed", async () => {
       {
         createClientId: () => `total_${++id}`,
         maxClientsPerProject: 1,
-        maxPendingClientsPerProject: 2,
         adminQuotaExempt: false,
       },
     );
+    await totalLimited.create(owner, SYSTEM_PROJECT_ID, {
+      ...webInput,
+      clientType: "spa",
+    });
     await assert.rejects(
       () =>
         totalLimited.create(owner, SYSTEM_PROJECT_ID, {

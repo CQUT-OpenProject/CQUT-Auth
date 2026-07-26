@@ -55,14 +55,10 @@ export const ClientList: React.FC = () => {
 
       let matchStatus = true;
       if (statusFilter !== "all") {
-        if (statusFilter === "draft") {
-          matchStatus = client.lifecycleStatus === "draft";
-        } else if (statusFilter === "active") {
+        if (statusFilter === "active") {
           matchStatus = client.lifecycleStatus === "active";
         } else if (statusFilter === "disabled") {
           matchStatus = client.lifecycleStatus === "disabled";
-        } else if (statusFilter === "pending") {
-          matchStatus = client.proposedRevision?.status === "pending";
         }
       }
 
@@ -104,13 +100,10 @@ export const ClientList: React.FC = () => {
       render: (type: string) => <Tag color="blue">{type.toUpperCase()}</Tag>,
     },
     {
-      title: "生命周期与审核状态",
+      title: "状态",
       key: "status",
       render: (_: any, record: Client) => (
-        <ClientStatusTag
-          status={record.lifecycleStatus}
-          proposedStatus={record.proposedRevision?.status}
-        />
+        <ClientStatusTag status={record.lifecycleStatus} />
       ),
     },
     {
@@ -204,10 +197,8 @@ export const ClientList: React.FC = () => {
             style={{ width: isMobile ? "48%" : 130 }}
           >
             <Select.Option value="all">所有状态</Select.Option>
-            <Select.Option value="draft">草稿</Select.Option>
             <Select.Option value="active">已启用</Select.Option>
             <Select.Option value="disabled">已停用</Select.Option>
-            <Select.Option value="pending">待审核变更</Select.Option>
           </Select>
         </Space>
 

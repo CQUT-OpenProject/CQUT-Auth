@@ -79,9 +79,7 @@ type ServiceDependencies = {
   createSecretId?: () => string;
   digestSecret?: (secret: string) => Promise<string>;
   maxClientsPerProject?: number;
-  maxPendingClientsPerProject?: number;
   maxClientsPerSubject?: number;
-  maxPendingClientsPerSubject?: number;
   adminQuotaExempt?: boolean;
   defaultSecretGraceSeconds?: number;
   maxSecretGraceSeconds?: number;
@@ -109,9 +107,7 @@ export class ClientManagementService {
   private readonly createSecretId: () => string;
   private readonly digestSecret: (secret: string) => Promise<string>;
   private readonly maxClientsPerProject: number;
-  private readonly maxPendingClientsPerProject: number;
   private readonly maxClientsPerSubject: number;
-  private readonly maxPendingClientsPerSubject: number;
   private readonly adminQuotaExempt: boolean;
   private readonly defaultSecretGraceSeconds: number;
   private readonly maxSecretGraceSeconds: number;
@@ -133,11 +129,7 @@ export class ClientManagementService {
       dependencies.createSecretId ?? (() => randomId("secret", 18));
     this.digestSecret = dependencies.digestSecret ?? createClientSecretDigest;
     this.maxClientsPerProject = dependencies.maxClientsPerProject ?? 10;
-    this.maxPendingClientsPerProject =
-      dependencies.maxPendingClientsPerProject ?? 5;
     this.maxClientsPerSubject = dependencies.maxClientsPerSubject ?? 30;
-    this.maxPendingClientsPerSubject =
-      dependencies.maxPendingClientsPerSubject ?? 15;
     this.adminQuotaExempt = dependencies.adminQuotaExempt ?? true;
     this.defaultSecretGraceSeconds =
       dependencies.defaultSecretGraceSeconds ?? 86_400;
@@ -150,11 +142,6 @@ export class ClientManagementService {
     await this.access.require(actor, projectId, "view");
     const clients = await this.repository.listOidcClientsByProject(projectId);
     return clients.map(toPublicClient);
-  }
-
-  async listPending(actor: ClientActor) {
-    this.requireAdmin(actor);
-    return (await this.repository.listPendingOidcClients()).map(toPublicClient);
   }
 
   async get(actor: ClientActor, projectId: string, clientId: string) {
@@ -181,7 +168,7 @@ export class ClientManagementService {
       clientType: configuration.clientType,
       autoConsent: false,
       requirePkce: configuration.requirePkce,
-      lifecycleStatus: "draft",
+      lifecycleStatus: "active",
       activeRevisionId: null,
       authorizationGeneration: 1,
       createdAt: timestamp,
@@ -192,7 +179,7 @@ export class ClientManagementService {
       revisionId: 0,
       clientId,
       revisionNumber: 1,
-      status: "draft",
+      status: "approved",
       redirectUris: configuration.redirectUris,
       postLogoutRedirectUris: configuration.postLogoutRedirectUris,
       scopeWhitelist: configuration.scopeWhitelist,
@@ -220,7 +207,7 @@ export class ClientManagementService {
         ["clientType", "displayName", "description"],
         timestamp,
         {
-          newClientStatus: "draft",
+          newClientStatus: "active",
         },
       ),
       this.audit(
@@ -230,7 +217,17 @@ export class ClientManagementService {
         configurationFields,
         timestamp,
         {
-          newRevisionStatus: "draft",
+          newRevisionStatus: "approved",
+        },
+      ),
+      this.audit(
+        actor,
+        clientId,
+        "revision.activated",
+        configurationFields,
+        timestamp,
+        {
+          newClientStatus: "active",
         },
       ),
     ];
@@ -330,11 +327,7 @@ export class ClientManagementService {
     raw: unknown,
   ) {
     const body = this.requireObject(raw);
-    this.assertAllowedKeys(body, [
-      "revisionId",
-      "revisionVersion",
-      ...configurationFields,
-    ]);
+    this.assertAllowedKeys(body, [...configurationFields]);
     const current = await this.requireAccessible(
       actor,
       projectId,
@@ -342,19 +335,12 @@ export class ClientManagementService {
       "write_client",
     );
     this.requireEnabled(current);
-    if (current.proposedRevision?.status === "pending") {
-      throw new ClientManagementError(
-        409,
-        "invalid_revision_state",
-        "pending revisions must be withdrawn before editing",
-      );
-    }
-    const base = current.proposedRevision ?? current.activeRevision;
+    const base = current.activeRevision;
     if (!base)
       throw new ClientManagementError(
         409,
         "invalid_revision_state",
-        "client has no editable revision",
+        "client has no active revision",
       );
     const configuration = this.validate({
       clientType: current.client.clientType,
@@ -378,55 +364,12 @@ export class ClientManagementService {
         "at least one revision field must change",
       );
     const timestamp = this.now().toISOString();
-    const updateDraft = current.proposedRevision?.status === "draft";
-    if (updateDraft) {
-      const revisionId = this.parseVersion(body["revisionId"], "revisionId");
-      const revisionVersion = this.parseVersion(
-        body["revisionVersion"],
-        "revisionVersion",
-      );
-      if (revisionId !== current.proposedRevision!.revisionId) this.conflict();
-      const next = this.revisionFrom(
-        configuration,
-        clientId,
-        current.proposedRevision!.revisionNumber,
-        "draft",
-        timestamp,
-      );
-      const updated = await this.repository.saveOidcClientRevision(
-        clientId,
-        next,
-        revisionId,
-        revisionVersion,
-        [
-          this.audit(
-            actor,
-            clientId,
-            "revision.updated",
-            changedFields,
-            timestamp,
-          ),
-        ],
-        this.quotaLimits(actor),
-        this.authorization(actor, projectId, "write_client"),
-      );
-      return toPublicClient(this.requireRevisionUpdated(updated));
-    }
-    const nextStatus: ClientRevisionStatus =
-      current.client.lifecycleStatus === "active" &&
-      current.proposedRevision?.status !== "rejected"
-        ? "pending"
-        : "draft";
-    const revisionNumber =
-      Math.max(
-        current.activeRevision?.revisionNumber ?? 0,
-        current.proposedRevision?.revisionNumber ?? 0,
-      ) + 1;
+    const revisionNumber = base.revisionNumber + 1;
     const next = this.revisionFrom(
       configuration,
       clientId,
       revisionNumber,
-      nextStatus,
+      "approved",
       timestamp,
     );
     const audits = [
@@ -436,16 +379,21 @@ export class ClientManagementService {
         "revision.created",
         changedFields,
         timestamp,
-        { newRevisionStatus: nextStatus },
+        {
+          newRevisionStatus: "approved",
+        },
       ),
-      ...(nextStatus === "pending"
-        ? [
-            this.audit(actor, clientId, "revision.submitted", [], timestamp, {
-              previousRevisionStatus: "draft",
-              newRevisionStatus: "pending",
-            }),
-          ]
-        : []),
+      this.audit(
+        actor,
+        clientId,
+        "revision.activated",
+        configurationFields,
+        timestamp,
+        {
+          previousClientStatus: current.client.lifecycleStatus,
+          newClientStatus: "active",
+        },
+      ),
     ];
     const updated = await this.repository.saveOidcClientRevision(
       clientId,
@@ -453,44 +401,10 @@ export class ClientManagementService {
       null,
       null,
       audits,
-      this.quotaLimits(actor),
+      undefined,
       this.authorization(actor, projectId, "write_client"),
     );
     return toPublicClient(this.requireRevisionUpdated(updated));
-  }
-
-  async submit(
-    actor: ClientActor,
-    projectId: string,
-    clientId: string,
-    raw: unknown,
-  ) {
-    return this.transitionOwned(
-      actor,
-      projectId,
-      clientId,
-      raw,
-      "draft",
-      "pending",
-      "revision.submitted",
-    );
-  }
-
-  async withdraw(
-    actor: ClientActor,
-    projectId: string,
-    clientId: string,
-    raw: unknown,
-  ) {
-    return this.transitionOwned(
-      actor,
-      projectId,
-      clientId,
-      raw,
-      "pending",
-      "draft",
-      "revision.withdrawn",
-    );
   }
 
   async rotateSecret(
@@ -713,188 +627,17 @@ export class ClientManagementService {
             newClientStatus: "disabled",
           },
         ),
-        ...(current.proposedRevision?.status === "draft" ||
-        current.proposedRevision?.status === "pending"
-          ? [
-              this.audit(actor, clientId, "revision.cancelled", [], timestamp, {
-                previousRevisionStatus: current.proposedRevision.status,
-                newRevisionStatus: "cancelled",
-              }),
-            ]
-          : []),
       ],
       this.authorization(actor, projectId, "disable_client"),
     );
     return toPublicClient(this.requireUpdated(updated));
   }
 
-  async approve(
-    actor: ClientActor,
-    projectId: string,
-    clientId: string,
-    raw: unknown,
-  ) {
-    this.requireAdmin(actor);
-    await this.access.require(actor, projectId, "review");
-    await this.requireProjectClient(projectId, clientId);
-    const { current, revisionId, revisionVersion } = await this.reviewInput(
-      clientId,
-      raw,
-      false,
-    );
-    const timestamp = this.now().toISOString();
-    const updated = await this.repository.approveOidcClientRevision(
-      clientId,
-      revisionId,
-      revisionVersion,
-      [
-        this.audit(actor, clientId, "revision.approved", [], timestamp, {
-          previousRevisionStatus: "pending",
-          newRevisionStatus: "approved",
-        }),
-        this.audit(
-          actor,
-          clientId,
-          "revision.activated",
-          configurationFields,
-          timestamp,
-          {
-            previousClientStatus: current.client.lifecycleStatus,
-            newClientStatus: "active",
-          },
-        ),
-      ],
-      this.authorization(actor, projectId, "review"),
-    );
-    return toPublicClient(this.requireUpdated(updated));
-  }
-
-  async reject(
-    actor: ClientActor,
-    projectId: string,
-    clientId: string,
-    raw: unknown,
-  ) {
-    this.requireAdmin(actor);
-    await this.access.require(actor, projectId, "review");
-    await this.requireProjectClient(projectId, clientId);
-    const { revisionId, revisionVersion, body } = await this.reviewInput(
-      clientId,
-      raw,
-      true,
-    );
-    const reason = this.parseText(body["reason"], "reason", 1, 500);
-    const timestamp = this.now().toISOString();
-    const updated = await this.repository.transitionOidcClientRevision(
-      clientId,
-      revisionId,
-      revisionVersion,
-      "rejected",
-      reason,
-      {
-        ...this.audit(actor, clientId, "revision.rejected", [], timestamp, {
-          previousRevisionStatus: "pending",
-          newRevisionStatus: "rejected",
-        }),
-        reason,
-      },
-      undefined,
-      this.authorization(actor, projectId, "review"),
-    );
-    return toPublicClient(this.requireRevisionUpdated(updated));
-  }
-
-  private async transitionOwned(
-    actor: ClientActor,
-    projectId: string,
-    clientId: string,
-    raw: unknown,
-    from: ClientRevisionStatus,
-    to: ClientRevisionStatus,
-    action: OidcClientAuditRecord["action"],
-  ) {
-    const body = this.requireObject(raw);
-    this.assertAllowedKeys(body, ["revisionId", "revisionVersion"]);
-    const current = await this.requireAccessible(
-      actor,
-      projectId,
-      clientId,
-      "write_client",
-    );
-    this.requireEnabled(current);
-    const revision = current.proposedRevision;
-    if (!revision || revision.status !== from)
-      throw new ClientManagementError(
-        409,
-        "invalid_revision_state",
-        `only ${from} revisions can be transitioned`,
-      );
-    const revisionId = this.parseVersion(body["revisionId"], "revisionId");
-    if (revisionId !== revision.revisionId) this.conflict();
-    const timestamp = this.now().toISOString();
-    const updated = await this.repository.transitionOidcClientRevision(
-      clientId,
-      revisionId,
-      this.parseVersion(body["revisionVersion"], "revisionVersion"),
-      to,
-      undefined,
-      this.audit(actor, clientId, action, [], timestamp, {
-        previousRevisionStatus: from,
-        newRevisionStatus: to,
-      }),
-      this.quotaLimits(actor),
-      this.authorization(actor, projectId, "write_client"),
-    );
-    return toPublicClient(this.requireRevisionUpdated(updated));
-  }
-
-  private async reviewInput(clientId: string, raw: unknown, reason: boolean) {
-    const body = this.requireObject(raw);
-    this.assertAllowedKeys(
-      body,
-      reason
-        ? ["revisionId", "revisionVersion", "reason"]
-        : ["revisionId", "revisionVersion"],
-    );
-    const current = await this.requireExisting(clientId);
-    if (current.client.lifecycleStatus === "disabled")
-      throw new ClientManagementError(
-        409,
-        "invalid_client_state",
-        "disabled clients cannot be reviewed",
-      );
-    const revisionId = this.parseVersion(body["revisionId"], "revisionId");
-    const revisionVersion = this.parseVersion(
-      body["revisionVersion"],
-      "revisionVersion",
-    );
-    if (
-      !current.proposedRevision ||
-      current.proposedRevision.status !== "pending" ||
-      current.proposedRevision.revisionId !== revisionId
-    ) {
-      throw new ClientManagementError(
-        409,
-        "invalid_revision_state",
-        "only the current pending revision can be reviewed",
-      );
-    }
-    return { current, revisionId, revisionVersion, body };
-  }
-
   private projectLimits() {
     return {
       maxNonDisabledClients: this.maxClientsPerProject,
-      maxPendingClients: this.maxPendingClientsPerProject,
       maxNonDisabledClientsPerSubject: this.maxClientsPerSubject,
-      maxPendingClientsPerSubject: this.maxPendingClientsPerSubject,
     };
-  }
-
-  private quotaLimits(actor: ClientActor) {
-    return actor.isAdmin && this.adminQuotaExempt
-      ? undefined
-      : this.projectLimits();
   }
 
   private authorization(
@@ -975,30 +718,12 @@ export class ClientManagementService {
       );
   }
 
-  private requireAdmin(actor: ClientActor) {
-    if (!actor.isAdmin) this.denyAdmin();
-  }
-
-  private denyAdmin(): never {
-    throw new ClientManagementError(
-      403,
-      "access_denied",
-      "administrator access is required",
-    );
-  }
-
   private requireUpdated(value: ManagedOidcClientRecord | null) {
     if (!value) this.conflict();
     return value;
   }
 
   private requireRevisionUpdated(result: RevisionMutationResult) {
-    if (result.status === "pending_quota_exceeded")
-      throw new ClientManagementError(
-        409,
-        "pending_revision_quota_exceeded",
-        "pending revision quota exceeded for this project",
-      );
     if (result.status === "version_conflict") this.conflict();
     return result.client;
   }

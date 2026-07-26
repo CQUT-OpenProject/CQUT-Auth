@@ -25,8 +25,7 @@ export type ProjectAction =
   | "rotate_secret"
   | "revoke_authorizations"
   | "revoke_secret"
-  | "disable_client"
-  | "review";
+  | "disable_client";
 
 export type Project = {
   projectId: string;

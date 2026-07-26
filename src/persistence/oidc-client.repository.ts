@@ -193,7 +193,15 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
           )
             return null;
           const assigned = this.assignRevisionId(revision);
-          this.clients.set(client.clientId, client);
+          const stored =
+            assigned.status === "approved"
+              ? {
+                  ...client,
+                  lifecycleStatus: "active" as const,
+                  activeRevisionId: assigned.revisionId,
+                }
+              : client;
+          this.clients.set(client.clientId, stored);
           this.clientQuotaSubjects.set(
             client.clientId,
             project.createdBySubjectId,
@@ -253,6 +261,13 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
           this.clientValues(client),
         );
         const inserted = await this.insertRevision(connection, revision);
+        if (revision.status === "approved") {
+          await connection.query(
+            `update oidc_clients set lifecycle_status = 'active', active_revision_id = $2,
+               updated_at = $3::timestamptz where client_id = $1`,
+            [client.clientId, inserted.revisionId, revision.updatedAt],
+          );
+        }
         if (secret) await this.insertSecret(connection, secret);
         for (const audit of audits) {
           await this.insertAudit(connection, {
@@ -333,7 +348,7 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
     expectedRevisionId: number | null,
     expectedRevisionVersion: number | null,
     audits: OidcClientAuditRecord[],
-    projectLimits: ClientProjectLimits | undefined,
+    _projectLimits: ClientProjectLimits | undefined,
     authorization: ProjectWriteAuthorization,
   ): Promise<RevisionMutationResult> {
     const pool = this.poolProvider();
@@ -342,28 +357,10 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
       return this.withMemoryProjectWrite(
         authorization,
         managed?.client.projectId ?? "",
-        async (project) => {
-          if (!managed) return { status: "version_conflict" };
-          if (
-            revision.status === "pending" &&
-            projectLimits &&
-            this.memoryPendingQuotaExceeded(
-              managed.client.projectId,
-              project.createdBySubjectId,
-              projectLimits,
-            )
-          )
-            return { status: "pending_quota_exceeded" };
-          if (expectedRevisionId === null) {
-            if (
-              managed.proposedRevision?.status === "draft" ||
-              managed.proposedRevision?.status === "pending"
-            )
-              return { status: "version_conflict" };
-            const assigned = this.assignRevisionId(revision);
-            this.revisions.set(assigned.revisionId, assigned);
-            this.pushRevisionAudits(audits, assigned);
-          } else {
+        async () => {
+          if (!managed || managed.client.lifecycleStatus === "disabled")
+            return { status: "version_conflict" };
+          if (expectedRevisionId !== null) {
             const current = this.revisions.get(expectedRevisionId);
             if (
               !current ||
@@ -380,6 +377,28 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
             };
             this.revisions.set(current.revisionId, next);
             this.pushRevisionAudits(audits, next);
+            if (next.status === "approved") {
+              this.clients.set(clientId, {
+                ...managed.client,
+                lifecycleStatus: "active",
+                activeRevisionId: next.revisionId,
+                updatedAt: next.updatedAt,
+                version: managed.client.version + 1,
+              });
+            }
+            return this.updatedResult(clientId);
+          }
+          const assigned = this.assignRevisionId(revision);
+          this.revisions.set(assigned.revisionId, assigned);
+          this.pushRevisionAudits(audits, assigned);
+          if (assigned.status === "approved") {
+            this.clients.set(clientId, {
+              ...managed.client,
+              lifecycleStatus: "active",
+              activeRevisionId: assigned.revisionId,
+              updatedAt: assigned.updatedAt,
+              version: managed.client.version + 1,
+            });
           }
           return this.updatedResult(clientId);
         },
@@ -388,36 +407,9 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
     const connection = await pool.connect();
     try {
       await connection.query("begin");
-      const project = await this.authorizeProjectWrite(
-        connection,
-        authorization,
-        clientId,
-      );
-      if (revision.status === "pending" && projectLimits) {
-        await this.lockQuotaSubject(connection, project.createdBySubjectId);
-        if (
-          await this.pendingQuotaExceeded(
-            connection,
-            authorization.projectId,
-            project.createdBySubjectId,
-            projectLimits,
-          )
-        ) {
-          await connection.query("rollback");
-          return { status: "pending_quota_exceeded" };
-        }
-      }
+      await this.authorizeProjectWrite(connection, authorization, clientId);
       let saved: OidcClientRevisionRecord;
       if (expectedRevisionId === null) {
-        const open = await connection.query(
-          `select 1 from oidc_client_revisions
-           where client_id = $1 and review_status in ('draft', 'pending') limit 1`,
-          [clientId],
-        );
-        if (open.rowCount) {
-          await connection.query("rollback");
-          return { status: "version_conflict" };
-        }
         saved = await this.insertRevision(connection, revision);
       } else {
         const result = await connection.query(
@@ -442,6 +434,14 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
         }
         saved = this.mapRevisionRow(result.rows[0])!;
       }
+      if (saved.status === "approved" || revision.status === "approved") {
+        await connection.query(
+          `update oidc_clients set lifecycle_status = 'active', active_revision_id = $2,
+             updated_at = $3::timestamptz, version = version + 1
+           where client_id = $1 and lifecycle_status <> 'disabled'`,
+          [clientId, saved.revisionId, revision.updatedAt],
+        );
+      }
       for (const audit of audits) {
         await this.insertAudit(connection, {
           ...audit,
@@ -451,204 +451,6 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
       }
       await connection.query("commit");
       return this.updatedResult(clientId);
-    } catch (error) {
-      await connection.query("rollback");
-      throw error;
-    } finally {
-      connection.release();
-    }
-  }
-
-  async transitionOidcClientRevision(
-    clientId: string,
-    revisionId: number,
-    expectedVersion: number,
-    nextStatus: ClientRevisionStatus,
-    reason: string | undefined,
-    audit: OidcClientAuditRecord,
-    projectLimits: ClientProjectLimits | undefined,
-    authorization: ProjectWriteAuthorization,
-  ): Promise<RevisionMutationResult> {
-    const pool = this.poolProvider();
-    if (!pool) {
-      const current = this.revisions.get(revisionId);
-      const client = this.clients.get(clientId);
-      return this.withMemoryProjectWrite(
-        authorization,
-        client?.projectId ?? "",
-        async (project) => {
-          if (
-            !current ||
-            current.clientId !== clientId ||
-            current.version !== expectedVersion
-          )
-            return { status: "version_conflict" };
-          if (
-            nextStatus === "pending" &&
-            projectLimits &&
-            this.memoryPendingQuotaExceeded(
-              client!.projectId,
-              project.createdBySubjectId,
-              projectLimits,
-            )
-          )
-            return { status: "pending_quota_exceeded" };
-          const next = {
-            ...current,
-            status: nextStatus,
-            rejectionReason: reason,
-            updatedAt: audit.createdAt,
-            version: current.version + 1,
-          };
-          this.revisions.set(revisionId, next);
-          this.audits.push({
-            ...audit,
-            revisionId,
-            revisionNumber: current.revisionNumber,
-          });
-          return this.updatedResult(clientId);
-        },
-      );
-    }
-    const connection = await pool.connect();
-    try {
-      await connection.query("begin");
-      const project = await this.authorizeProjectWrite(
-        connection,
-        authorization,
-        clientId,
-      );
-      if (nextStatus === "pending" && projectLimits) {
-        await this.lockQuotaSubject(connection, project.createdBySubjectId);
-        if (
-          await this.pendingQuotaExceeded(
-            connection,
-            authorization.projectId,
-            project.createdBySubjectId,
-            projectLimits,
-          )
-        ) {
-          await connection.query("rollback");
-          return { status: "pending_quota_exceeded" };
-        }
-      }
-      const result = await connection.query(
-        `update oidc_client_revisions set review_status = $4, rejection_reason = $5,
-           updated_at = $6::timestamptz, version = version + 1
-         where client_id = $1 and revision_id = $2 and version = $3 returning *`,
-        [
-          clientId,
-          revisionId,
-          expectedVersion,
-          nextStatus,
-          reason ?? null,
-          audit.createdAt,
-        ],
-      );
-      if (result.rowCount !== 1) {
-        await connection.query("rollback");
-        return { status: "version_conflict" };
-      }
-      const revision = this.mapRevisionRow(result.rows[0])!;
-      await this.insertAudit(connection, {
-        ...audit,
-        revisionId,
-        revisionNumber: revision.revisionNumber,
-      });
-      await connection.query("commit");
-      return this.updatedResult(clientId);
-    } catch (error) {
-      await connection.query("rollback");
-      throw error;
-    } finally {
-      connection.release();
-    }
-  }
-
-  async approveOidcClientRevision(
-    clientId: string,
-    revisionId: number,
-    expectedVersion: number,
-    audits: OidcClientAuditRecord[],
-    authorization: ProjectWriteAuthorization,
-  ): Promise<ManagedOidcClientRecord | null> {
-    const pool = this.poolProvider();
-    if (!pool) {
-      const client = this.clients.get(clientId);
-      return this.withMemoryProjectWrite(
-        authorization,
-        client?.projectId ?? "",
-        async () => {
-          const revision = this.revisions.get(revisionId);
-          if (
-            !client ||
-            client.lifecycleStatus === "disabled" ||
-            !revision ||
-            revision.clientId !== clientId ||
-            revision.status !== "pending" ||
-            revision.version !== expectedVersion
-          )
-            return null;
-          const approved = {
-            ...revision,
-            status: "approved" as const,
-            updatedAt: audits[0]!.createdAt,
-            version: revision.version + 1,
-          };
-          this.revisions.set(revisionId, approved);
-          this.clients.set(clientId, {
-            ...client,
-            lifecycleStatus: "active",
-            activeRevisionId: revisionId,
-            updatedAt: audits[0]!.createdAt,
-            version: client.version + 1,
-          });
-          this.pushRevisionAudits(audits, approved);
-          return this.memoryManaged(clientId);
-        },
-      );
-    }
-    const connection = await pool.connect();
-    try {
-      await connection.query("begin");
-      await this.authorizeProjectWrite(connection, authorization, clientId);
-      const clientResult = await connection.query(
-        "select * from oidc_clients where client_id = $1",
-        [clientId],
-      );
-      if (
-        !clientResult.rows[0] ||
-        clientResult.rows[0]["lifecycle_status"] === "disabled"
-      ) {
-        await connection.query("rollback");
-        return null;
-      }
-      const revisionResult = await connection.query(
-        `update oidc_client_revisions set review_status = 'approved', rejection_reason = null,
-           updated_at = $4::timestamptz, version = version + 1
-         where client_id = $1 and revision_id = $2 and version = $3 and review_status = 'pending'
-         returning *`,
-        [clientId, revisionId, expectedVersion, audits[0]!.createdAt],
-      );
-      if (revisionResult.rowCount !== 1) {
-        await connection.query("rollback");
-        return null;
-      }
-      const revision = this.mapRevisionRow(revisionResult.rows[0])!;
-      await connection.query(
-        `update oidc_clients set lifecycle_status = 'active', active_revision_id = $2,
-           updated_at = $3::timestamptz, version = version + 1 where client_id = $1`,
-        [clientId, revisionId, audits[0]!.createdAt],
-      );
-      for (const audit of audits) {
-        await this.insertAudit(connection, {
-          ...audit,
-          revisionId,
-          revisionNumber: revision.revisionNumber,
-        });
-      }
-      await connection.query("commit");
-      return this.findManagedOidcClient(clientId);
     } catch (error) {
       await connection.query("rollback");
       throw error;
@@ -1237,13 +1039,6 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
     return this.listManaged("true", []);
   }
 
-  async listPendingOidcClients() {
-    return this.listManaged(
-      "c.lifecycle_status <> 'disabled' and exists (select 1 from oidc_client_revisions r where r.client_id = c.client_id and r.review_status = 'pending')",
-      [],
-    );
-  }
-
   async listOidcClientAuditLogs(
     clientId?: string,
   ): Promise<OidcClientAuditRecord[]> {
@@ -1305,10 +1100,7 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
             where === "true" ||
             (where.includes("project_id")
               ? client.projectId === values[0]
-              : where.includes("lifecycle_status = 'active'")
-                ? client.lifecycleStatus === "active"
-                : client.lifecycleStatus !== "disabled" &&
-                  this.proposedFor(client.clientId)?.status === "pending"),
+              : client.lifecycleStatus === "active"),
         )
         .sort(
           (a, b) =>
@@ -1468,55 +1260,6 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
           this.clientQuotaSubjects.get(candidate.clientId) === subjectId &&
           candidate.lifecycleStatus !== "disabled",
       ).length >= maxNonDisabledClients
-    );
-  }
-
-  private memoryPendingQuotaExceeded(
-    projectId: string,
-    subjectId: string | null,
-    limits: ClientProjectLimits,
-  ) {
-    let projectPending = 0;
-    let subjectPending = 0;
-    for (const revision of this.revisions.values()) {
-      if (revision.status !== "pending") continue;
-      const client = this.clients.get(revision.clientId);
-      if (!client || client.lifecycleStatus === "disabled") continue;
-      if (client.projectId === projectId) projectPending += 1;
-      if (
-        subjectId &&
-        this.clientQuotaSubjects.get(client.clientId) === subjectId
-      )
-        subjectPending += 1;
-    }
-    return (
-      projectPending >= limits.maxPendingClients ||
-      (!!subjectId && subjectPending >= limits.maxPendingClientsPerSubject)
-    );
-  }
-
-  private async pendingQuotaExceeded(
-    queryable: Queryable,
-    projectId: string,
-    subjectId: string | null,
-    limits: ClientProjectLimits,
-  ) {
-    const result = await queryable.query(
-      `select
-         count(*) filter (where c.project_id = $1)::int as project_pending,
-         count(*) filter (where p.created_by_subject_id = $2)::int as subject_pending
-       from oidc_client_revisions r
-       join oidc_clients c on c.client_id = r.client_id
-       join projects p on p.project_id = c.project_id
-       where c.lifecycle_status <> 'disabled' and r.review_status = 'pending'`,
-      [projectId, subjectId],
-    );
-    return (
-      Number(result.rows[0]?.["project_pending"] ?? 0) >=
-        limits.maxPendingClients ||
-      (subjectId !== null &&
-        Number(result.rows[0]?.["subject_pending"] ?? 0) >=
-          limits.maxPendingClientsPerSubject)
     );
   }
 

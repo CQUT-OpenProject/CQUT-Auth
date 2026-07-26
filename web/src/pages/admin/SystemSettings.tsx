@@ -101,9 +101,7 @@ const groups = [
     [
       ["managementProjectMaxActivePerSubject", "每个 Subject 的活动项目上限"],
       ["managementClientMaxPerProject", "每项目客户端上限"],
-      ["managementClientMaxPendingPerProject", "每项目待审核客户端上限"],
       ["managementClientMaxPerSubject", "每 Subject 客户端上限"],
-      ["managementClientMaxPendingPerSubject", "每 Subject 待审核客户端上限"],
       ["clientSecretDefaultGraceSeconds", "密钥默认宽限期"],
       ["clientSecretMaxGraceSeconds", "密钥最大宽限期"],
     ],

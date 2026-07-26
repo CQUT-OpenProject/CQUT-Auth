@@ -206,7 +206,7 @@ test("management login blocks account spraying from one ip", async () => {
   }
 });
 
-test("management API exposes separate lifecycle and revision workflows", async () => {
+test("management API activates clients and revisions immediately", async () => {
   const { app, state } = await createApp();
   await seedAdmin(state);
   try {
@@ -217,58 +217,22 @@ test("management API exposes separate lifecycle and revision workflows", async (
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send(input);
     assert.equal(created.status, 201);
-    assert.equal(created.body.client.lifecycleStatus, "draft");
-    assert.equal(created.body.client.proposedRevision.status, "draft");
+    assert.equal(created.body.client.lifecycleStatus, "active");
+    assert.equal(created.body.client.activeRevision.status, "approved");
+    assert.equal(created.body.client.proposedRevision, null);
     assert.equal(typeof created.body.clientSecret, "string");
     assert.equal("clientSecretDigest" in created.body.client, false);
 
     const clientId = created.body.client.clientId;
-    const draft = created.body.client.proposedRevision;
-    const submitted = await admin
-      .post(
-        `/api/management/projects/system/clients/${clientId}/revision/submit`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ revisionId: draft.revisionId, revisionVersion: draft.version });
-    assert.equal(submitted.status, 200);
-    assert.equal(submitted.body.client.proposedRevision.status, "pending");
-
-    const pending = submitted.body.client.proposedRevision;
-    const approved = await admin
-      .post(
-        `/api/management/admin/projects/system/clients/${clientId}/revisions/${pending.revisionId}/approve`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        revisionId: pending.revisionId,
-        revisionVersion: pending.version,
-      });
-    assert.equal(approved.status, 200);
-    assert.equal(approved.body.client.lifecycleStatus, "active");
-    assert.equal(approved.body.client.proposedRevision, null);
-
     const typeChange = await admin
       .patch(`/api/management/projects/system/clients/${clientId}`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
-        clientVersion: approved.body.client.clientVersion,
+        clientVersion: created.body.client.clientVersion,
         clientType: "spa",
       });
     assert.equal(typeChange.status, 400);
 
-    const sensitive = await admin
-      .put(`/api/management/projects/system/clients/${clientId}/revision`)
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        redirectUris: ["http://localhost:3004/new-callback"],
-        scopeWhitelist: ["openid"],
-      });
-    assert.equal(sensitive.status, 200);
-    assert.equal(sensitive.body.client.proposedRevision.status, "pending");
-    assert.deepEqual(
-      sensitive.body.client.activeRevision.redirectUris,
-      input.redirectUris,
-    );
     const authorize = {
       client_id: clientId,
       response_type: "code",
@@ -278,86 +242,22 @@ test("management API exposes separate lifecycle and revision workflows", async (
       code_challenge: "A".repeat(43),
       code_challenge_method: "S256",
     };
-    const oldStillWorks = await request(app)
+    const firstLive = await request(app)
       .get("/auth")
       .query({ ...authorize, redirect_uri: input.redirectUris[0] });
-    assert.ok(oldStillWorks.status === 302 || oldStillWorks.status === 303);
-    const pendingNotLive = await request(app)
-      .get("/auth")
-      .query({
-        ...authorize,
-        redirect_uri: "http://localhost:3004/new-callback",
-      });
-    assert.equal(pendingNotLive.status, 400);
+    assert.ok(firstLive.status === 302 || firstLive.status === 303);
 
-    const frozen = await admin
-      .put(`/api/management/projects/system/clients/${clientId}/revision`)
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ redirectUris: ["http://localhost:3004/other"] });
-    assert.equal(frozen.status, 409);
-
-    const proposed = sensitive.body.client.proposedRevision;
-    const rejected = await admin
-      .post(
-        `/api/management/admin/projects/system/clients/${clientId}/revisions/${proposed.revisionId}/reject`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        revisionId: proposed.revisionId,
-        revisionVersion: proposed.version,
-        reason: "callback ownership is unclear",
-      });
-    assert.equal(
-      rejected.body.client.proposedRevision.rejectionReason,
-      "callback ownership is unclear",
-    );
-    assert.deepEqual(
-      rejected.body.client.activeRevision.redirectUris,
-      input.redirectUris,
-    );
-    const oldAfterReject = await request(app)
-      .get("/auth")
-      .query({ ...authorize, redirect_uri: input.redirectUris[0] });
-    assert.ok(oldAfterReject.status === 302 || oldAfterReject.status === 303);
-    const redraft = await admin
+    const updated = await admin
       .put(`/api/management/projects/system/clients/${clientId}/revision`)
       .set("X-CSRF-Token", signedIn.body.csrfToken)
       .send({
         redirectUris: ["http://localhost:3004/new-callback"],
         scopeWhitelist: ["openid", "profile", "email"],
       });
-    const newDraft = redraft.body.client.proposedRevision;
-    const resubmitted = await admin
-      .post(
-        `/api/management/projects/system/clients/${clientId}/revision/submit`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        revisionId: newDraft.revisionId,
-        revisionVersion: newDraft.version,
-      });
-    const newPending = resubmitted.body.client.proposedRevision;
-    const secondApproved = await admin
-      .post(
-        `/api/management/admin/projects/system/clients/${clientId}/revisions/${newPending.revisionId}/approve`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        revisionId: newPending.revisionId,
-        revisionVersion: newPending.version,
-      });
-    assert.equal(secondApproved.status, 200);
-    assert.equal(secondApproved.body.client.proposedRevision, null);
-    const revisionFour = await admin
-      .put(`/api/management/projects/system/clients/${clientId}/revision`)
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ redirectUris: ["http://localhost:3004/revision-4"] });
-    assert.equal(revisionFour.status, 200);
-    assert.equal(revisionFour.body.client.proposedRevision.revisionNumber, 4);
-    assert.deepEqual(revisionFour.body.client.proposedRevision.scopeWhitelist, [
-      "openid",
-      "profile",
-      "email",
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.client.proposedRevision, null);
+    assert.deepEqual(updated.body.client.activeRevision.redirectUris, [
+      "http://localhost:3004/new-callback",
     ]);
     const newNowWorks = await request(app)
       .get("/auth")
@@ -376,30 +276,12 @@ test("management API exposes separate lifecycle and revision workflows", async (
     );
 
     const outsider = request.agent(app);
-    const outsiderLogin = await login(outsider, "other-account");
+    await login(outsider, "other-account");
     assert.equal(
       (
         await outsider.get(
           `/api/management/projects/system/clients/${clientId}`,
         )
-      ).status,
-      404,
-    );
-    assert.equal(
-      (await outsider.get("/api/management/admin/reviews")).status,
-      403,
-    );
-    assert.equal(
-      (
-        await outsider
-          .post(
-            `/api/management/projects/system/clients/${clientId}/revision/withdraw`,
-          )
-          .set("X-CSRF-Token", outsiderLogin.body.csrfToken)
-          .send({
-            revisionId: proposed.revisionId,
-            revisionVersion: proposed.version,
-          })
       ).status,
       404,
     );
@@ -504,72 +386,6 @@ test("project API enforces roles, last-owner protection, and immediate removal",
       .send({ expectedProjectVersion: projectVersion });
     assert.equal(lastOwner.status, 409);
     assert.equal(lastOwner.body.error, "last_owner_required");
-  } finally {
-    await state.close();
-  }
-});
-
-test("management API rejects concurrent approval and approval after disable", async () => {
-  const { app, state } = await createApp();
-  await seedAdmin(state);
-  try {
-    const admin = request.agent(app);
-    const signedIn = await login(admin, "admin-account");
-    const created = await admin
-      .post("/api/management/projects/system/clients")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ ...input, clientType: "spa" });
-    const draft = created.body.client.proposedRevision;
-    const submitted = await admin
-      .post(
-        `/api/management/projects/system/clients/${created.body.client.clientId}/revision/submit`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ revisionId: draft.revisionId, revisionVersion: draft.version });
-    const pending = submitted.body.client.proposedRevision;
-    const endpoint = `/api/management/admin/projects/system/clients/${created.body.client.clientId}/revisions/${pending.revisionId}/approve`;
-    const [first, second] = await Promise.all([
-      admin.post(endpoint).set("X-CSRF-Token", signedIn.body.csrfToken).send({
-        revisionId: pending.revisionId,
-        revisionVersion: pending.version,
-      }),
-      admin.post(endpoint).set("X-CSRF-Token", signedIn.body.csrfToken).send({
-        revisionId: pending.revisionId,
-        revisionVersion: pending.version,
-      }),
-    ]);
-    assert.deepEqual([first.status, second.status].sort(), [200, 409]);
-
-    const another = await admin
-      .post("/api/management/projects/system/clients")
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ ...input, displayName: "Disabled review", clientType: "spa" });
-    const anotherDraft = another.body.client.proposedRevision;
-    const anotherPending = await admin
-      .post(
-        `/api/management/projects/system/clients/${another.body.client.clientId}/revision/submit`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        revisionId: anotherDraft.revisionId,
-        revisionVersion: anotherDraft.version,
-      });
-    await admin
-      .post(
-        `/api/management/projects/system/clients/${another.body.client.clientId}/disable`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({ clientVersion: anotherPending.body.client.clientVersion });
-    const blocked = await admin
-      .post(
-        `/api/management/admin/projects/system/clients/${another.body.client.clientId}/revisions/${anotherPending.body.client.proposedRevision.revisionId}/approve`,
-      )
-      .set("X-CSRF-Token", signedIn.body.csrfToken)
-      .send({
-        revisionId: anotherPending.body.client.proposedRevision.revisionId,
-        revisionVersion: anotherPending.body.client.proposedRevision.version,
-      });
-    assert.equal(blocked.status, 409);
   } finally {
     await state.close();
   }

@@ -54,14 +54,6 @@ export const dataProvider: DataProvider = {
       };
     }
 
-    if (resource === "adminReviews") {
-      const res = await request<{ clients: any[] }>("/admin/reviews");
-      return {
-        data: res.clients,
-        total: res.clients.length,
-      };
-    }
-
     throw new Error(`Unhandled resource: ${resource}`);
   },
 

@@ -19,7 +19,6 @@ import {
   TeamOutlined,
   DesktopOutlined,
   AuditOutlined,
-  SafetyCertificateOutlined,
   SettingOutlined,
   LogoutOutlined,
   SunOutlined,
@@ -91,7 +90,7 @@ export const DashboardLayout: React.FC = () => {
       breadcrumbItems.push({
         title: "管理员面板",
         key: "admin",
-        onClick: () => navigate("/admin/reviews"),
+        onClick: () => navigate("/admin/settings/system"),
       });
     }
 
@@ -176,12 +175,6 @@ export const DashboardLayout: React.FC = () => {
         label: "系统管理员",
         type: "group",
         children: [
-          {
-            key: "reviews",
-            icon: <SafetyCertificateOutlined />,
-            label: "待审核配置",
-            onClick: () => navigate("/admin/reviews"),
-          },
           {
             key: "system-clients",
             icon: <DesktopOutlined />,
