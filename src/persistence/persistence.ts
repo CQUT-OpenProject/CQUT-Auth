@@ -1,9 +1,3 @@
-import type {
-  AuthenticatedPrincipal,
-  SubjectIdentityRecord,
-  SubjectProfileRecord,
-  SubjectRecord,
-} from "../identity/index.js";
 import { Pool } from "pg";
 import type { StaticConfig } from "../config.js";
 import {
@@ -12,28 +6,8 @@ import {
 } from "./artifact-cleanup.scheduler.js";
 import { ArtifactPayloadCipherServiceImpl } from "./artifact-payload-cipher.service.js";
 import type {
-  ManagementSessionRecord,
-  ActiveOidcClientRecord,
-  ClientRevisionStatus,
-  ClientProjectLimits,
-  OidcClientAuditRecord,
-  OidcClientRecord,
-  OidcClientSecretRecord,
-  OidcClientRevisionRecord,
-  ProjectAuditRecord,
-  ProjectCreateLimits,
-  ProjectMemberRecord,
-  ProjectRecord,
-  ProjectRole,
-  OidcSigningKeyRecord,
-  PendingInteractionLogin,
-  AppSettingRecord,
-  InteractionEmailVerificationResult,
-} from "./contracts.js";
-import type {
   AppSettingsRepository,
   IdentityRepository,
-  JwkCipherService,
   ManagementSessionRepository,
   OidcArtifactRepository,
   OidcClientRepository,
@@ -41,9 +15,7 @@ import type {
   ProjectRepository,
   SigningKeyRepository,
 } from "./contracts.js";
-import type { ProjectWriteAuthorization } from "../projects/project-access.js";
 import { IdentityRepositoryImpl } from "./identity.repository.js";
-import { JwkCipherServiceImpl } from "./jwk-cipher.service.js";
 import { OidcArtifactRepositoryImpl } from "./oidc-artifact.repository.js";
 import {
   MemoryOidcClientRepository,
@@ -54,10 +26,9 @@ import { ProjectRepositoryImpl } from "./project.repository.js";
 import { SigningKeyRepositoryImpl } from "./signing-key.repository.js";
 import { AppSettingsRepositoryImpl } from "./app-settings.repository.js";
 
-export class PersistenceRuntimeImpl {
+export class PersistenceRuntimeImpl implements PersistenceRuntime {
   private readonly logger = console;
   private pool: Pool | undefined;
-  readonly jwkCipherService: JwkCipherServiceImpl;
   private readonly artifactPayloadCipherService: ArtifactPayloadCipherServiceImpl;
   readonly identityRepository: IdentityRepositoryImpl;
   oidcClientRepository!: OidcClientRepository;
@@ -69,9 +40,6 @@ export class PersistenceRuntimeImpl {
 
   constructor(private readonly config: StaticConfig) {
     const poolProvider = () => this.pool;
-    this.jwkCipherService = new JwkCipherServiceImpl(
-      config.keyEncryptionSecret,
-    );
     this.artifactPayloadCipherService = new ArtifactPayloadCipherServiceImpl(
       config.artifactEncryptionSecret,
     );
@@ -108,7 +76,7 @@ export class PersistenceRuntimeImpl {
     );
     this.signingKeyRepository = new SigningKeyRepositoryImpl(
       poolProvider,
-      this.jwkCipherService,
+      config.keyEncryptionSecret,
     );
     this.appSettingsRepository = new AppSettingsRepositoryImpl(poolProvider);
   }
@@ -196,549 +164,6 @@ export class PersistenceRuntimeImpl {
     } catch {
       return false;
     }
-  }
-
-  async findSubject(subjectId: string): Promise<SubjectRecord | null> {
-    return this.identityRepository.findSubject(subjectId);
-  }
-
-  async findIdentity(
-    provider: string,
-    identityKey: string,
-  ): Promise<SubjectIdentityRecord | null> {
-    return this.identityRepository.findIdentity(provider, identityKey);
-  }
-
-  async createSubjectWithIdentity(
-    subject: SubjectRecord,
-    identity: SubjectIdentityRecord,
-  ): Promise<SubjectIdentityRecord> {
-    return this.identityRepository.createSubjectWithIdentity(subject, identity);
-  }
-
-  async updateIdentity(
-    provider: string,
-    identityKey: string,
-    patch: Pick<
-      SubjectIdentityRecord,
-      "schoolUid" | "currentStudentStatus" | "school" | "updatedAt"
-    >,
-  ): Promise<SubjectIdentityRecord> {
-    return this.identityRepository.updateIdentity(provider, identityKey, patch);
-  }
-
-  async getProfile(subjectId: string): Promise<SubjectProfileRecord | null> {
-    return this.identityRepository.getProfile(subjectId);
-  }
-
-  async upsertProfile(
-    profile: SubjectProfileRecord,
-  ): Promise<SubjectProfileRecord> {
-    return this.identityRepository.upsertProfile(profile);
-  }
-
-  async findPrincipalBySubjectId(
-    subjectId: string,
-  ): Promise<AuthenticatedPrincipal | null> {
-    return this.identityRepository.findPrincipalBySubjectId(subjectId);
-  }
-
-  async ensureSystemProject() {
-    return this.projectRepository.ensureSystemProject();
-  }
-
-  async createProject(
-    project: ProjectRecord,
-    owner: ProjectMemberRecord,
-    audit: ProjectAuditRecord,
-    limits?: ProjectCreateLimits,
-  ) {
-    return this.projectRepository.createProject(project, owner, audit, limits);
-  }
-
-  async findProject(projectId: string) {
-    return this.projectRepository.findProject(projectId);
-  }
-
-  async findProjectRole(projectId: string, subjectId: string) {
-    return this.projectRepository.findProjectRole(projectId, subjectId);
-  }
-
-  async listProjectsForSubject(subjectId: string, includeAll: boolean) {
-    return this.projectRepository.listProjectsForSubject(subjectId, includeAll);
-  }
-
-  async listProjectMembers(projectId: string) {
-    return this.projectRepository.listProjectMembers(projectId);
-  }
-
-  async updateProject(
-    projectId: string,
-    expectedVersion: number,
-    patch: Pick<ProjectRecord, "name" | "description" | "status" | "updatedAt">,
-    audit: ProjectAuditRecord,
-  ) {
-    return this.projectRepository.updateProject(
-      projectId,
-      expectedVersion,
-      patch,
-      audit,
-    );
-  }
-
-  async addProjectMember(
-    member: ProjectMemberRecord,
-    expectedVersion: number,
-    audit: ProjectAuditRecord,
-  ) {
-    return this.projectRepository.addProjectMember(
-      member,
-      expectedVersion,
-      audit,
-    );
-  }
-
-  async updateProjectMemberRole(
-    projectId: string,
-    subjectId: string,
-    role: ProjectRole,
-    expectedVersion: number,
-    updatedAt: string,
-    audit: ProjectAuditRecord,
-  ) {
-    return this.projectRepository.updateProjectMemberRole(
-      projectId,
-      subjectId,
-      role,
-      expectedVersion,
-      updatedAt,
-      audit,
-    );
-  }
-
-  async removeProjectMember(
-    projectId: string,
-    subjectId: string,
-    expectedVersion: number,
-    updatedAt: string,
-    audit: ProjectAuditRecord,
-  ) {
-    return this.projectRepository.removeProjectMember(
-      projectId,
-      subjectId,
-      expectedVersion,
-      updatedAt,
-      audit,
-    );
-  }
-
-  async transferProjectOwnership(
-    projectId: string,
-    fromSubjectId: string,
-    toSubjectId: string,
-    expectedVersion: number,
-    updatedAt: string,
-    audits: ProjectAuditRecord[],
-  ) {
-    return this.projectRepository.transferProjectOwnership(
-      projectId,
-      fromSubjectId,
-      toSubjectId,
-      expectedVersion,
-      updatedAt,
-      audits,
-    );
-  }
-
-  async listProjectAuditLogs(
-    projectId: string,
-    limit: number,
-    beforeId?: number,
-  ) {
-    const projectAudits = await this.projectRepository.listProjectAuditLogs(
-      projectId,
-      limit,
-      beforeId,
-    );
-    if (this.pool) return projectAudits;
-    const clientAudits =
-      await this.oidcClientRepository.listOidcClientAuditLogs();
-    const matching = [];
-    for (const audit of clientAudits) {
-      const client = await this.oidcClientRepository.findManagedOidcClient(
-        audit.clientId,
-      );
-      if (client?.client.projectId === projectId) {
-        matching.push({ ...audit, projectId });
-      }
-    }
-    return [...projectAudits, ...matching]
-      .filter(
-        (audit) =>
-          !beforeId || (audit.id ?? Number.MAX_SAFE_INTEGER) < beforeId,
-      )
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, limit);
-  }
-
-  async upsertOidcClient(
-    client: ActiveOidcClientRecord,
-  ): Promise<ActiveOidcClientRecord> {
-    return this.oidcClientRepository.upsertOidcClient(client);
-  }
-
-  async countOidcClients(): Promise<number> {
-    return this.oidcClientRepository.countOidcClients();
-  }
-
-  async initializeOidcClientsIfEmpty(
-    clients: ActiveOidcClientRecord[],
-    audits: OidcClientAuditRecord[],
-  ) {
-    return this.oidcClientRepository.initializeOidcClientsIfEmpty(
-      clients,
-      audits,
-    );
-  }
-
-  async createOidcClient(
-    client: OidcClientRecord,
-    revision: OidcClientRevisionRecord,
-    secret: OidcClientSecretRecord | undefined,
-    audits: OidcClientAuditRecord[],
-    projectLimits: ClientProjectLimits | undefined,
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.createOidcClient(
-      client,
-      revision,
-      secret,
-      audits,
-      projectLimits,
-      authorization,
-    );
-  }
-
-  async updateOidcClientMetadata(
-    clientId: string,
-    patch: Pick<
-      OidcClientRecord,
-      "displayName" | "description" | "requirePkce" | "updatedAt"
-    >,
-    expectedVersion: number,
-    audit: OidcClientAuditRecord,
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.updateOidcClientMetadata(
-      clientId,
-      patch,
-      expectedVersion,
-      audit,
-      authorization,
-    );
-  }
-
-  async saveOidcClientRevision(
-    clientId: string,
-    revision: OidcClientRevisionRecord,
-    expectedRevisionId: number | null,
-    expectedRevisionVersion: number | null,
-    audits: OidcClientAuditRecord[],
-    projectLimits: ClientProjectLimits | undefined,
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.saveOidcClientRevision(
-      clientId,
-      revision,
-      expectedRevisionId,
-      expectedRevisionVersion,
-      audits,
-      projectLimits,
-      authorization,
-    );
-  }
-
-  async transitionOidcClientRevision(
-    clientId: string,
-    revisionId: number,
-    expectedVersion: number,
-    nextStatus: ClientRevisionStatus,
-    reason: string | undefined,
-    audit: OidcClientAuditRecord,
-    projectLimits: ClientProjectLimits | undefined,
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.transitionOidcClientRevision(
-      clientId,
-      revisionId,
-      expectedVersion,
-      nextStatus,
-      reason,
-      audit,
-      projectLimits,
-      authorization,
-    );
-  }
-
-  async approveOidcClientRevision(
-    clientId: string,
-    revisionId: number,
-    expectedVersion: number,
-    audits: OidcClientAuditRecord[],
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.approveOidcClientRevision(
-      clientId,
-      revisionId,
-      expectedVersion,
-      audits,
-      authorization,
-    );
-  }
-
-  async disableOidcClient(
-    clientId: string,
-    expectedVersion: number,
-    updatedAt: string,
-    audits: OidcClientAuditRecord[],
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.disableOidcClient(
-      clientId,
-      expectedVersion,
-      updatedAt,
-      audits,
-      authorization,
-    );
-  }
-
-  async rotateOidcClientSecret(
-    clientId: string,
-    secret: OidcClientSecretRecord,
-    expectedClientVersion: number,
-    gracePeriodSeconds: number,
-    minimumRotationIntervalSeconds: number,
-    audit: OidcClientAuditRecord,
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.rotateOidcClientSecret(
-      clientId,
-      secret,
-      expectedClientVersion,
-      gracePeriodSeconds,
-      minimumRotationIntervalSeconds,
-      audit,
-      authorization,
-    );
-  }
-
-  async revokeOidcClientSecret(
-    clientId: string,
-    secretId: string,
-    expectedClientVersion: number,
-    expectedSecretVersion: number,
-    updatedAt: string,
-    audit: OidcClientAuditRecord,
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.revokeOidcClientSecret(
-      clientId,
-      secretId,
-      expectedClientVersion,
-      expectedSecretVersion,
-      updatedAt,
-      audit,
-      authorization,
-    );
-  }
-
-  async revokeOidcClientAuthorizations(
-    clientId: string,
-    expectedClientVersion: number,
-    updatedAt: string,
-    audit: OidcClientAuditRecord,
-    authorization: ProjectWriteAuthorization,
-  ) {
-    return this.oidcClientRepository.revokeOidcClientAuthorizations(
-      clientId,
-      expectedClientVersion,
-      updatedAt,
-      audit,
-      authorization,
-    );
-  }
-
-  async findManagedOidcClient(clientId: string) {
-    return this.oidcClientRepository.findManagedOidcClient(clientId);
-  }
-
-  async findOidcClient(
-    clientId: string,
-  ): Promise<ActiveOidcClientRecord | null> {
-    return this.oidcClientRepository.findOidcClient(clientId);
-  }
-
-  async listActiveOidcClients(): Promise<ActiveOidcClientRecord[]> {
-    return this.oidcClientRepository.listActiveOidcClients();
-  }
-
-  async listOidcClientsByProject(projectId: string) {
-    return this.oidcClientRepository.listOidcClientsByProject(projectId);
-  }
-
-  async listOidcClients() {
-    return this.oidcClientRepository.listOidcClients();
-  }
-
-  async listPendingOidcClients() {
-    return this.oidcClientRepository.listPendingOidcClients();
-  }
-
-  async listOidcClientAuditLogs(clientId?: string) {
-    return this.oidcClientRepository.listOidcClientAuditLogs(clientId);
-  }
-
-  async createManagementSession(session: ManagementSessionRecord) {
-    return this.managementSessionRepository.createManagementSession(session);
-  }
-
-  async findManagementSession(tokenHash: string) {
-    return this.managementSessionRepository.findManagementSession(tokenHash);
-  }
-
-  async touchManagementSession(tokenHash: string, lastSeenAt: string) {
-    return this.managementSessionRepository.touchManagementSession(
-      tokenHash,
-      lastSeenAt,
-    );
-  }
-
-  async deleteManagementSession(tokenHash: string) {
-    return this.managementSessionRepository.deleteManagementSession(tokenHash);
-  }
-
-  async deleteExpiredManagementSessions(now: string) {
-    return this.managementSessionRepository.deleteExpiredManagementSessions(
-      now,
-    );
-  }
-
-  async upsertArtifact(
-    id: string,
-    kind: string,
-    payload: Record<string, unknown>,
-    expiresIn: number,
-    authorizationGeneration?: number,
-  ): Promise<void> {
-    return this.oidcArtifactRepository.upsertArtifact(
-      id,
-      kind,
-      payload,
-      expiresIn,
-      authorizationGeneration,
-    );
-  }
-
-  async findArtifact(id: string): Promise<Record<string, unknown> | undefined> {
-    return this.oidcArtifactRepository.findArtifact(id);
-  }
-
-  async destroyArtifact(id: string): Promise<void> {
-    return this.oidcArtifactRepository.destroyArtifact(id);
-  }
-
-  async consumeArtifact(id: string): Promise<void> {
-    return this.oidcArtifactRepository.consumeArtifact(id);
-  }
-
-  async findArtifactByUid(
-    uid: string,
-    kind?: string,
-  ): Promise<Record<string, unknown> | undefined> {
-    return this.oidcArtifactRepository.findArtifactByUid(uid, kind);
-  }
-
-  async findArtifactByUserCode(
-    userCode: string,
-  ): Promise<Record<string, unknown> | undefined> {
-    return this.oidcArtifactRepository.findArtifactByUserCode(userCode);
-  }
-
-  async revokeArtifactsByGrantId(grantId: string): Promise<void> {
-    return this.oidcArtifactRepository.revokeArtifactsByGrantId(grantId);
-  }
-
-  async revokeArtifactsByClientId(clientId: string): Promise<void> {
-    return this.oidcArtifactRepository.revokeArtifactsByClientId(clientId);
-  }
-
-  async saveInteractionLogin(
-    uid: string,
-    value: PendingInteractionLogin,
-  ): Promise<void> {
-    return this.oidcArtifactRepository.saveInteractionLogin(uid, value);
-  }
-
-  async getInteractionLogin(
-    uid: string,
-  ): Promise<PendingInteractionLogin | undefined> {
-    return this.oidcArtifactRepository.getInteractionLogin(uid);
-  }
-
-  async verifyInteractionEmailCode(
-    uid: string,
-    expectedCodeHash: string,
-    inputCodeHash: string,
-    now: number,
-    maxAttempts: number,
-  ): Promise<InteractionEmailVerificationResult> {
-    return this.oidcArtifactRepository.verifyInteractionEmailCode(
-      uid,
-      expectedCodeHash,
-      inputCodeHash,
-      now,
-      maxAttempts,
-    );
-  }
-
-  async deleteInteractionLogin(uid: string): Promise<void> {
-    return this.oidcArtifactRepository.deleteInteractionLogin(uid);
-  }
-
-  async upsertSigningKey(
-    key: OidcSigningKeyRecord,
-  ): Promise<OidcSigningKeyRecord> {
-    return this.signingKeyRepository.upsertSigningKey(key);
-  }
-
-  async listSigningKeys(
-    statuses: Array<OidcSigningKeyRecord["status"]> = ["active", "retiring"],
-  ): Promise<OidcSigningKeyRecord[]> {
-    return this.signingKeyRepository.listSigningKeys(statuses);
-  }
-
-  async loadPrivateSigningJwks(
-    statuses: Array<OidcSigningKeyRecord["status"]> = ["active", "retiring"],
-  ) {
-    return this.signingKeyRepository.loadPrivateSigningJwks(statuses);
-  }
-
-  async encryptPrivateJwk(jwk: JsonWebKey) {
-    return this.jwkCipherService.encryptPrivateJwk(jwk);
-  }
-
-  async getAppSetting(key: string): Promise<AppSettingRecord | null> {
-    return this.appSettingsRepository.getAppSetting(key);
-  }
-
-  async saveAppSetting(
-    input: Parameters<AppSettingsRepository["saveAppSetting"]>[0],
-  ) {
-    return this.appSettingsRepository.saveAppSetting(input);
-  }
-
-  async listAppSettingAuditLogs(key: string, limit: number) {
-    return this.appSettingsRepository.listAppSettingAuditLogs(key, limit);
   }
 
   private async ensureSchema() {
@@ -1074,7 +499,6 @@ export type PersistenceModules = {
   artifacts: OidcArtifactRepository;
   signingKeys: SigningKeyRepository;
   settings: AppSettingsRepository;
-  jwkCipher: JwkCipherService;
 };
 
 export async function createPersistence(
@@ -1091,6 +515,5 @@ export async function createPersistence(
     artifacts: runtime.oidcArtifactRepository,
     signingKeys: runtime.signingKeyRepository,
     settings: runtime.appSettingsRepository,
-    jwkCipher: runtime.jwkCipherService,
   };
 }

@@ -4,7 +4,7 @@ import { ClientManagementService } from "../src/clients/client-management.servic
 import { ClientManagementError } from "../src/management/management-error.js";
 import { readConfig } from "../src/config.js";
 import { verifyClientSecretDigest } from "../src/crypto.js";
-import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
+import { createPersistence } from "../src/persistence/persistence.js";
 import { ProjectAccessService } from "../src/projects/project-access.js";
 import { SYSTEM_PROJECT_ID } from "../src/persistence/contracts.js";
 
@@ -50,12 +50,13 @@ async function activeClient(
 }
 
 test("client creation produces a draft revision and never exposes secrets in audit", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     const service = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
       {
         createClientId: () => "client_fixed",
@@ -94,17 +95,18 @@ test("client creation produces a draft revision and never exposes secrets in aud
     assert.equal(JSON.stringify(audit).includes(result.clientSecret!), false);
     assert.equal(JSON.stringify(audit).includes("scrypt$"), false);
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("secret rotation enforces grace, expiry, revocation, and optimistic concurrency", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   let secretNumber = 0;
   const service = new ClientManagementService(
     store,
-    new ProjectAccessService(store),
+    new ProjectAccessService(projects),
     "test",
     {
       createClientId: () => "client_secret_lifecycle",
@@ -245,18 +247,19 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
     assert.equal(JSON.stringify(audits).includes("plaintext_secret"), false);
     assert.equal(JSON.stringify(audits).includes("scrypt$"), false);
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("secret rotation preflight and cooldown run before scrypt digest work", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   let now = new Date("2026-07-13T00:00:00.000Z");
   let digestCalls = 0;
   const service = new ClientManagementService(
     store,
-    new ProjectAccessService(store),
+    new ProjectAccessService(projects),
     "test",
     {
       now: () => now,
@@ -318,17 +321,18 @@ test("secret rotation preflight and cooldown run before scrypt digest work", asy
     assert.equal(digestCalls, 2);
     assert.equal(rotated.client.secrets[0]?.status, "active");
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("client type is immutable and pending changes keep the active revision online", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     const service = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
       {
         createClientId: () => "client_active",
@@ -361,17 +365,18 @@ test("client type is immutable and pending changes keep the active revision onli
       webInput.redirectUris,
     );
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("withdraw, edit, resubmit and rejection preserve the active configuration", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     const service = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
       {
         createClientId: () => "client_revision",
@@ -483,17 +488,18 @@ test("withdraw, edit, resubmit and rejection preserve the active configuration",
       "email",
     ]);
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("concurrent approval atomically activates one revision", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     const service = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
       {
         createClientId: () => "client_concurrent",
@@ -536,17 +542,18 @@ test("concurrent approval atomically activates one revision", async () => {
       "active",
     );
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("configuration validation requires openid and forbids SPA offline_access", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     const service = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
     );
     await assert.rejects(
@@ -567,18 +574,19 @@ test("configuration validation requires openid and forbids SPA offline_access", 
       /SPA clients cannot request offline_access/,
     );
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("client and pending revision quotas cannot be bypassed", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     let id = 0;
     const pendingLimited = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
       {
         createClientId: () => `quota_${++id}`,
@@ -662,7 +670,7 @@ test("client and pending revision quotas cannot be bypassed", async () => {
 
     const totalLimited = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
       {
         createClientId: () => `total_${++id}`,
@@ -682,17 +690,18 @@ test("client and pending revision quotas cannot be bypassed", async () => {
         error.code === "client_quota_exceeded",
     );
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("web clients can disable PKCE on creation and toggle it via update", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     const service = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
     );
     const created = await service.create(owner, SYSTEM_PROJECT_ID, {
@@ -716,17 +725,18 @@ test("web clients can disable PKCE on creation and toggle it via update", async 
       ),
     );
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
 
 test("SPA clients cannot disable PKCE on creation or update", async () => {
-  const store = new PersistenceRuntimeImpl(config());
-  await store.init();
+  const modules = await createPersistence(config());
+  const store = modules.clients;
+  const projects = modules.projects;
   try {
     const service = new ClientManagementService(
       store,
-      new ProjectAccessService(store),
+      new ProjectAccessService(projects),
       "test",
     );
     await assert.rejects(
@@ -737,8 +747,7 @@ test("SPA clients cannot disable PKCE on creation or update", async () => {
           requirePkce: false,
         }),
       (error: unknown) =>
-        error instanceof ClientManagementError &&
-        error.field === "requirePkce",
+        error instanceof ClientManagementError && error.field === "requirePkce",
     );
 
     const created = await service.create(owner, SYSTEM_PROJECT_ID, {
@@ -753,10 +762,9 @@ test("SPA clients cannot disable PKCE on creation or update", async () => {
           requirePkce: false,
         }),
       (error: unknown) =>
-        error instanceof ClientManagementError &&
-        error.field === "requirePkce",
+        error instanceof ClientManagementError && error.field === "requirePkce",
     );
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });

@@ -16,7 +16,6 @@ import type { PersistenceModules } from "../persistence/persistence.js";
 import type { OidcInteractionPort, OidcRuntime } from "../oidc/provider.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 import { renderBrandedPage } from "../pages/branded-page.js";
-import { InteractionJourney } from "../identity/interaction-journey.js";
 import {
   base64Url,
   escapeHtml,
@@ -174,189 +173,145 @@ function getScriptNonce(response: Response) {
 function renderInteractionPageStyles(): string {
   return `
         :root {
-          --ink: #0e2233;
-          --ink-soft: #52667a;
-          --paper: #eef3f8;
-          --card: #fdfefe;
-          --line: #d3dfe9;
-          --line-strong: #a9bfd2;
-          --brand: #0b1f33;
+          color-scheme: light dark;
+          --ink: #0b1f33;
+          --ink-soft: #526577;
+          --paper: #f7fafc;
+          --card: #ffffff;
+          --line: #d7e2ea;
+          --line-strong: #92a8b8;
           --brand-2: #055088;
-          --accent: #2eaf72;
+          --accent: #6adfa3;
           --danger: #a43e2e;
           --danger-bg: #faeee9;
           --ok: #1e7a53;
           --ok-bg: #eaf5ec;
           --info: #0b4a72;
           --info-bg: #ecf3f2;
-          --focus-ring: rgba(5, 80, 136, 0.22);
-          --serif: "Source Han Serif SC", "Noto Serif SC", "Songti SC", STSong, Georgia, "Times New Roman", serif;
           --sans: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
         }
         * { box-sizing: border-box; }
+        html { min-width: 320px; }
         body {
           font-family: var(--sans);
           margin: 0;
-          padding: 2rem 1.25rem;
+          padding: 0;
           min-height: 100vh;
           min-height: 100dvh;
           display: flex;
           flex-direction: column;
-          align-items: center;
-          justify-content: center;
+          align-items: stretch;
+          justify-content: flex-start;
           color: var(--ink);
-          background-color: var(--paper);
-          background-image:
-            repeating-radial-gradient(circle at 50% -60vh, transparent 0, transparent 38px, rgba(5, 80, 136, 0.035) 39px, transparent 40px),
-            repeating-linear-gradient(45deg, transparent 0, transparent 11px, rgba(5, 80, 136, 0.02) 11px, rgba(5, 80, 136, 0.02) 12px),
-            repeating-linear-gradient(-45deg, transparent 0, transparent 11px, rgba(5, 80, 136, 0.02) 11px, rgba(5, 80, 136, 0.02) 12px),
-            radial-gradient(120% 90% at 50% 0%, rgba(5, 80, 136, 0.06), transparent 60%);
+          background: var(--paper);
+          overflow-x: hidden;
+        }
+        .page-header {
+          padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 24px max(24px, env(safe-area-inset-left));
+        }
+        .brand-logo {
+          display: block;
+          width: min(256px, 100%);
+          height: auto;
+        }
+        .brand-logo-dark { display: none; }
+        .page-shell {
+          flex: 1;
+          display: grid;
+          place-items: center;
+          padding: 32px max(16px, env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
         }
         .container {
           width: 100%;
-          max-width: 27rem;
+          max-width: 400px;
+          padding: 32px;
           background: var(--card);
-          border: 1px solid var(--line-strong);
-          border-radius: 3px;
-          box-shadow:
-            0 0 0 4px var(--card),
-            0 0 0 5px var(--line),
-            0 24px 48px -24px rgba(11, 31, 51, 0.35);
-          padding: 2.25rem 2.25rem 2rem;
-          position: relative;
-          animation: card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        .container::before {
-          content: "";
-          position: absolute;
-          top: 0;
-          left: 0;
-          right: 0;
-          height: 4px;
-          background: repeating-linear-gradient(
-            -55deg,
-            var(--brand-2) 0,
-            var(--brand-2) 7px,
-            var(--accent) 7px,
-            var(--accent) 9px
-          );
-        }
-        .brand {
-          display: flex;
-          align-items: center;
-          gap: 0.85rem;
-          margin-bottom: 1.6rem;
-          animation: rise-in 0.55s 0.08s cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        .brand-mark {
-          width: 2.6rem;
-          height: 2.6rem;
-          flex: none;
-          color: var(--brand-2);
-        }
-        .brand-name {
-          font-family: var(--serif);
-          font-weight: 700;
-          font-size: 1.18rem;
-          letter-spacing: 0.02em;
-          color: var(--brand);
-          line-height: 1.2;
-        }
-        .brand-sub {
-          font-size: 0.68rem;
-          letter-spacing: 0.32em;
-          color: var(--ink-soft);
-          margin-top: 0.2rem;
-        }
-        .rule {
-          border: none;
-          height: 1px;
-          margin: 0 0 1.5rem;
-          background: linear-gradient(to right, transparent, var(--line-strong) 18%, var(--line-strong) 82%, transparent);
-          position: relative;
-          overflow: visible;
-        }
-        .rule::after {
-          content: "";
-          position: absolute;
-          left: 50%;
-          top: -3px;
-          width: 7px;
-          height: 7px;
-          transform: translateX(-50%) rotate(45deg);
-          background: var(--card);
-          border: 1px solid var(--line-strong);
-        }
-        main {
-          animation: rise-in 0.55s 0.16s cubic-bezier(0.22, 1, 0.36, 1) both;
+          border: 1px solid var(--line);
+          border-radius: 12px;
         }
         h1 {
-          font-family: var(--serif);
-          font-size: 1.5rem;
-          font-weight: 700;
-          letter-spacing: 0.04em;
-          margin: 0 0 0.5rem;
-          text-align: center;
-          color: var(--brand);
+          margin: 0 0 8px;
+          font-family: var(--sans);
+          font-size: 1.75rem;
+          font-weight: 800;
+          line-height: 1.25;
+          letter-spacing: 0;
+          text-align: left;
+          color: var(--ink);
         }
         .hint {
+          margin: 0 0 24px;
           color: var(--ink-soft);
-          font-size: 0.92rem;
-          line-height: 1.6;
-          text-align: center;
-          margin: 0 0 1.6rem;
+          font-size: 0.9375rem;
+          line-height: 1.65;
+          text-align: left;
         }
-        .hint strong { color: var(--ink); }
+        .independence-note {
+          margin: 24px 0 0;
+          padding-top: 16px;
+          border-top: 1px solid var(--line);
+          color: var(--ink-soft);
+          font-size: 0.8125rem;
+          line-height: 1.65;
+        }
         form {
           display: grid;
-          gap: 0.9rem;
+          gap: 16px;
         }
-        form + form { margin-top: 0.9rem; }
+        form + form { margin-top: 16px; }
+        .field { display: grid; gap: 8px; }
+        .password-control { position: relative; }
+        label {
+          color: var(--ink);
+          font-size: 0.875rem;
+          font-weight: 600;
+        }
         input {
-          padding: 0.78rem 0.9rem;
+          width: 100%;
+          min-height: 44px;
+          padding: 8px 12px;
           font-size: 1rem;
           font-family: var(--sans);
-          background-color: rgba(255, 255, 255, 0.65);
-          border: 1px solid var(--line-strong);
-          border-radius: 2px;
           color: var(--ink);
+          background: var(--card);
+          border: 1px solid var(--line-strong);
+          border-radius: 8px;
           outline: none;
-          transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
-          width: 100%;
+          transition: border-color 150ms ease;
+          touch-action: manipulation;
         }
+        .password-control input { padding-right: 44px; }
         input::placeholder { color: #8aa2b6; }
-        input:focus {
-          border-color: var(--brand-2);
-          background-color: #ffffff;
-          box-shadow: 0 0 0 3px var(--focus-ring);
-        }
         input[readonly] {
           background-color: var(--paper);
           color: var(--ink-soft);
           cursor: not-allowed;
         }
         button {
-          padding: 0.82rem 1.25rem;
+          min-height: 44px;
+          padding: 8px 16px;
           font-size: 0.98rem;
           font-weight: 600;
           font-family: var(--sans);
-          letter-spacing: 0.14em;
-          background-color: var(--brand-2);
-          color: #f2f7fb;
-          border: 1px solid var(--brand-2);
-          border-radius: 2px;
+          background: #055088;
+          border: 1px solid #055088;
+          color: #ffffff;
+          border-radius: 8px;
           cursor: pointer;
-          position: relative;
-          transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.1s ease, box-shadow 0.18s ease;
+          letter-spacing: 0;
+          transition: background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
+          touch-action: manipulation;
+        }
+        input:focus, input:focus-visible, button:focus-visible {
+          background: var(--card);
+          outline: 3px solid var(--accent);
+          outline-offset: 2px;
+          box-shadow: none;
         }
         button:hover {
-          background-color: #0a66a8;
-          border-color: #0a66a8;
-          box-shadow: 0 6px 16px -8px rgba(5, 80, 136, 0.55);
-        }
-        button:focus-visible {
-          outline: none;
-          box-shadow: 0 0 0 3px var(--focus-ring);
+          background: #073f6a;
+          border-color: #073f6a;
+          box-shadow: none;
         }
         button:active { transform: translateY(1px); }
         button[disabled] {
@@ -375,10 +330,10 @@ function renderInteractionPageStyles(): string {
           box-shadow: none;
         }
         .error, .success, .pending {
-          padding: 0.75rem 0.9rem;
-          border-radius: 2px;
+          padding: 12px;
+          border-radius: 6px;
           font-size: 0.88rem;
-          line-height: 1.55;
+          line-height: 1.65;
           margin: 0 0 1rem;
         }
         form .error, form .success, form .pending { margin-bottom: 0; }
@@ -411,7 +366,6 @@ function renderInteractionPageStyles(): string {
         .login-form[data-submitting="true"] .button-label { display: none; }
         .login-form[data-submitting="true"] .button-loading { display: inline; }
         p { line-height: 1.6; }
-        p strong { color: var(--brand); }
         ul {
           padding-left: 1.25rem;
           margin: 0 0 1rem;
@@ -419,224 +373,6 @@ function renderInteractionPageStyles(): string {
           line-height: 1.6;
         }
         li { margin-bottom: 0.4rem; }
-        .page-foot {
-          margin-top: 1.4rem;
-          font-size: 0.72rem;
-          letter-spacing: 0.18em;
-          color: var(--ink-soft);
-          text-align: center;
-          animation: rise-in 0.55s 0.26s cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        @keyframes card-in {
-          from { opacity: 0; transform: translateY(14px) scale(0.99); }
-          to { opacity: 1; transform: none; }
-        }
-        @keyframes rise-in {
-          from { opacity: 0; transform: translateY(8px); }
-          to { opacity: 1; transform: none; }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .container, .brand, main, .page-foot { animation: none; }
-        }
-        @media (max-width: 480px) {
-          .container { padding: 1.8rem 1.4rem 1.6rem; }
-        }
-
-        @media (prefers-color-scheme: dark) {
-          :root {
-            --ink: #e6e9e4;
-            --ink-soft: #97a5ae;
-            --paper: #081420;
-            --card: #0e2033;
-            --line: #1d3348;
-            --line-strong: #2c4a63;
-            --brand: #d7e5ef;
-            --brand-2: #3c9ae8;
-            --accent: #48c98a;
-            --danger: #e8917f;
-            --danger-bg: rgba(164, 62, 46, 0.16);
-            --ok: #6fce9f;
-            --ok-bg: rgba(30, 122, 83, 0.16);
-            --info: #7cc0e8;
-            --info-bg: rgba(11, 74, 114, 0.2);
-            --focus-ring: rgba(23, 125, 220, 0.35);
-          }
-          body {
-            background-image:
-              repeating-radial-gradient(circle at 50% -60vh, transparent 0, transparent 38px, rgba(126, 168, 199, 0.05) 39px, transparent 40px),
-              repeating-linear-gradient(45deg, transparent 0, transparent 11px, rgba(126, 168, 199, 0.03) 11px, rgba(126, 168, 199, 0.03) 12px),
-              repeating-linear-gradient(-45deg, transparent 0, transparent 11px, rgba(126, 168, 199, 0.03) 11px, rgba(126, 168, 199, 0.03) 12px),
-              radial-gradient(120% 90% at 50% 0%, rgba(23, 125, 220, 0.1), transparent 60%);
-          }
-          .container {
-            box-shadow:
-              0 0 0 4px var(--card),
-              0 0 0 5px var(--line),
-              0 28px 56px -24px rgba(0, 0, 0, 0.6);
-          }
-          .container::before {
-            background: repeating-linear-gradient(
-              -55deg,
-              var(--brand-2) 0,
-              var(--brand-2) 7px,
-              var(--accent) 7px,
-              var(--accent) 9px
-            );
-          }
-          .rule::after { background: var(--card); border-color: var(--line-strong); }
-          input {
-            background-color: rgba(8, 20, 32, 0.55);
-          }
-          input::placeholder { color: #5c7185; }
-          input:focus { background-color: #0a1a2a; }
-          input[readonly] { background-color: #0a1a2a; }
-          button {
-            background-color: #177ddc;
-            border-color: #177ddc;
-            color: #f2f7fb;
-          }
-          button:hover {
-            background-color: #3c9ae8;
-            border-color: #3c9ae8;
-            box-shadow: 0 6px 18px -8px rgba(23, 125, 220, 0.5);
-          }
-          button[disabled] {
-            background-color: #1d3348;
-            border-color: #1d3348;
-            color: #5c7185;
-          }
-          .secondary {
-            background-color: transparent;
-            border-color: var(--line-strong);
-            color: var(--ink-soft);
-          }
-          .secondary:hover {
-            background-color: rgba(126, 168, 199, 0.08);
-            border-color: var(--ink-soft);
-          }
-        }
-
-        /* CQUT-OSP design-system overrides. */
-        :root {
-          color-scheme: light dark;
-          --ink: #0b1f33;
-          --ink-soft: #526577;
-          --paper: #f7fafc;
-          --card: #ffffff;
-          --line: #d7e2ea;
-          --line-strong: #92a8b8;
-          --brand-2: #055088;
-          --accent: #6adfa3;
-          --danger: #a43e2e;
-          --danger-bg: #faeee9;
-          --ok: #1e7a53;
-          --ok-bg: #eaf5ec;
-          --info: #0b4a72;
-          --info-bg: #ecf3f2;
-        }
-        html { min-width: 320px; }
-        body {
-          padding: 0;
-          align-items: stretch;
-          justify-content: flex-start;
-          background: var(--paper);
-          background-image: none;
-          overflow-x: hidden;
-        }
-        .page-header {
-          padding: max(24px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 24px max(24px, env(safe-area-inset-left));
-        }
-        .brand-logo {
-          display: block;
-          width: min(256px, 100%);
-          height: auto;
-        }
-        .brand-logo-dark { display: none; }
-        .page-shell {
-          flex: 1;
-          display: grid;
-          place-items: center;
-          padding: 32px max(16px, env(safe-area-inset-right)) max(64px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-        }
-        .container {
-          max-width: 400px;
-          padding: 32px;
-          border: 1px solid var(--line);
-          border-radius: 12px;
-          box-shadow: none;
-          animation: none;
-        }
-        .container::before { display: none; }
-        main { animation: none; }
-        h1 {
-          margin: 0 0 8px;
-          font-family: var(--sans);
-          font-size: 1.75rem;
-          font-weight: 800;
-          line-height: 1.25;
-          letter-spacing: 0;
-          text-align: left;
-        }
-        .hint {
-          margin: 0 0 24px;
-          font-size: 0.9375rem;
-          line-height: 1.65;
-          text-align: left;
-        }
-        .independence-note {
-          margin: 24px 0 0;
-          padding-top: 16px;
-          border-top: 1px solid var(--line);
-          color: var(--ink-soft);
-          font-size: 0.8125rem;
-          line-height: 1.65;
-        }
-        form { gap: 16px; }
-        form + form { margin-top: 16px; }
-        .field { display: grid; gap: 8px; }
-        .password-control { position: relative; }
-        label {
-          color: var(--ink);
-          font-size: 0.875rem;
-          font-weight: 600;
-        }
-        input {
-          min-height: 44px;
-          padding: 8px 12px;
-          background: var(--card);
-          border: 1px solid var(--line-strong);
-          border-radius: 8px;
-          transition: border-color 150ms ease;
-          touch-action: manipulation;
-        }
-        .password-control input { padding-right: 44px; }
-        button {
-          min-height: 44px;
-          padding: 8px 16px;
-          background: #055088;
-          border-color: #055088;
-          color: #ffffff;
-          border-radius: 8px;
-          letter-spacing: 0;
-          transition: background-color 150ms ease, border-color 150ms ease, transform 100ms ease;
-          touch-action: manipulation;
-        }
-        input:focus, input:focus-visible, button:focus-visible {
-          background: var(--card);
-          outline: 3px solid var(--accent);
-          outline-offset: 2px;
-          box-shadow: none;
-        }
-        button:hover {
-          background: #073f6a;
-          border-color: #073f6a;
-          box-shadow: none;
-        }
-        .error, .success, .pending {
-          padding: 12px;
-          border-radius: 6px;
-          line-height: 1.65;
-        }
         @media (max-width: 480px) {
           .page-header {
             padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
@@ -1270,22 +1006,38 @@ export function createInteractionRouter(
   rateLimitService: RateLimitService,
 ): express.Router {
   const router = express.Router();
-  const journey = new InteractionJourney(
-    persistence.artifacts,
-    persistence.clients,
-  );
   const formParser = express.urlencoded({
     extended: false,
     limit: "16kb",
     parameterLimit: 10,
   });
 
+  async function loadInteractionContext(
+    uid: string,
+    details: Awaited<ReturnType<OidcInteractionPort["details"]>>,
+  ) {
+    const clientId =
+      typeof details?.params?.client_id === "string"
+        ? details.params.client_id
+        : "";
+    const client = clientId
+      ? await persistence.clients.findOidcClient(clientId)
+      : null;
+    return {
+      pending: await persistence.artifacts.getInteractionLogin(uid),
+      autoConsent: Boolean(client?.autoConsent),
+    };
+  }
+
   router.get("/:uid", async (request, response, next) => {
     try {
       setNoStore(response);
       const uid = request.params["uid"] ?? "";
       const details = await interactions.details(request, response);
-      const { pending, autoConsent } = await journey.open(uid, details);
+      const { pending, autoConsent } = await loadInteractionContext(
+        uid,
+        details,
+      );
       if (details.prompt.name === "consent") {
         if (autoConsent) {
           await interactions.finishConsent(request, response, details);
@@ -1341,9 +1093,7 @@ export function createInteractionRouter(
           );
         return;
       }
-      const details = journey.submitLogin(
-        await interactions.details(request, response),
-      );
+      const details = await interactions.details(request, response);
       if (details.prompt.name !== "consent") {
         response
           .status(400)
@@ -1354,12 +1104,11 @@ export function createInteractionRouter(
       }
       const action =
         typeof request.body?.action === "string" ? request.body.action : "";
-      const outcome = journey.submitConsent(action);
-      if (outcome?.kind === "finishConsent") {
+      if (action === "approve") {
         await interactions.finishConsent(request, response, details);
         return;
       }
-      if (outcome?.kind === "denyConsent") {
+      if (action === "deny") {
         await interactions.denyConsent(request, response);
         return;
       }
@@ -1396,9 +1145,7 @@ export function createInteractionRouter(
           );
         return;
       }
-      const loginDetails = journey.submitLogin(
-        await interactions.details(request, response),
-      );
+      const loginDetails = await interactions.details(request, response);
       if (loginDetails.prompt.name !== "login" || loginDetails.uid !== uid) {
         response
           .status(400)
@@ -1555,7 +1302,7 @@ export function createInteractionRouter(
       setNoStore(response);
       const uid = request.params["uid"] ?? "";
       const details = await interactions.details(request, response);
-      const { pending } = await journey.openProfile(uid, details);
+      const { pending } = await loadInteractionContext(uid, details);
       if (details.prompt.name !== "login" || details.uid !== uid) {
         response
           .status(400)
@@ -1609,7 +1356,7 @@ export function createInteractionRouter(
       setNoStore(response);
       const uid = request.params["uid"] ?? "";
       const details = await interactions.details(request, response);
-      const { pending } = await journey.submitProfile(uid, details);
+      const { pending } = await loadInteractionContext(uid, details);
       if (details.prompt.name !== "login" || details.uid !== uid) {
         response
           .status(400)
@@ -1658,7 +1405,7 @@ export function createInteractionRouter(
           );
           return;
         }
-        await services.subjectProfileService.setEmail(
+        await services.interactiveAuthenticator.setEmail(
           pending.principal.subjectId,
           email,
         );
@@ -1886,7 +1633,7 @@ export function createInteractionRouter(
         if (result.status !== "verified") {
           throw new Error("unexpected email verification result");
         }
-        await services.subjectProfileService.setVerifiedEmail(
+        await services.interactiveAuthenticator.setVerifiedEmail(
           result.pending.principal.subjectId,
           result.email,
         );

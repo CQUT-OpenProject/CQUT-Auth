@@ -274,7 +274,8 @@ export function configurationToProtocolFields(
       ? ["authorization_code", "refresh_token"]
       : ["authorization_code"],
     responseTypes: ["code"],
-    requirePkce: configuration.clientType === "spa" ? true : configuration.requirePkce,
+    requirePkce:
+      configuration.clientType === "spa" ? true : configuration.requirePkce,
     allowRefreshTokenForPublicClient: false,
     autoConsent: false,
   };

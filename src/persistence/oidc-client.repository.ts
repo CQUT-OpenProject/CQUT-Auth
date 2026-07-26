@@ -1874,7 +1874,8 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
         (row["created_by_subject_id"] as string | null) ?? null,
       clientType: row["client_type"] as OidcClientRecord["clientType"],
       autoConsent: Boolean(row["auto_consent"]),
-      requirePkce: row["require_pkce"] == null ? true : Boolean(row["require_pkce"]),
+      requirePkce:
+        row["require_pkce"] == null ? true : Boolean(row["require_pkce"]),
       lifecycleStatus: row[
         "lifecycle_status"
       ] as OidcClientRecord["lifecycleStatus"],

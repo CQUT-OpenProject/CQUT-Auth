@@ -476,6 +476,7 @@ export interface OidcArtifactRepository {
 }
 
 export interface SigningKeyRepository {
+  encryptPrivateJwk(jwk: JsonWebKey): Promise<string>;
   upsertSigningKey(key: OidcSigningKeyRecord): Promise<OidcSigningKeyRecord>;
   listSigningKeys(
     statuses?: Array<OidcSigningKeyRecord["status"]>,
@@ -483,10 +484,6 @@ export interface SigningKeyRepository {
   loadPrivateSigningJwks(
     statuses?: Array<OidcSigningKeyRecord["status"]>,
   ): Promise<Array<JsonWebKey & { kid: string; alg: string; use: string }>>;
-}
-
-export interface JwkCipherService {
-  encryptPrivateJwk(jwk: JsonWebKey): Promise<string>;
 }
 
 export interface AppSettingRecord {

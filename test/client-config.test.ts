@@ -9,7 +9,7 @@ import {
   initializeOidcClientsFromConfig,
   loadOidcClientsFromConfig,
 } from "../src/oidc/client-config.js";
-import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
+import { createPersistence } from "../src/persistence/persistence.js";
 
 async function writeClientsConfig(document: object) {
   const directory = mkdtempSync(join(tmpdir(), "oidc-client-config-"));
@@ -272,14 +272,13 @@ test("initializeOidcClientsFromConfig inserts configured client records", async 
     OIDC_CLIENTS_CONFIG_PATH: filePath,
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
   });
-  const store = new PersistenceRuntimeImpl(config);
-  await store.init();
-  await initializeOidcClientsFromConfig(store, config);
-  const activeClients = await store.listActiveOidcClients();
+  const modules = await createPersistence(config);
+  await initializeOidcClientsFromConfig(modules.clients, config);
+  const activeClients = await modules.clients.listActiveOidcClients();
   assert.equal(activeClients.length, 1);
   assert.equal(activeClients[0]?.clientId, "site-a");
   assert.equal(activeClients[0]?.allowRefreshTokenForPublicClient, false);
-  await store.close();
+  await modules.runtime.close();
 });
 
 test("client config initialization skips file access and never overwrites a non-empty store", async () => {
@@ -300,19 +299,18 @@ test("client config initialization skips file access and never overwrites a non-
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
     OIDC_CLIENTS_CONFIG_PATH: filePath,
   });
-  const store = new PersistenceRuntimeImpl(config);
-  await store.init();
-  const first = await initializeOidcClientsFromConfig(store, config);
+  const modules = await createPersistence(config);
+  const first = await initializeOidcClientsFromConfig(modules.clients, config);
   assert.deepEqual(first, { imported: true, count: 1 });
 
-  const skipped = await initializeOidcClientsFromConfig(store, {
+  const skipped = await initializeOidcClientsFromConfig(modules.clients, {
     appEnv: "test",
     oidcClientsConfigPath: "/definitely/missing/clients.json",
   });
   assert.deepEqual(skipped, { imported: false, count: 0 });
   assert.equal(
-    (await store.findOidcClient("site-a"))?.displayName,
+    (await modules.clients.findOidcClient("site-a"))?.displayName,
     "Original name",
   );
-  await store.close();
+  await modules.runtime.close();
 });

@@ -56,11 +56,42 @@ async function consumeManagementLoginRateLimit(
   max: number,
   windowSeconds: number,
 ) {
-  for (const key of managementLoginRateLimitKeys(stage, account, ip)) {
-    const decision = await rateLimitService.consume(key, max, windowSeconds);
+  return enforceRateLimits(
+    rateLimitService,
+    managementLoginRateLimitKeys(stage, account, ip).map((key) => ({
+      key,
+      max,
+    })),
+    windowSeconds,
+  );
+}
+
+async function enforceRateLimits(
+  rateLimitService: RateLimitService,
+  limits: Array<{ key: string; max: number }>,
+  windowSeconds: number,
+) {
+  for (const limit of limits) {
+    const decision = await rateLimitService.consume(
+      limit.key,
+      limit.max,
+      windowSeconds,
+    );
     if (!decision.allowed) return decision;
   }
   return undefined;
+}
+
+function writeRateLimited(
+  response: Response,
+  decision: { retryAfterSeconds: number },
+  description: string,
+) {
+  response.setHeader("Retry-After", String(decision.retryAfterSeconds));
+  response.status(429).json({
+    error: "rate_limited",
+    error_description: description,
+  });
 }
 
 export function createManagementRouter(
@@ -90,6 +121,7 @@ export function createManagementRouter(
       maxActiveProjects: config.managementProjectMaxActivePerSubject,
       adminQuotaExempt: config.managementProjectQuotaAdminExempt,
     },
+    persistence.clients,
   );
   const clients = new ClientManagementService(
     persistence.clients,
@@ -304,32 +336,27 @@ export function createManagementRouter(
   router.post("/projects", jsonParser, async (request, response, next) => {
     await withMutation(request, response, next, async (auth) => {
       if (!(auth.actor.isAdmin && config.managementProjectQuotaAdminExempt)) {
-        for (const limit of [
-          {
-            key: `oidc:management:project-create:subject:${sha256(auth.actor.subjectId)}`,
-            max: config.managementProjectCreateRateLimitSubjectMax,
-          },
-          {
-            key: `oidc:management:project-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
-            max: config.managementProjectCreateRateLimitIpMax,
-          },
-        ]) {
-          const decision = await rateLimitService.consume(
-            limit.key,
-            limit.max,
-            config.managementProjectCreateRateLimitWindowSeconds,
+        const decision = await enforceRateLimits(
+          rateLimitService,
+          [
+            {
+              key: `oidc:management:project-create:subject:${sha256(auth.actor.subjectId)}`,
+              max: config.managementProjectCreateRateLimitSubjectMax,
+            },
+            {
+              key: `oidc:management:project-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
+              max: config.managementProjectCreateRateLimitIpMax,
+            },
+          ],
+          config.managementProjectCreateRateLimitWindowSeconds,
+        );
+        if (decision) {
+          writeRateLimited(
+            response,
+            decision,
+            "project creation rate limit exceeded",
           );
-          if (!decision.allowed) {
-            response.setHeader(
-              "Retry-After",
-              String(decision.retryAfterSeconds),
-            );
-            response.status(429).json({
-              error: "rate_limited",
-              error_description: "project creation rate limit exceeded",
-            });
-            return;
-          }
+          return;
         }
       }
       response
@@ -491,33 +518,27 @@ export function createManagementRouter(
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
-        const limits = [
-          {
-            key: `oidc:management:client-create:subject:${sha256(auth.actor.subjectId)}`,
-            max: config.managementClientCreateRateLimitSubjectMax,
-          },
-          {
-            key: `oidc:management:client-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
-            max: config.managementClientCreateRateLimitIpMax,
-          },
-        ];
-        for (const limit of limits) {
-          const decision = await rateLimitService.consume(
-            limit.key,
-            limit.max,
-            config.managementClientCreateRateLimitWindowSeconds,
+        const decision = await enforceRateLimits(
+          rateLimitService,
+          [
+            {
+              key: `oidc:management:client-create:subject:${sha256(auth.actor.subjectId)}`,
+              max: config.managementClientCreateRateLimitSubjectMax,
+            },
+            {
+              key: `oidc:management:client-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
+              max: config.managementClientCreateRateLimitIpMax,
+            },
+          ],
+          config.managementClientCreateRateLimitWindowSeconds,
+        );
+        if (decision) {
+          writeRateLimited(
+            response,
+            decision,
+            "client creation rate limit exceeded",
           );
-          if (!decision.allowed) {
-            response.setHeader(
-              "Retry-After",
-              String(decision.retryAfterSeconds),
-            );
-            response.status(429).json({
-              error: "rate_limited",
-              error_description: "client creation rate limit exceeded",
-            });
-            return;
-          }
+          return;
         }
         const result = await clients.create(
           auth.actor,
@@ -614,37 +635,31 @@ export function createManagementRouter(
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const clientId = param(request, "clientId");
-        const limits = [
-          {
-            key: `oidc:management:secret-rotate:subject:${sha256(auth.actor.subjectId)}`,
-            max: config.clientSecretRotateRateLimitSubjectMax,
-          },
-          {
-            key: `oidc:management:secret-rotate:client:${sha256(clientId)}`,
-            max: config.clientSecretRotateRateLimitClientMax,
-          },
-          {
-            key: `oidc:management:secret-rotate:ip:${auth.actor.sourceIp ?? "unknown"}`,
-            max: config.clientSecretRotateRateLimitIpMax,
-          },
-        ];
-        for (const limit of limits) {
-          const decision = await rateLimitService.consume(
-            limit.key,
-            limit.max,
-            config.clientSecretRotateRateLimitWindowSeconds,
+        const decision = await enforceRateLimits(
+          rateLimitService,
+          [
+            {
+              key: `oidc:management:secret-rotate:subject:${sha256(auth.actor.subjectId)}`,
+              max: config.clientSecretRotateRateLimitSubjectMax,
+            },
+            {
+              key: `oidc:management:secret-rotate:client:${sha256(clientId)}`,
+              max: config.clientSecretRotateRateLimitClientMax,
+            },
+            {
+              key: `oidc:management:secret-rotate:ip:${auth.actor.sourceIp ?? "unknown"}`,
+              max: config.clientSecretRotateRateLimitIpMax,
+            },
+          ],
+          config.clientSecretRotateRateLimitWindowSeconds,
+        );
+        if (decision) {
+          writeRateLimited(
+            response,
+            decision,
+            "secret rotation rate limit exceeded",
           );
-          if (!decision.allowed) {
-            response.setHeader(
-              "Retry-After",
-              String(decision.retryAfterSeconds),
-            );
-            response.status(429).json({
-              error: "rate_limited",
-              error_description: "secret rotation rate limit exceeded",
-            });
-            return;
-          }
+          return;
         }
         const result = await clients.rotateSecret(
           auth.actor,

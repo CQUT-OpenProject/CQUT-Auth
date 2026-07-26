@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readConfig } from "../src/config.js";
 import { ManagementSessionService } from "../src/management/management-session.service.js";
-import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
+import { createPersistence } from "../src/persistence/persistence.js";
 import { sha256 } from "../src/utils.js";
 
 test("management sessions persist only a token hash and expire on idle timeout", async () => {
-  const store = new PersistenceRuntimeImpl(
+  const modules = await createPersistence(
     readConfig({
       APP_ENV: "test",
       AUTH_PROVIDER: "mock",
@@ -14,10 +14,9 @@ test("management sessions persist only a token hash and expire on idle timeout",
       OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-session-artifact",
     }),
   );
-  await store.init();
   let now = new Date("2026-01-01T00:00:00.000Z");
   try {
-    await store.createSubjectWithIdentity(
+    await modules.identity.createSubjectWithIdentity(
       {
         subjectId: "subj_session",
         status: "active",
@@ -36,8 +35,8 @@ test("management sessions persist only a token hash and expire on idle timeout",
       },
     );
     const sessions = new ManagementSessionService(
-      store,
-      store,
+      modules.sessions,
+      modules.identity,
       3600,
       60,
       () => now,
@@ -45,10 +44,16 @@ test("management sessions persist only a token hash and expire on idle timeout",
     );
     const created = await sessions.create("subj_session");
     assert.equal(created.token, "raw-browser-token");
-    assert.equal(await store.findManagementSession("raw-browser-token"), null);
     assert.equal(
-      (await store.findManagementSession(sha256("raw-browser-token")))
-        ?.subjectId,
+      await modules.sessions.findManagementSession("raw-browser-token"),
+      null,
+    );
+    assert.equal(
+      (
+        await modules.sessions.findManagementSession(
+          sha256("raw-browser-token"),
+        )
+      )?.subjectId,
       "subj_session",
     );
     assert.equal(
@@ -59,10 +64,10 @@ test("management sessions persist only a token hash and expire on idle timeout",
     now = new Date("2026-01-01T00:01:01.000Z");
     assert.equal(await sessions.authenticate("raw-browser-token"), null);
     assert.equal(
-      await store.findManagementSession(sha256("raw-browser-token")),
+      await modules.sessions.findManagementSession(sha256("raw-browser-token")),
       null,
     );
   } finally {
-    await store.close();
+    await modules.runtime.close();
   }
 });
