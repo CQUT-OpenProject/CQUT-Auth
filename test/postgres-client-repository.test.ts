@@ -46,10 +46,7 @@ test(
     )[0]!;
     let sequence = 0;
 
-    async function reset(
-      maxPendingClientsPerOwner = 5,
-      now: () => Date = () => new Date(),
-    ) {
+    async function reset(now: () => Date = () => new Date()) {
       await pool.query("drop schema public cascade; create schema public");
       await pool.query(schema);
       await pool.query(
@@ -78,7 +75,6 @@ test(
         {
           createClientId: () => `pg_client_${++sequence}`,
           maxClientsPerProject: 20,
-          maxPendingClientsPerProject: maxPendingClientsPerOwner,
           adminQuotaExempt: false,
           now,
         },
@@ -88,20 +84,7 @@ test(
 
     async function createActive(service: ClientManagementService) {
       const created = await service.create(owner, projectId, input);
-      const draft = created.client.proposedRevision!;
-      const pending = await service.submit(
-        owner,
-        projectId,
-        created.client.clientId,
-        {
-          revisionId: draft.revisionId,
-          revisionVersion: draft.version,
-        },
-      );
-      return service.approve(admin, projectId, created.client.clientId, {
-        revisionId: pending.proposedRevision!.revisionId,
-        revisionVersion: pending.proposedRevision!.version,
-      });
+      return created.client;
     }
 
     try {
@@ -218,75 +201,6 @@ test(
             (await repository.listOidcClientAuditLogs()).filter(
               (audit) => audit.action === "client.created",
             ).length,
-            0,
-          );
-        },
-      );
-
-      await context.test(
-        "rejects revision submission after its project is concurrently archived",
-        async () => {
-          const { repository, projects, service } = await reset();
-          const created = await service.create(owner, projectId, input);
-          const revision = created.client.proposedRevision!;
-          let releaseWrite!: () => void;
-          const writePaused = new Promise<void>((resolve) => {
-            releaseWrite = resolve;
-          });
-          let writeReached!: () => void;
-          const reachedRepository = new Promise<void>((resolve) => {
-            writeReached = resolve;
-          });
-          const transition =
-            repository.transitionOidcClientRevision.bind(repository);
-          repository.transitionOidcClientRevision = async (...args) => {
-            writeReached();
-            await writePaused;
-            return transition(...args);
-          };
-          const pending = service.submit(
-            owner,
-            projectId,
-            created.client.clientId,
-            {
-              revisionId: revision.revisionId,
-              revisionVersion: revision.version,
-            },
-          );
-          await reachedRepository;
-          const archived = await projects.updateProject(
-            projectId,
-            1,
-            {
-              name: "PostgreSQL project",
-              description: "",
-              status: "archived",
-              updatedAt: new Date().toISOString(),
-            },
-            {
-              projectId,
-              actorSubjectId: owner.subjectId,
-              action: "project.archived",
-              changedFields: ["status"],
-              createdAt: new Date().toISOString(),
-            },
-          );
-          assert.equal(archived.status, "updated");
-          releaseWrite();
-          await assert.rejects(
-            pending,
-            (error) =>
-              error instanceof ClientManagementError &&
-              error.code === "project_archived",
-          );
-          const current = await repository.findManagedOidcClient(
-            created.client.clientId,
-          );
-          assert.equal(current?.proposedRevision?.status, "draft");
-          assert.equal(
-            (
-              await repository.listOidcClientAuditLogs(created.client.clientId)
-            ).filter((audit) => audit.action === "revision.submitted").length,
             0,
           );
         },
@@ -470,9 +384,7 @@ test(
             {
               createClientId: () => `subject_client_${++sequence}`,
               maxClientsPerProject: 10,
-              maxPendingClientsPerProject: 5,
               maxClientsPerSubject: 1,
-              maxPendingClientsPerSubject: 1,
               adminQuotaExempt: false,
             },
           );
@@ -501,67 +413,6 @@ test(
       );
 
       await context.test(
-        "enforces subject pending quota across concurrent projects",
-        async () => {
-          const { repository, projects } = await reset();
-          const secondProjectId = "pg_project_pending_second";
-          await pool.query(
-            `insert into projects (project_id, name, created_by_subject_id)
-             values ($1, 'Pending project', $2)`,
-            [secondProjectId, owner.subjectId],
-          );
-          await pool.query(
-            `insert into project_members (project_id, subject_id, role)
-             values ($1, $2, 'owner')`,
-            [secondProjectId, owner.subjectId],
-          );
-          const service = new ClientManagementService(
-            repository,
-            new ProjectAccessService(projects),
-            "test",
-            {
-              createClientId: () => `pending_subject_client_${++sequence}`,
-              maxClientsPerProject: 10,
-              maxPendingClientsPerProject: 5,
-              maxClientsPerSubject: 10,
-              maxPendingClientsPerSubject: 1,
-              adminQuotaExempt: false,
-            },
-          );
-          const first = await service.create(owner, projectId, input);
-          const second = await service.create(owner, secondProjectId, input);
-          const results = await Promise.allSettled([
-            service.submit(owner, projectId, first.client.clientId, {
-              revisionId: first.client.proposedRevision!.revisionId,
-              revisionVersion: first.client.proposedRevision!.version,
-            }),
-            service.submit(owner, secondProjectId, second.client.clientId, {
-              revisionId: second.client.proposedRevision!.revisionId,
-              revisionVersion: second.client.proposedRevision!.version,
-            }),
-          ]);
-          assert.equal(
-            results.filter((result) => result.status === "fulfilled").length,
-            1,
-          );
-          assert.equal(
-            Number(
-              (
-                await pool.query(
-                  `select count(*)::int as count from oidc_client_revisions r
-                   join oidc_clients c on c.client_id = r.client_id
-                   join projects p on p.project_id = c.project_id
-                   where p.created_by_subject_id = $1 and r.review_status = 'pending'`,
-                  [owner.subjectId],
-                )
-              ).rows[0]?.["count"],
-            ),
-            1,
-          );
-        },
-      );
-
-      await context.test(
         "initializes the fresh schema and partial index",
         async () => {
           await reset();
@@ -575,11 +426,11 @@ test(
       );
 
       await context.test(
-        "serializes open revision creation and concurrent approval",
+        "activates concurrent revision saves with latest winner",
         async () => {
           const { repository, service } = await reset();
           const active = await createActive(service);
-          const attempts = await Promise.allSettled([
+          await Promise.allSettled([
             service.saveRevision(owner, projectId, active.clientId, {
               redirectUris: ["http://localhost:3002/first"],
             }),
@@ -587,73 +438,37 @@ test(
               redirectUris: ["http://localhost:3002/second"],
             }),
           ]);
-          assert.equal(
-            attempts.filter((result) => result.status === "fulfilled").length,
-            1,
-          );
-          const pending = (await repository.findManagedOidcClient(
-            active.clientId,
-          ))!.proposedRevision!;
-          const approvals = await Promise.allSettled([
-            service.approve(admin, projectId, active.clientId, {
-              revisionId: pending.revisionId,
-              revisionVersion: pending.version,
-            }),
-            service.approve(admin, projectId, active.clientId, {
-              revisionId: pending.revisionId,
-              revisionVersion: pending.version,
-            }),
-          ]);
-          assert.equal(
-            approvals.filter((result) => result.status === "fulfilled").length,
-            1,
-          );
           const current = await repository.findManagedOidcClient(
             active.clientId,
           );
-          assert.equal(current?.activeRevision?.revisionNumber, 2);
+          assert.equal(current?.client.lifecycleStatus, "active");
+          assert.ok(current?.activeRevision);
           assert.equal(current?.proposedRevision, null);
         },
       );
 
       await context.test(
-        "keeps approval and disable atomic when racing",
+        "keeps revision save and disable atomic when racing",
         async () => {
           const { repository, service } = await reset();
           const active = await createActive(service);
-          const pending = await service.saveRevision(
-            owner,
-            projectId,
-            active.clientId,
-            {
-              redirectUris: ["http://localhost:3002/race"],
-            },
-          );
           const results = await Promise.allSettled([
-            service.approve(admin, projectId, active.clientId, {
-              revisionId: pending.proposedRevision!.revisionId,
-              revisionVersion: pending.proposedRevision!.version,
+            service.saveRevision(owner, projectId, active.clientId, {
+              redirectUris: ["http://localhost:3002/race"],
             }),
             service.disable(owner, projectId, active.clientId, {
-              clientVersion: pending.clientVersion,
+              clientVersion: active.clientVersion,
             }),
           ]);
-          assert.equal(
-            results.filter((result) => result.status === "fulfilled").length,
-            1,
+          assert.ok(
+            results.filter((result) => result.status === "fulfilled").length >=
+              1,
           );
           const current = await repository.findManagedOidcClient(
             active.clientId,
           );
+          assert.ok(current);
           assert.equal(current?.proposedRevision, null);
-          const revision = await pool.query(
-            "select review_status from oidc_client_revisions where client_id = $1 and revision_number = 2",
-            [active.clientId],
-          );
-          assert.ok(
-            revision.rows[0]?.["review_status"] === "approved" ||
-              revision.rows[0]?.["review_status"] === "cancelled",
-          );
         },
       );
 
@@ -755,7 +570,6 @@ test(
         "uses PostgreSQL time for rotation creation and grace expiry",
         async () => {
           const { service } = await reset(
-            5,
             () => new Date("2020-01-01T00:00:00.000Z"),
           );
           const created = await service.create(owner, projectId, webInput);
@@ -785,116 +599,48 @@ test(
         },
       );
 
-      await context.test("serializes pending quota submissions", async () => {
-        const { service } = await reset(1);
-        const first = await service.create(owner, projectId, input);
-        const second = await service.create(owner, projectId, input);
-        const results = await Promise.allSettled([
-          service.submit(owner, projectId, first.client.clientId, {
-            revisionId: first.client.proposedRevision!.revisionId,
-            revisionVersion: first.client.proposedRevision!.version,
-          }),
-          service.submit(owner, projectId, second.client.clientId, {
-            revisionId: second.client.proposedRevision!.revisionId,
-            revisionVersion: second.client.proposedRevision!.version,
-          }),
+      await context.test("stacks successive approved revisions", async () => {
+        const { service } = await reset();
+        const active = await createActive(service);
+        const second = await service.saveRevision(
+          owner,
+          projectId,
+          active.clientId,
+          {
+            scopeWhitelist: ["openid", "email"],
+          },
+        );
+        assert.equal(second.proposedRevision, null);
+        const third = await service.saveRevision(
+          owner,
+          projectId,
+          active.clientId,
+          {
+            scopeWhitelist: ["openid", "profile", "email"],
+          },
+        );
+        assert.equal(third.activeRevision?.revisionNumber, 3);
+        const fourth = await service.saveRevision(
+          owner,
+          projectId,
+          active.clientId,
+          {
+            redirectUris: ["http://localhost:3002/fourth"],
+          },
+        );
+        assert.equal(fourth.activeRevision?.revisionNumber, 4);
+        assert.deepEqual(fourth.activeRevision?.scopeWhitelist, [
+          "openid",
+          "profile",
+          "email",
         ]);
-        assert.equal(
-          results.filter((result) => result.status === "fulfilled").length,
-          1,
-        );
-        const rejected = results.find(
-          (result) => result.status === "rejected",
-        ) as PromiseRejectedResult;
-        assert.ok(rejected.reason instanceof ClientManagementError);
-        assert.equal(rejected.reason.code, "pending_revision_quota_exceeded");
-        assert.equal(
-          Number(
-            (
-              await pool.query(
-                "select count(*)::int as count from oidc_client_revisions where review_status = 'pending'",
-              )
-            ).rows[0]?.["count"],
-          ),
-          1,
-        );
       });
 
       await context.test(
-        "hides older rejected revisions after a newer approval",
-        async () => {
-          const { service } = await reset();
-          const active = await createActive(service);
-          const second = await service.saveRevision(
-            owner,
-            projectId,
-            active.clientId,
-            {
-              scopeWhitelist: ["openid", "email"],
-            },
-          );
-          await service.reject(admin, projectId, active.clientId, {
-            revisionId: second.proposedRevision!.revisionId,
-            revisionVersion: second.proposedRevision!.version,
-            reason: "not justified",
-          });
-          const thirdDraft = await service.saveRevision(
-            owner,
-            projectId,
-            active.clientId,
-            {
-              scopeWhitelist: ["openid", "profile", "email"],
-            },
-          );
-          const thirdPending = await service.submit(
-            owner,
-            projectId,
-            active.clientId,
-            {
-              revisionId: thirdDraft.proposedRevision!.revisionId,
-              revisionVersion: thirdDraft.proposedRevision!.version,
-            },
-          );
-          const thirdApproved = await service.approve(
-            admin,
-            projectId,
-            active.clientId,
-            {
-              revisionId: thirdPending.proposedRevision!.revisionId,
-              revisionVersion: thirdPending.proposedRevision!.version,
-            },
-          );
-          assert.equal(thirdApproved.proposedRevision, null);
-          const fourth = await service.saveRevision(
-            owner,
-            projectId,
-            active.clientId,
-            {
-              redirectUris: ["http://localhost:3002/fourth"],
-            },
-          );
-          assert.equal(fourth.proposedRevision?.revisionNumber, 4);
-          assert.deepEqual(fourth.proposedRevision?.scopeWhitelist, [
-            "openid",
-            "profile",
-            "email",
-          ]);
-        },
-      );
-
-      await context.test(
-        "rolls back activation when audit insertion fails",
+        "rolls back revision activation when audit insertion fails",
         async () => {
           const { repository, service } = await reset();
           const active = await createActive(service);
-          const pending = await service.saveRevision(
-            owner,
-            projectId,
-            active.clientId,
-            {
-              redirectUris: ["http://localhost:3002/rollback"],
-            },
-          );
           const timestamp = new Date().toISOString();
           const invalidAudit = {
             clientId: active.clientId,
@@ -904,19 +650,32 @@ test(
             createdAt: timestamp,
           } satisfies OidcClientAuditRecord;
           await assert.rejects(() =>
-            repository.approveOidcClientRevision(
+            repository.saveOidcClientRevision(
               active.clientId,
-              pending.proposedRevision!.revisionId,
-              pending.proposedRevision!.version,
+              {
+                revisionId: 0,
+                clientId: active.clientId,
+                revisionNumber: 2,
+                status: "approved",
+                redirectUris: ["http://localhost:3002/rollback"],
+                postLogoutRedirectUris: [],
+                scopeWhitelist: ["openid"],
+                createdAt: timestamp,
+                updatedAt: timestamp,
+                version: 1,
+              },
+              null,
+              null,
               [invalidAudit],
-              { actor: admin, projectId, action: "review" },
+              undefined,
+              { actor: admin, projectId, action: "write_client" },
             ),
           );
           const current = await repository.findManagedOidcClient(
             active.clientId,
           );
           assert.equal(current?.activeRevision?.revisionNumber, 1);
-          assert.equal(current?.proposedRevision?.status, "pending");
+          assert.equal(current?.proposedRevision, null);
         },
       );
 

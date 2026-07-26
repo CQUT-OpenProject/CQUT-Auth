@@ -9,7 +9,6 @@ import { ClientList } from "../pages/clients/ClientList";
 import { ClientCreate } from "../pages/clients/ClientCreate";
 import { ClientDetail } from "../pages/clients/ClientDetail";
 import { ProjectAudit } from "../pages/audit/ProjectAudit";
-import { AdminReviews } from "../pages/admin/AdminReviews";
 import { SystemSettings } from "../pages/admin/SystemSettings";
 import { Authenticated, CanAccess } from "@refinedev/core";
 import { Alert, Card } from "antd";
@@ -83,8 +82,6 @@ export const AppRouter: React.FC = () => {
         {/* Project logs */}
         <Route path="/projects/:projectId/audit" element={<ProjectAudit />} />
 
-        {/* Admin Reviews */}
-        <Route path="/admin/reviews" element={<AdminReviews />} />
         <Route
           path="/admin/settings/system"
           element={

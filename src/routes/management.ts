@@ -129,9 +129,7 @@ export function createManagementRouter(
     config.appEnv,
     {
       maxClientsPerProject: config.managementClientMaxPerProject,
-      maxPendingClientsPerProject: config.managementClientMaxPendingPerProject,
       maxClientsPerSubject: config.managementClientMaxPerSubject,
-      maxPendingClientsPerSubject: config.managementClientMaxPendingPerSubject,
       adminQuotaExempt: config.managementClientQuotaAdminExempt,
       defaultSecretGraceSeconds: config.clientSecretDefaultGraceSeconds,
       maxSecretGraceSeconds: config.clientSecretMaxGraceSeconds,
@@ -545,39 +543,8 @@ export function createManagementRouter(
           param(request, "projectId"),
           request.body,
         );
+        onClientsChanged();
         response.status(201).json(result);
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/clients/:clientId/revision/submit",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.submit(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          request.body,
-        );
-        response.json({ client });
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/clients/:clientId/revision/withdraw",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.withdraw(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          request.body,
-        );
-        response.json({ client });
       });
     },
   );
@@ -608,6 +575,7 @@ export function createManagementRouter(
           param(request, "clientId"),
           request.body,
         );
+        onClientsChanged();
         response.json({ client });
       });
     },
@@ -722,12 +690,6 @@ export function createManagementRouter(
     },
   );
 
-  router.get("/admin/reviews", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      response.json({ clients: await clients.listPending(auth.actor) });
-    });
-  });
-
   router.get("/settings/runtime-policy", async (request, response, next) => {
     await withActor(request, response, next, async (auth) => {
       requireAdmin(auth.actor);
@@ -796,39 +758,6 @@ export function createManagementRouter(
         }
         response.status(202).json({ restarting: true });
         response.once("finish", onRestartRequested);
-      });
-    },
-  );
-
-  router.post(
-    "/admin/projects/:projectId/clients/:clientId/revisions/:revisionId/approve",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.approve(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          { ...request.body, revisionId: Number(param(request, "revisionId")) },
-        );
-        onClientsChanged();
-        response.json({ client });
-      });
-    },
-  );
-
-  router.post(
-    "/admin/projects/:projectId/clients/:clientId/revisions/:revisionId/reject",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.reject(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          { ...request.body, revisionId: Number(param(request, "revisionId")) },
-        );
-        response.json({ client });
       });
     },
   );

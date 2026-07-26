@@ -209,26 +209,24 @@ function mockApi(
         responseBody = {
           client: client({
             clientId: "new-client",
-            lifecycleStatus: "draft",
-            activeRevision: null,
-            proposedRevision: {
+            lifecycleStatus: "active",
+            activeRevision: {
               revisionId: 2,
               revisionNumber: 1,
-              status: "draft",
+              status: "approved",
               version: 1,
               redirectUris: body?.redirectUris ?? [],
               postLogoutRedirectUris: body?.postLogoutRedirectUris ?? [],
               scopeWhitelist: body?.scopeWhitelist ?? ["openid"],
               rejectionReason: null,
             },
+            proposedRevision: null,
           }),
           clientSecret:
             body?.clientType === "web"
               ? "new-client-secret-plaintext"
               : undefined,
         };
-      } else if (path.endsWith("/revision/submit") && method === "POST") {
-        responseBody = {};
       } else if (path.includes("/clients/") && method === "GET") {
         responseBody = {
           client: (options.clients ?? [client()])[0],
@@ -243,27 +241,6 @@ function mockApi(
         responseBody = { client: client() };
       } else if (path.includes("/disable") && method === "POST") {
         responseBody = { client: client({ lifecycleStatus: "disabled" }) };
-      } else if (path.endsWith("/admin/reviews") && method === "GET") {
-        responseBody = {
-          clients: [
-            client({
-              proposedRevision: {
-                revisionId: 2,
-                revisionNumber: 2,
-                status: "pending",
-                version: 1,
-                redirectUris: ["https://new-uri.com"],
-                postLogoutRedirectUris: [],
-                scopeWhitelist: ["openid"],
-                rejectionReason: null,
-              },
-            }),
-          ],
-        };
-      } else if (path.includes("/approve") && method === "POST") {
-        responseBody = { client: client() };
-      } else if (path.includes("/reject") && method === "POST") {
-        responseBody = { client: client() };
       } else {
         responseBody = {};
       }
@@ -382,26 +359,10 @@ test("opens the OIDC configuration editor", async () => {
     await screen.findByRole("button", { name: "修改 OIDC 配置" }),
   );
 
-  expect(await screen.findByText("编辑 OIDC 变更配置")).toBeTruthy();
+  expect(await screen.findByText("编辑 OIDC 配置")).toBeTruthy();
   expect(
     screen.getByRole("button", { name: /添加 Redirect URI/ }),
   ).toBeTruthy();
-});
-
-test("shows project names and descriptions in pending reviews", async () => {
-  mockApi({ isAdmin: true });
-  window.history.pushState({}, "", "/manage/admin/reviews");
-  render(<App />);
-
-  expect(
-    await screen.findByRole("columnheader", { name: "项目" }),
-  ).toBeTruthy();
-  expect((await screen.findAllByText("Project One")).length).toBeGreaterThan(0);
-
-  fireEvent.click(screen.getByRole("button", { name: "对比并审核" }));
-
-  expect(await screen.findByText("申请描述")).toBeTruthy();
-  expect(screen.getByText("Production client")).toBeTruthy();
 });
 
 test("creates the selected web client type", async () => {
@@ -429,7 +390,7 @@ test("creates the selected web client type", async () => {
   fireEvent.click(await screen.findByRole("button", { name: "下一步" }));
 
   expect(await screen.findByText("Web (保密客户端)")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "创建并提交草稿" }));
+  fireEvent.click(screen.getByRole("button", { name: "创建客户端" }));
 
   await waitFor(() => {
     expect(
@@ -443,8 +404,8 @@ test("creates the selected web client type", async () => {
     calls.find(
       (call) =>
         call.path.endsWith("/revision/submit") && call.method === "POST",
-    )?.body,
-  ).toEqual({ revisionId: 2, revisionVersion: 1 });
+    ),
+  ).toBeUndefined();
 
   fireEvent.click(await screen.findByRole("button", { name: "我已安全保存" }));
   expect(await screen.findByText("Active Web")).toBeTruthy();

@@ -20,8 +20,7 @@ export type ProjectAction =
   | "rotate_secret"
   | "revoke_authorizations"
   | "revoke_secret"
-  | "disable_client"
-  | "review";
+  | "disable_client";
 
 export type ProjectWriteAuthorization = {
   actor: ProjectActor;
@@ -45,7 +44,6 @@ export function assertProjectAccess(
   if (
     project.status === "archived" &&
     action !== "view" &&
-    action !== "review" &&
     !(
       actor.isAdmin &&
       ["revoke_authorizations", "revoke_secret", "disable_client"].includes(
@@ -92,7 +90,6 @@ export class ProjectAccessService {
       "revoke_authorizations",
       "revoke_secret",
       "disable_client",
-      "review",
     ];
     return actions.filter((action) => can(actor, project, role, action));
   }
@@ -112,7 +109,6 @@ export function can(
   if (
     project.status === "archived" &&
     action !== "view" &&
-    action !== "review" &&
     !(
       actor.isAdmin &&
       ["revoke_authorizations", "revoke_secret", "disable_client"].includes(
@@ -131,7 +127,6 @@ function allowed(
   action: ProjectAction,
 ) {
   if (action === "view") return !!role || actor.isAdmin;
-  if (action === "review") return actor.isAdmin;
   if (["revoke_secret", "disable_client"].includes(action))
     return role === "owner" || actor.isAdmin;
   if (["manage_project", "manage_members"].includes(action))

@@ -127,21 +127,7 @@ export const ClientCreate: React.FC = () => {
         },
       );
 
-      const draft = res.client.proposedRevision;
-      if (!draft) throw new Error("创建的客户端缺少草稿配置");
-
-      await request(
-        `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(res.client.clientId)}/revision/submit`,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            revisionId: draft.revisionId,
-            revisionVersion: draft.version,
-          }),
-        },
-      );
-
-      message.success("客户端已创建并提交审核！");
+      message.success("客户端已创建并生效！");
 
       if (res.clientSecret) {
         // Trigger one-time secret display
@@ -568,7 +554,7 @@ export const ClientCreate: React.FC = () => {
               </Button>
             ) : (
               <Button type="primary" onClick={handleFinish} loading={loading}>
-                创建并提交草稿
+                创建客户端
               </Button>
             )}
           </Space>

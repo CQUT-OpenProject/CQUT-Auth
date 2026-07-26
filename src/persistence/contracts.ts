@@ -91,8 +91,7 @@ export type ManagedOidcClientRecord = {
 
 export type RevisionMutationResult =
   | { status: "updated"; client: ManagedOidcClientRecord }
-  | { status: "version_conflict" }
-  | { status: "pending_quota_exceeded" };
+  | { status: "version_conflict" };
 
 export type ActiveOidcClientRecord = OidcClientRecord & {
   activeRevisionId: number;
@@ -190,9 +189,7 @@ export type ProjectMutationResult =
 
 export type ClientProjectLimits = {
   maxNonDisabledClients: number;
-  maxPendingClients: number;
   maxNonDisabledClientsPerSubject: number;
-  maxPendingClientsPerSubject: number;
 };
 
 export type ProjectCreateLimits = {
@@ -307,23 +304,6 @@ export interface OidcClientRepository {
     projectLimits: ClientProjectLimits | undefined,
     authorization: ProjectWriteAuthorization,
   ): Promise<RevisionMutationResult>;
-  transitionOidcClientRevision(
-    clientId: string,
-    revisionId: number,
-    expectedVersion: number,
-    nextStatus: ClientRevisionStatus,
-    reason: string | undefined,
-    audit: OidcClientAuditRecord,
-    projectLimits: ClientProjectLimits | undefined,
-    authorization: ProjectWriteAuthorization,
-  ): Promise<RevisionMutationResult>;
-  approveOidcClientRevision(
-    clientId: string,
-    revisionId: number,
-    expectedVersion: number,
-    audits: OidcClientAuditRecord[],
-    authorization: ProjectWriteAuthorization,
-  ): Promise<ManagedOidcClientRecord | null>;
   disableOidcClient(
     clientId: string,
     expectedVersion: number,
@@ -365,7 +345,6 @@ export interface OidcClientRepository {
     projectId: string,
   ): Promise<ManagedOidcClientRecord[]>;
   listOidcClients(): Promise<ManagedOidcClientRecord[]>;
-  listPendingOidcClients(): Promise<ManagedOidcClientRecord[]>;
   listOidcClientAuditLogs(clientId?: string): Promise<OidcClientAuditRecord[]>;
 }
 

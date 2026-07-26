@@ -108,7 +108,7 @@ export async function createOidcApp(
   const staticConfig = readConfig(env);
   if (staticConfig.adminSubjectIds.length === 0) {
     console.warn(
-      "[oidc-op] OIDC_ADMIN_SUBJECT_IDS is empty; client approvals are unavailable",
+      "[oidc-op] OIDC_ADMIN_SUBJECT_IDS is empty; admin-only management features are unavailable",
     );
   }
   const persistence = await createPersistence(staticConfig);

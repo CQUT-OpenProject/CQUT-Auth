@@ -3123,9 +3123,7 @@ test("config defaults client creation quotas and rate limits", () => {
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
   });
   assert.equal(config.managementClientMaxPerProject, 10);
-  assert.equal(config.managementClientMaxPendingPerProject, 5);
   assert.equal(config.managementClientMaxPerSubject, 30);
-  assert.equal(config.managementClientMaxPendingPerSubject, 15);
   assert.equal(config.managementProjectMaxActivePerSubject, 5);
   assert.equal(config.managementProjectCreateRateLimitSubjectMax, 3);
   assert.equal(config.managementProjectCreateRateLimitIpMax, 10);
@@ -3155,34 +3153,6 @@ test.skip("config rejects client secret grace defaults above the maximum", () =>
         OIDC_CLIENT_SECRET_MAX_GRACE_SECONDS: "9",
       }),
     /grace values/,
-  );
-});
-
-test.skip("config rejects client pending quota above total quota", () => {
-  assert.throws(
-    () =>
-      readConfig({
-        APP_ENV: "test",
-        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
-        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT: "1",
-        OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_PROJECT: "2",
-      }),
-    /must not exceed/,
-  );
-});
-
-test.skip("config rejects subject pending quota above subject client quota", () => {
-  assert.throws(
-    () =>
-      readConfig({
-        APP_ENV: "test",
-        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
-        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT: "1",
-        OIDC_MANAGEMENT_CLIENT_MAX_PENDING_PER_SUBJECT: "2",
-      }),
-    /MAX_PENDING_PER_SUBJECT must not exceed/,
   );
 });
 
