@@ -1340,6 +1340,7 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
       client.createdAt,
       client.updatedAt,
       client.version,
+      client.requirePkce,
     ];
   }
 
