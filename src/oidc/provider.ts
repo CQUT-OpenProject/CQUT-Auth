@@ -719,6 +719,9 @@ export async function createOidcRuntime(
       email: ["email", "email_verified"],
       student: ["status"],
     },
+    // OpenList 等 RP 只解析 ID Token，不拉 UserInfo；关闭后 profile/email
+    // claim 会写入 ID Token（默认 true 时 ID Token 仅含 sub）。
+    conformIdTokenClaims: false,
     clientDefaults: {
       token_endpoint_auth_method: "client_secret_basic",
     },
