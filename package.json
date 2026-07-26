@@ -24,6 +24,9 @@
     "test:ui": "vitest run --config web/vitest.config.ts",
     "seed:client": "tsx src/scripts/seed-oidc-client.ts",
     "seed:key": "tsx src/scripts/seed-oidc-signing-key.ts",
+    "docs:dev": "pnpm --filter cqut-auth-docs dev",
+    "docs:build": "pnpm --filter cqut-auth-docs build",
+    "docs:preview": "pnpm --filter cqut-auth-docs preview",
     "format": "prettier --write ."
   },
   "pnpm": {
@@ -42,6 +45,9 @@
         "musl"
       ]
     },
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ],
     "overrides": {
       "lodash": "^4.18.0",
       "path-to-regexp": "^8.4.0"

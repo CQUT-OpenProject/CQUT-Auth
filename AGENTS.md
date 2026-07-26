@@ -3,9 +3,11 @@
 ## 项目结构与模块组织
 
 - `src/` 存放应用代码。OIDC 协议与 HTTP 相关逻辑位于 `src/oidc/`、`src/routes/` 和 `src/app.ts`；身份认证集成位于 `src/identity/`；持久化、仓储、加密和限流逻辑位于 `src/persistence/`。
+- `web/` 存放管理后台前端。
+- `docs/` 存放 VitePress 文档站，由 GitHub Pages 发布。
 - `test/` 存放服务测试和集成测试；针对单个模块的测试也可以放在源码旁，例如 `src/identity/providers/*.test.ts`。
 - `scripts/` 存放数据库和环境初始化脚本。`deploy/` 存放 Docker Compose 文件及客户端配置示例，`docker/` 存放辅助镜像配置。
-- 构建产物写入 `dist/`，不得提交到仓库。
+- 构建产物写入 `dist/` 与 `docs/.vitepress/dist/`，不得提交到仓库。
 
 ## 构建、测试与开发命令
 
@@ -18,6 +20,8 @@ pnpm test                            # 运行全部测试
 pnpm lint                            # 检查环境变量来源规则和 TypeScript 类型
 pnpm build                           # 将编译产物输出到 dist/
 pnpm format                          # 使用 Prettier 格式化仓库
+pnpm docs:dev                        # 本地预览文档站
+pnpm docs:build                      # 构建文档站静态产物
 pnpm init-env --force --profile test # 生成本地测试环境配置
 pnpm docker:up                       # 构建并启动本地服务栈
 pnpm docker:down                     # 停止本地服务栈

@@ -1,5 +1,19 @@
+packages:
+  - docs
+
 minimumReleaseAge: 10080
 minimumReleaseAgeExclude:
   - typescript
   - "@typescript/*"
+  - vitepress
+  - vite
+  - shiki
+  - "@shikijs/*"
+  - "@vitejs/*"
+  - "@docsearch/*"
+  - "@vueuse/*"
+  - minisearch
+  - focus-trap
+  - mark.js
+  - "@iconify-json/*"
 trustPolicy: no-downgrade
