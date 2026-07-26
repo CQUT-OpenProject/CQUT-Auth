@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Modal, Button, Alert, Space, Typography, message } from "antd";
+import { Modal, Button, Alert, Space, Typography, message, theme } from "antd";
 import { CopyOutlined } from "@ant-design/icons";
 
 const { Text, Paragraph } = Typography;
@@ -15,6 +15,7 @@ export const OneTimeSecretModal: React.FC<OneTimeSecretModalProps> = ({
   clientId,
   onClose,
 }) => {
+  const { token } = theme.useToken();
   const [localSecret, setLocalSecret] = useState<string | null>(null);
 
   // Sync to local state when opened, and clear immediately upon close or unmount
@@ -76,17 +77,24 @@ export const OneTimeSecretModal: React.FC<OneTimeSecretModalProps> = ({
         )}
         <div
           style={{
-            background: "#f5f5f5",
+            background: token.colorFillQuaternary,
             padding: "12px",
-            borderRadius: "4px",
-            border: "1px solid #d9d9d9",
+            borderRadius: token.borderRadius,
+            border: `1px solid ${token.colorBorderSecondary}`,
             wordBreak: "break-all",
           }}
         >
           <Paragraph
             copyable={{ text: localSecret || "", tooltips: ["复制", "已复制"] }}
           >
-            <Text strong style={{ fontFamily: "monospace", fontSize: "16px" }}>
+            <Text
+              strong
+              style={{
+                fontFamily: "monospace",
+                fontSize: "16px",
+                color: token.colorText,
+              }}
+            >
               {localSecret}
             </Text>
           </Paragraph>
