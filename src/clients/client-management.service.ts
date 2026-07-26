@@ -19,6 +19,12 @@ import type {
 import { base64Url, randomId } from "../utils.js";
 import { ClientManagementError } from "../management/management-error.js";
 import {
+  assertAllowedKeys,
+  parsePositiveVersion,
+  parseText,
+  requireObject,
+} from "../management/request-body.js";
+import {
   ProjectAccessService,
   type ProjectAction,
   type ProjectActor,
@@ -523,6 +529,7 @@ export class ClientManagementService {
         "client changed concurrently",
       );
     }
+    // Cheap checks before scrypt digest work; repo re-checks under lock.
     const preflightNow = this.now().getTime();
     const usableSecrets = current.secrets.filter(
       (secret) =>
@@ -1005,37 +1012,15 @@ export class ClientManagementService {
   }
 
   private requireObject(raw: unknown): Record<string, unknown> {
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw))
-      throw new ClientManagementError(
-        400,
-        "invalid_request",
-        "request body must be an object",
-      );
-    return raw as Record<string, unknown>;
+    return requireObject(raw);
   }
 
   private assertAllowedKeys(raw: unknown, allowed: readonly string[]) {
-    const body = this.requireObject(raw);
-    const allowedKeys = new Set(allowed);
-    const unexpected = Object.keys(body).find((key) => !allowedKeys.has(key));
-    if (unexpected)
-      throw new ClientManagementError(
-        400,
-        "invalid_request",
-        `unsupported request field: ${unexpected}`,
-        unexpected,
-      );
+    assertAllowedKeys(raw, allowed);
   }
 
   private parseVersion(value: unknown, field: string) {
-    if (!Number.isInteger(value) || Number(value) <= 0)
-      throw new ClientManagementError(
-        400,
-        "invalid_request",
-        `${field} must be a positive integer`,
-        field,
-      );
-    return Number(value);
+    return parsePositiveVersion(value, field);
   }
 
   private parseGracePeriod(value: unknown) {
@@ -1101,22 +1086,7 @@ export class ClientManagementService {
   }
 
   private parseText(value: unknown, field: string, min: number, max: number) {
-    if (typeof value !== "string")
-      throw new ClientManagementError(
-        400,
-        "invalid_request",
-        `${field} must be a string`,
-        field,
-      );
-    const normalized = value.trim();
-    if (normalized.length < min || normalized.length > max)
-      throw new ClientManagementError(
-        400,
-        "invalid_request",
-        `${field} must contain ${min}-${max} characters`,
-        field,
-      );
-    return normalized;
+    return parseText(value, field, min, max);
   }
 
   private audit(

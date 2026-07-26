@@ -13,7 +13,11 @@ import type {
   AppSettingAuditRecord,
   AppSettingsRepository,
 } from "./persistence/contracts.js";
-import { isValidEmail, isValidEmailFromAddress, normalizeEmailFromAddress } from "./utils.js";
+import {
+  isValidEmail,
+  isValidEmailFromAddress,
+  normalizeEmailFromAddress,
+} from "./utils.js";
 
 export const RUNTIME_POLICY_KEY = "runtime-policy";
 
@@ -364,7 +368,11 @@ function mergeEmail(current: EmailSettings, raw: unknown): EmailSettings {
     provider,
     resend: {
       apiKey: secret(resend["apiKey"], current.resend.apiKey),
-      from: fromAddress(resend["from"], current.resend.from, "email.resend.from"),
+      from: fromAddress(
+        resend["from"],
+        current.resend.from,
+        "email.resend.from",
+      ),
     },
     smtp: {
       host: optionalText(smtp["host"], current.smtp.host),
@@ -481,7 +489,11 @@ function optionalText(value: unknown, current?: string) {
 }
 // Write-path only: stored legacy values are left untouched on read so a bad
 // historical sender never blocks startup, but every save repairs/rejects it.
-function fromAddress(value: unknown, current: string | undefined, field: string) {
+function fromAddress(
+  value: unknown,
+  current: string | undefined,
+  field: string,
+) {
   const text = optionalText(value, current);
   if (text === undefined) return undefined;
   const normalized = normalizeEmailFromAddress(text);

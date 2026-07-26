@@ -1,9 +1,6 @@
-import { ProviderRegistry } from "../identity/provider-registry.js";
 import { CqutCampusVerifierProvider } from "../identity/providers/cqut.provider.js";
 import { MockCampusVerifierProvider } from "../identity/providers/mock.provider.js";
-import { IdentityLinkService } from "../identity/services/identity-link.service.js";
 import { InteractiveAuthenticatorService } from "../identity/services/interactive-authenticator.service.js";
-import { SubjectProfileService } from "../identity/services/subject-profile.service.js";
 import type { CampusVerifierProvider } from "../identity/types.js";
 import { OIDC_CLAIMS, OIDC_SCOPES } from "../shared/oidc-contracts.js";
 import { exportJWK, generateKeyPair } from "jose";
@@ -72,7 +69,6 @@ export type OidcRuntime = {
   middleware: RequestHandler;
   interactions: OidcInteractionPort;
   interactiveAuthenticator: InteractiveAuthenticatorService;
-  subjectProfileService: SubjectProfileService;
   emailSender: EmailSender;
   runtimePolicy: RuntimePolicyModule;
   close(): Promise<void>;
@@ -596,7 +592,7 @@ function renderLogoutSuccessPage() {
   );
 }
 
-type SigningKeyModules = Pick<PersistenceModules, "signingKeys" | "jwkCipher">;
+type SigningKeyModules = Pick<PersistenceModules, "signingKeys">;
 
 async function ensureSigningKey(
   persistence: SigningKeyModules,
@@ -638,7 +634,7 @@ export async function generateSigningKey(
       alg: "RS256",
       use: "sig",
     } as SigningJwk,
-    privateJwkCiphertext: await persistence.jwkCipher.encryptPrivateJwk({
+    privateJwkCiphertext: await persistence.signingKeys.encryptPrivateJwk({
       ...privateJwk,
       kid,
       alg: "RS256",
@@ -662,29 +658,25 @@ export async function createOidcRuntime(
   await initializeOidcClientsFromConfig(persistence.clients, config);
   await ensureSigningKey(persistence, config);
 
-  const providerRegistry = new ProviderRegistry(
-    new Map<string, CampusVerifierProvider>([
-      [
-        "mock",
-        new MockCampusVerifierProvider({
-          schoolCode: config.schoolCode,
-        }),
-      ],
-      [
-        "cqut",
-        new CqutCampusVerifierProvider({
-          schoolCode: config.schoolCode,
-          providerTimeoutMs: config.providerTimeoutMs,
-          providerTotalTimeoutMs: config.providerTotalTimeoutMs,
-          uisBaseUrl: config.cqutUisBaseUrl,
-          casApplicationCode: config.cqutCasApplicationCode,
-          casServiceUrl: config.cqutCasServiceUrl,
-        }),
-      ],
-    ]),
-  );
-  const identityLinkService = new IdentityLinkService(persistence.identity);
-  const subjectProfileService = new SubjectProfileService(persistence.identity);
+  const providers = new Map<string, CampusVerifierProvider>([
+    [
+      "mock",
+      new MockCampusVerifierProvider({
+        schoolCode: config.schoolCode,
+      }),
+    ],
+    [
+      "cqut",
+      new CqutCampusVerifierProvider({
+        schoolCode: config.schoolCode,
+        providerTimeoutMs: config.providerTimeoutMs,
+        providerTotalTimeoutMs: config.providerTotalTimeoutMs,
+        uisBaseUrl: config.cqutUisBaseUrl,
+        casApplicationCode: config.cqutCasApplicationCode,
+        casServiceUrl: config.cqutCasServiceUrl,
+      }),
+    ],
+  ]);
   if (!runtimePolicyService) {
     throw new Error("runtime policy service is required");
   }
@@ -692,9 +684,7 @@ export async function createOidcRuntime(
   const emailSender =
     providedEmailSender ?? new RuntimeEmailSender(runtimePolicyModule);
   const interactiveAuthenticator = new InteractiveAuthenticatorService(
-    providerRegistry,
-    identityLinkService,
-    subjectProfileService,
+    providers,
     persistence.identity,
   );
 
@@ -954,7 +944,6 @@ export async function createOidcRuntime(
     middleware: provider.callback(),
     interactions: createInteractionPort(provider),
     interactiveAuthenticator,
-    subjectProfileService,
     emailSender,
     runtimePolicy: runtimePolicyModule,
     async close() {

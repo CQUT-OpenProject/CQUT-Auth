@@ -12,7 +12,6 @@ export function hasSafeCredentialLengths(account: string, password: string) {
 
 export type VerificationIdentity = {
   schoolUid: string;
-  verified: boolean;
   studentStatus: StudentStatus;
   school: string;
   identityHash?: string | undefined;

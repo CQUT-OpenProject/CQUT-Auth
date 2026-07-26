@@ -1,4 +1,6 @@
 import type {
+  ManagedOidcClientRecord,
+  OidcClientAuditRecord,
   ProjectAuditRecord,
   ProjectMemberRecord,
   ProjectMutationResult,
@@ -9,7 +11,21 @@ import type {
 import { SYSTEM_PROJECT_ID } from "../persistence/contracts.js";
 import { randomId } from "../utils.js";
 import { ClientManagementError } from "../management/management-error.js";
+import {
+  assertAllowedKeys,
+  parsePositiveVersion,
+  parseText,
+} from "../management/request-body.js";
 import { ProjectAccessService, type ProjectActor } from "./project-access.js";
+
+// Memory-mode client audits live in the client repo; Postgres writes them into
+// project_audit_logs. Optional source restores the unified project audit view.
+type ClientAuditSource = {
+  listOidcClientAuditLogs(clientId?: string): Promise<OidcClientAuditRecord[]>;
+  findManagedOidcClient(
+    clientId: string,
+  ): Promise<ManagedOidcClientRecord | null>;
+};
 
 export class ProjectManagementService {
   readonly access: ProjectAccessService;
@@ -23,6 +39,7 @@ export class ProjectManagementService {
       maxActiveProjects?: number;
       adminQuotaExempt?: boolean;
     } = {},
+    private readonly clientAudits?: ClientAuditSource,
   ) {
     this.access = new ProjectAccessService(repository);
   }
@@ -332,7 +349,29 @@ export class ProjectManagementService {
     beforeId?: number,
   ) {
     await this.access.require(actor, projectId, "view");
-    return this.repository.listProjectAuditLogs(projectId, limit, beforeId);
+    const projectAudits = await this.repository.listProjectAuditLogs(
+      projectId,
+      limit,
+      beforeId,
+    );
+    if (!this.clientAudits) return projectAudits;
+    const clientAudits = await this.clientAudits.listOidcClientAuditLogs();
+    const matching: ProjectAuditRecord[] = [];
+    for (const audit of clientAudits) {
+      const client = await this.clientAudits.findManagedOidcClient(
+        audit.clientId,
+      );
+      if (client?.client.projectId === projectId) {
+        matching.push({ ...audit, projectId });
+      }
+    }
+    return [...projectAudits, ...matching]
+      .filter(
+        (audit) =>
+          !beforeId || (audit.id ?? Number.MAX_SAFE_INTEGER) < beforeId,
+      )
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .slice(0, limit);
   }
 
   private async updated(actor: ProjectActor, result: ProjectMutationResult) {
@@ -402,25 +441,15 @@ export class ProjectManagementService {
   }
 
   private object(raw: unknown, allowed: string[]) {
-    if (typeof raw !== "object" || raw === null || Array.isArray(raw))
-      this.invalid();
-    const body = raw as Record<string, unknown>;
-    const unexpected = Object.keys(body).find((key) => !allowed.includes(key));
-    if (unexpected) this.invalid(unexpected);
-    return body;
+    return assertAllowedKeys(raw, allowed);
   }
 
   private text(value: unknown, field: string, min: number, max: number) {
-    if (typeof value !== "string") this.invalid(field);
-    const normalized = value.trim();
-    if (normalized.length < min || normalized.length > max) this.invalid(field);
-    return normalized;
+    return parseText(value, field, min, max);
   }
 
   private version(value: unknown) {
-    if (!Number.isInteger(value) || Number(value) <= 0)
-      this.invalid("expectedProjectVersion");
-    return Number(value);
+    return parsePositiveVersion(value, "expectedProjectVersion");
   }
 
   private role(value: unknown): ProjectRole {

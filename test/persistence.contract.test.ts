@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readConfig } from "../src/config.js";
 import { createClientSecretDigest } from "../src/crypto.js";
-import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
+import { createPersistence } from "../src/persistence/persistence.js";
 
 test("persistence modules preserve the memory-mode contract", async () => {
   const config = readConfig({
@@ -14,14 +14,13 @@ test("persistence modules preserve the memory-mode contract", async () => {
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
   });
-  const persistence = new PersistenceRuntimeImpl(config);
-  await persistence.init();
+  const persistence = await createPersistence(config);
 
-  assert.equal(persistence.hasDatabase(), false);
-  assert.equal(await persistence.checkReadiness(), true);
+  assert.equal(persistence.runtime.hasDatabase(), false);
+  assert.equal(await persistence.runtime.checkReadiness(), true);
 
   const now = new Date().toISOString();
-  await persistence.createSubjectWithIdentity(
+  await persistence.identity.createSubjectWithIdentity(
     {
       subjectId: "subj_demo",
       status: "active",
@@ -40,10 +39,13 @@ test("persistence modules preserve the memory-mode contract", async () => {
     },
   );
 
-  const identity = await persistence.findIdentity("mock", "cqut:20240001");
+  const identity = await persistence.identity.findIdentity(
+    "mock",
+    "cqut:20240001",
+  );
   assert.equal(identity?.schoolUid, "20240001");
 
-  await persistence.upsertProfile({
+  await persistence.identity.upsertProfile({
     subjectId: "subj_demo",
     preferredUsername: "20240001",
     displayName: "CQUT User 20240001",
@@ -51,10 +53,11 @@ test("persistence modules preserve the memory-mode contract", async () => {
     emailVerified: false,
     updatedAt: now,
   });
-  const principal = await persistence.findPrincipalBySubjectId("subj_demo");
+  const principal =
+    await persistence.identity.findPrincipalBySubjectId("subj_demo");
   assert.equal(principal?.preferredUsername, "20240001");
 
-  await persistence.upsertOidcClient({
+  await persistence.clients.upsertOidcClient({
     clientId: "demo-site",
     clientSecretDigests: [
       await createClientSecretDigest("test-oidc-demo-client-secret"),
@@ -99,7 +102,7 @@ test("persistence modules preserve the memory-mode contract", async () => {
     updatedAt: now,
     version: 1,
   });
-  const clients = await persistence.listActiveOidcClients();
+  const clients = await persistence.clients.listActiveOidcClients();
   assert.equal(clients.length, 1);
   assert.equal(clients[0]?.clientId, "demo-site");
   assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
@@ -110,7 +113,7 @@ test("persistence modules preserve the memory-mode contract", async () => {
   });
   const lateIssue = (async () => {
     await revocationCommitted;
-    await persistence.upsertArtifact(
+    await persistence.artifacts.upsertArtifact(
       "AccessToken:late-token",
       "AccessToken",
       { clientId: "demo-site", accountId: "subj_demo" },
@@ -118,38 +121,41 @@ test("persistence modules preserve the memory-mode contract", async () => {
       1,
     );
   })();
-  const afterRevocation = await persistence.revokeOidcClientAuthorizations(
-    "demo-site",
-    1,
-    now,
-    {
-      clientId: "demo-site",
-      actorSubjectId: "subj_demo",
-      action: "client.authorizations_revoked",
-      changedFields: ["authorizations"],
-      createdAt: now,
-    },
-    {
-      actor: { subjectId: "subj_demo", isAdmin: true },
-      projectId: "system",
-      action: "revoke_authorizations",
-    },
-  );
+  const afterRevocation =
+    await persistence.clients.revokeOidcClientAuthorizations(
+      "demo-site",
+      1,
+      now,
+      {
+        clientId: "demo-site",
+        actorSubjectId: "subj_demo",
+        action: "client.authorizations_revoked",
+        changedFields: ["authorizations"],
+        createdAt: now,
+      },
+      {
+        actor: { subjectId: "subj_demo", isAdmin: true },
+        projectId: "system",
+        action: "revoke_authorizations",
+      },
+    );
   assert.ok(afterRevocation);
   releaseLateIssue();
   await lateIssue;
   assert.equal(
-    await persistence.findArtifact("AccessToken:late-token"),
+    await persistence.artifacts.findArtifact("AccessToken:late-token"),
     undefined,
   );
-  await persistence.upsertArtifact(
+  await persistence.artifacts.upsertArtifact(
     "AccessToken:new-generation",
     "AccessToken",
     { clientId: "demo-site", accountId: "subj_demo" },
     120,
   );
-  assert.ok(await persistence.findArtifact("AccessToken:new-generation"));
-  const disabled = await persistence.disableOidcClient(
+  assert.ok(
+    await persistence.artifacts.findArtifact("AccessToken:new-generation"),
+  );
+  const disabled = await persistence.clients.disableOidcClient(
     "demo-site",
     afterRevocation!.client.version,
     now,
@@ -170,10 +176,10 @@ test("persistence modules preserve the memory-mode contract", async () => {
   );
   assert.ok(disabled);
   assert.equal(
-    await persistence.findArtifact("AccessToken:new-generation"),
+    await persistence.artifacts.findArtifact("AccessToken:new-generation"),
     undefined,
   );
-  await persistence.upsertArtifact(
+  await persistence.artifacts.upsertArtifact(
     "AccessToken:after-disable",
     "AccessToken",
     { clientId: "demo-site", accountId: "subj_demo" },
@@ -181,11 +187,11 @@ test("persistence modules preserve the memory-mode contract", async () => {
     2,
   );
   assert.equal(
-    await persistence.findArtifact("AccessToken:after-disable"),
+    await persistence.artifacts.findArtifact("AccessToken:after-disable"),
     undefined,
   );
 
-  await persistence.upsertArtifact(
+  await persistence.artifacts.upsertArtifact(
     "AuthorizationCode:code-1",
     "AuthorizationCode",
     {
@@ -197,7 +203,7 @@ test("persistence modules preserve the memory-mode contract", async () => {
     },
     120,
   );
-  await persistence.upsertArtifact(
+  await persistence.artifacts.upsertArtifact(
     "Session:session-1",
     "Session",
     {
@@ -207,47 +213,62 @@ test("persistence modules preserve the memory-mode contract", async () => {
     },
     120,
   );
-  const artifact = await persistence.findArtifact("AuthorizationCode:code-1");
+  const artifact = await persistence.artifacts.findArtifact(
+    "AuthorizationCode:code-1",
+  );
   assert.equal(artifact?.["value"], "ok");
-  assert.equal((await persistence.findArtifactByUid("uid-1"))?.["value"], "ok");
   assert.equal(
-    (await persistence.findArtifactByUid("uid-1", "AuthorizationCode"))?.[
-      "value"
-    ],
+    (await persistence.artifacts.findArtifactByUid("uid-1"))?.["value"],
     "ok",
   );
   assert.equal(
-    (await persistence.findArtifactByUid("uid-1", "Session"))?.["value"],
+    (
+      await persistence.artifacts.findArtifactByUid(
+        "uid-1",
+        "AuthorizationCode",
+      )
+    )?.["value"],
+    "ok",
+  );
+  assert.equal(
+    (await persistence.artifacts.findArtifactByUid("uid-1", "Session"))?.[
+      "value"
+    ],
     "session-payload",
   );
   assert.equal(
-    (await persistence.findArtifactByUserCode("uc-1"))?.["value"],
+    (await persistence.artifacts.findArtifactByUserCode("uc-1"))?.["value"],
     "ok",
   );
-  await persistence.consumeArtifact("AuthorizationCode:code-1");
-  const consumed = await persistence.findArtifact("AuthorizationCode:code-1");
+  await persistence.artifacts.consumeArtifact("AuthorizationCode:code-1");
+  const consumed = await persistence.artifacts.findArtifact(
+    "AuthorizationCode:code-1",
+  );
   assert.equal(typeof consumed?.["consumed"], "number");
-  await persistence.revokeArtifactsByGrantId("grant-1");
+  await persistence.artifacts.revokeArtifactsByGrantId("grant-1");
   assert.equal(
-    await persistence.findArtifact("AuthorizationCode:code-1"),
+    await persistence.artifacts.findArtifact("AuthorizationCode:code-1"),
     undefined,
   );
 
-  await persistence.saveInteractionLogin("uid-login", {
+  await persistence.artifacts.saveInteractionLogin("uid-login", {
     principal: principal!,
     authTime: Math.floor(Date.now() / 1000),
   });
-  assert.ok(await persistence.getInteractionLogin("uid-login"));
-  await persistence.deleteInteractionLogin("uid-login");
-  assert.equal(await persistence.getInteractionLogin("uid-login"), undefined);
+  assert.ok(await persistence.artifacts.getInteractionLogin("uid-login"));
+  await persistence.artifacts.deleteInteractionLogin("uid-login");
+  assert.equal(
+    await persistence.artifacts.getInteractionLogin("uid-login"),
+    undefined,
+  );
 
-  const encryptedPrivate = await persistence.encryptPrivateJwk({
+  const encryptedPrivate = await persistence.signingKeys.encryptPrivateJwk({
     kty: "RSA",
     n: "n",
     e: "AQAB",
     d: "d",
   });
-  await persistence.upsertSigningKey({
+  await persistence.signingKeys.upsertSigningKey({
     kid: "kid-1",
     alg: "RS256",
     use: "sig",
@@ -261,11 +282,11 @@ test("persistence modules preserve the memory-mode contract", async () => {
     createdAt: now,
     activatedAt: now,
   });
-  const signingKeys = await persistence.listSigningKeys(["active"]);
+  const signingKeys = await persistence.signingKeys.listSigningKeys(["active"]);
   assert.equal(signingKeys.length, 1);
-  const jwks = await persistence.loadPrivateSigningJwks(["active"]);
+  const jwks = await persistence.signingKeys.loadPrivateSigningJwks(["active"]);
   assert.equal(jwks.length, 1);
   assert.equal(jwks[0]?.kid, "kid-1");
 
-  await persistence.close();
+  await persistence.runtime.close();
 });

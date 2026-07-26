@@ -3,7 +3,7 @@ import test from "node:test";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { ClientManagementError } from "../src/management/management-error.js";
 import { readConfig } from "../src/config.js";
-import { PersistenceRuntimeImpl } from "../src/persistence/persistence.js";
+import { createPersistence } from "../src/persistence/persistence.js";
 import { ProjectManagementService } from "../src/projects/project-management.service.js";
 
 const owner = { subjectId: "subj_project_owner", isAdmin: false };
@@ -12,7 +12,7 @@ const viewer = { subjectId: "subj_project_viewer", isAdmin: false };
 const outsider = { subjectId: "subj_project_outsider", isAdmin: false };
 
 async function fixture() {
-  const store = new PersistenceRuntimeImpl(
+  const modules = await createPersistence(
     readConfig({
       APP_ENV: "test",
       AUTH_PROVIDER: "mock",
@@ -20,10 +20,9 @@ async function fixture() {
       OIDC_ARTIFACT_ENCRYPTION_SECRET: "project-test-artifact",
     }),
   );
-  await store.init();
   const now = new Date().toISOString();
   for (const actor of [owner, maintainer, viewer, outsider]) {
-    await store.createSubjectWithIdentity(
+    await modules.identity.createSubjectWithIdentity(
       {
         subjectId: actor.subjectId,
         status: "active",
@@ -43,19 +42,26 @@ async function fixture() {
     );
   }
   const projects = new ProjectManagementService(
-    store,
+    modules.projects,
     () => new Date(),
     () => "project_test",
+    {},
+    modules.clients,
   );
-  const clients = new ClientManagementService(store, projects.access, "test", {
-    createClientId: () => "project_client",
-    createSecret: () => "single-use-secret",
-  });
+  const clients = new ClientManagementService(
+    modules.clients,
+    projects.access,
+    "test",
+    {
+      createClientId: () => "project_client",
+      createSecret: () => "single-use-secret",
+    },
+  );
   const project = await projects.create(owner, {
     name: "Project Test",
     description: "",
   });
-  return { store, projects, clients, project };
+  return { store: modules, projects, clients, project };
 }
 
 test("project roles authorize clients and removed members lose access immediately", async () => {
@@ -123,7 +129,7 @@ test("project roles authorize clients and removed members lose access immediatel
     assert.equal(JSON.stringify(audit).includes("scrypt$"), false);
     assert.ok(project.version > initial.version);
   } finally {
-    await store.close();
+    await store.runtime.close();
   }
 });
 
@@ -212,6 +218,6 @@ test("project owner protection, optimistic concurrency, and transfer are atomic"
     );
     assert.ok(project.version > initial.version);
   } finally {
-    await store.close();
+    await store.runtime.close();
   }
 });

@@ -1,17 +1,21 @@
 import type { Pool } from "pg";
+import { decryptJson, encryptJson } from "../crypto.js";
 import type {
   OidcSigningKeyRecord,
   SigningKeyRepository,
 } from "./contracts.js";
-import type { JwkCipherServiceImpl } from "./jwk-cipher.service.js";
 
 export class SigningKeyRepositoryImpl implements SigningKeyRepository {
   private readonly signingKeys = new Map<string, OidcSigningKeyRecord>();
 
   constructor(
     private readonly poolProvider: () => Pool | undefined,
-    private readonly jwkCipherService: JwkCipherServiceImpl,
+    private readonly keyEncryptionSecret: string,
   ) {}
+
+  async encryptPrivateJwk(jwk: JsonWebKey) {
+    return encryptJson(this.keyEncryptionSecret, jwk);
+  }
 
   async upsertSigningKey(
     key: OidcSigningKeyRecord,
@@ -103,7 +107,8 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
     const keys = await this.listSigningKeys(statuses);
     const decryptedKeys = await Promise.all(
       keys.map(async (key) => ({
-        ...(await this.jwkCipherService.decryptPrivateJwk(
+        ...(await decryptJson<JsonWebKey>(
+          this.keyEncryptionSecret,
           key.privateJwkCiphertext,
         )),
         use: key.use,

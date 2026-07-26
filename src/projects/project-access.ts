@@ -94,17 +94,35 @@ export class ProjectAccessService {
       "disable_client",
       "review",
     ];
-    return actions.filter((action) => {
-      if (project.projectId === SYSTEM_PROJECT_ID)
-        return actor.isAdmin && action !== "manage_members";
-      try {
-        assertProjectAccess(actor, project, role, action);
-        return true;
-      } catch {
-        return false;
-      }
-    });
+    return actions.filter((action) => can(actor, project, role, action));
   }
+}
+
+export function can(
+  actor: ProjectActor,
+  project: ProjectRecord,
+  role: ProjectRole | null,
+  action: ProjectAction,
+) {
+  if (project.projectId === SYSTEM_PROJECT_ID) {
+    return actor.isAdmin && action !== "manage_members";
+  }
+  if (!role && !actor.isAdmin) return false;
+  if (!allowed(actor, role, action)) return false;
+  if (
+    project.status === "archived" &&
+    action !== "view" &&
+    action !== "review" &&
+    !(
+      actor.isAdmin &&
+      ["revoke_authorizations", "revoke_secret", "disable_client"].includes(
+        action,
+      )
+    )
+  ) {
+    return false;
+  }
+  return true;
 }
 
 function allowed(

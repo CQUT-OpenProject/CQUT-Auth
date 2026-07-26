@@ -170,7 +170,6 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
 
       return {
         schoolUid: casUser,
-        verified: true,
         studentStatus: "active",
         school: this.options.schoolCode,
         identityHash: `cqut:${casUser}`,
