@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">CQUT-OSP 应用图标</title>
+  <rect width="128" height="128" rx="28" fill="#F7FAFC"/>
+  <g transform="translate(-2.5 0)">
+    <g fill="none" stroke="#055088" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M56 24a21 21 0 1 0 0 32"/>
+      <circle cx="91" cy="40" r="21"/>
+      <path d="M21 76v18a18 18 0 0 0 36 0V76"/>
+      <path d="M76 76h34M93 76v36"/>
+    </g>
+    <circle cx="110" cy="59" r="5.5" fill="#6ADFA3"/>
+  </g>
+</svg>

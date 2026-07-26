@@ -8,6 +8,8 @@ build/
 coverage/
 .next/
 .turbo/
+docs/.vitepress/dist
+docs/.vitepress/cache
 *.tsbuildinfo
 
 # env and local config
