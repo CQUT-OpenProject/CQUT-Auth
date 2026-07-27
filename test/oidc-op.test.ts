@@ -2852,6 +2852,47 @@ test("email verification send failure rolls back consumed rate-limit budget", as
   await state.persistence.runtime.close();
 });
 
+test("email verification rate limit outage rolls back partially consumed budget", async () => {
+  const { app, state } = await createTestApp({
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "10",
+    OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "10",
+  });
+  const originalConsume = state.rateLimitService.consume.bind(
+    state.rateLimitService,
+  );
+  let failEmailVerifyConsume = false;
+  state.rateLimitService.consume = async (key, max, windowSeconds) => {
+    if (failEmailVerifyConsume && key.includes(":email-verify:email:")) {
+      throw new RateLimitUnavailableError();
+    }
+    return originalConsume(key, max, windowSeconds);
+  };
+  const agent = request.agent(app);
+  try {
+    failEmailVerifyConsume = true;
+    const first = await sendEmailVerificationCode(
+      agent,
+      "email-verify-rate-limit-outage-first",
+      "partial-rollback@example.com",
+    );
+    assert.equal(first.sendCode.status, 503);
+    assert.equal(first.sendCode.headers["retry-after"], "60");
+
+    failEmailVerifyConsume = false;
+    const second = await sendEmailVerificationCode(
+      agent,
+      "email-verify-rate-limit-outage-second",
+      "partial-rollback@example.com",
+    );
+    assert.equal(second.sendCode.status, 200);
+  } finally {
+    state.rateLimitService.consume = originalConsume;
+    await state.persistence.runtime.close();
+  }
+});
+
 test("OIDC error page returns generic message only", async () => {
   const { app, state } = await createTestApp();
   const response = await request(app).get("/auth");
