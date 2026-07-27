@@ -22,6 +22,13 @@ test("resolveTrustedRequestIp trusts forwarded-for only from configured proxy ci
     }),
     "203.0.113.250",
   );
+  assert.equal(
+    resolveTrustedRequestIp(config, {
+      headers: { "x-forwarded-for": "not-an-ip" },
+      remoteAddress: "127.0.0.1",
+    }),
+    "127.0.0.1",
+  );
 });
 
 test("resolveTrustedRequestIp still uses the configured trusted hop", () => {

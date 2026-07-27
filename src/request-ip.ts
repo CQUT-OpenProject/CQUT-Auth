@@ -162,9 +162,9 @@ export function resolveTrustedRequestIp(
     return remoteAddress;
   }
 
-  return (
-    forwardedFor[forwardedFor.length - config.trustProxyHops] ?? remoteAddress
-  );
+  const clientIp =
+    forwardedFor[forwardedFor.length - config.trustProxyHops] ?? remoteAddress;
+  return parseIpAddress(clientIp) ? clientIp : remoteAddress;
 }
 
 export function resolveTrustedExpressRequestIp(
