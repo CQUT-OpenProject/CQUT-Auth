@@ -21,6 +21,7 @@ import { ProjectManagementService } from "../projects/project-management.service
 import type { RuntimePolicyModule } from "../runtime-policy.js";
 import {
   clearManagementSessionCookie,
+  clearManagementNonceCookie,
   ensureManagementNonce,
   issueManagementCsrf,
   readManagementNonce,
@@ -342,6 +343,7 @@ export function createManagementRouter(
       }
       await sessions.revoke(auth.token);
       clearManagementSessionCookie(response, config);
+      clearManagementNonceCookie(response, config);
       response.status(204).end();
     } catch (error) {
       next(error);
