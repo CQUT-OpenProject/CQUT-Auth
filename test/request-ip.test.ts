@@ -56,3 +56,24 @@ test("resolveTrustedRequestIp supports ipv6 trusted proxy cidrs", () => {
     "198.51.100.20",
   );
 });
+
+test("resolveTrustedRequestIp canonicalizes ipv4-mapped addresses for rate-limit keys", () => {
+  const config = {
+    trustProxyHops: 1,
+    trustedProxyCidrs: ["127.0.0.1/32"],
+  };
+  assert.equal(
+    resolveTrustedRequestIp(config, {
+      headers: { "x-forwarded-for": "::ffff:198.51.100.10" },
+      remoteAddress: "127.0.0.1",
+    }),
+    "198.51.100.10",
+  );
+  assert.equal(
+    resolveTrustedRequestIp(
+      { trustProxyHops: 0, trustedProxyCidrs: [] },
+      { headers: {}, remoteAddress: "::ffff:127.0.0.1" },
+    ),
+    "127.0.0.1",
+  );
+});
