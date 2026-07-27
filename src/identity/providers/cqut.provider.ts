@@ -56,7 +56,6 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         }),
       );
 
-      const serviceUrl = "http://202.202.145.132:80/";
       const uisBaseUrl = normalizeBaseUrl(this.options.uisBaseUrl);
       const casApplicationCode = this.options.casApplicationCode;
       const casServiceUrl = this.options.casServiceUrl;
@@ -72,7 +71,7 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
           "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN",
         "User-Agent": "CQUT-Auth-Service/1.0",
-        Referer: serviceUrl,
+        Referer: casServiceUrl,
       };
       const delegated = await getCasLoginWithRetry(client, {
         url: `${uisBaseUrl}/center-auth-server/${casApplicationCode}/cas/login`,

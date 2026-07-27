@@ -23,7 +23,11 @@ type CasServerOptions = {
 };
 
 async function startCasServer(options: CasServerOptions = {}) {
-  const requests: Array<{ method: string; pathWithQuery: string }> = [];
+  const requests: Array<{
+    method: string;
+    pathWithQuery: string;
+    referer?: string;
+  }> = [];
   let remainingLoginPageFailures = options.loginPageFailures ?? 0;
   const server = createServer((req, res) => {
     const host = req.headers.host ?? "127.0.0.1";
@@ -31,6 +35,9 @@ async function startCasServer(options: CasServerOptions = {}) {
     requests.push({
       method: req.method ?? "GET",
       pathWithQuery: `${url.pathname}${url.search}`,
+      ...(typeof req.headers.referer === "string"
+        ? { referer: req.headers.referer }
+        : {}),
     });
 
     if (
@@ -187,6 +194,29 @@ test("CqutCampusVerifierProvider validates a CAS ticket without visiting the por
   );
   assert.equal(validationUrl.searchParams.get("service"), service);
   assert.equal(validationUrl.searchParams.get("ticket"), TEST_TICKET);
+});
+
+test("CqutCampusVerifierProvider sends the configured CAS service URL as the delegated login Referer", async () => {
+  const upstream = await startCasServer();
+  const provider = createProvider(upstream.baseUrl);
+  const service = `${upstream.baseUrl}/ump/common/login/authSourceAuth/auth?applicationCode=${APP_CODE}`;
+
+  try {
+    await provider.verifyCredentials({
+      account: TEST_ACCOUNT,
+      password: TEST_PASSWORD,
+    });
+  } finally {
+    await upstream.close();
+  }
+
+  const firstCasLogin = upstream.requests.find(
+    (item) =>
+      item.method === "GET" &&
+      item.pathWithQuery.startsWith(`/center-auth-server/${APP_CODE}/cas/login`),
+  );
+  assert.ok(firstCasLogin);
+  assert.equal(firstCasLogin.referer, service);
 });
 
 test("CqutCampusVerifierProvider normalizes the CAS user before deriving the identity key", async () => {
