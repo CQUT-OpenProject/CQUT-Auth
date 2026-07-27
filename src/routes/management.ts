@@ -66,6 +66,19 @@ async function consumeManagementLoginRateLimit(
   );
 }
 
+async function resetManagementLoginRateLimit(
+  rateLimitService: RateLimitService,
+  stage: "attempt" | "failure",
+  account: string,
+  ip: string,
+) {
+  await Promise.all(
+    managementLoginRateLimitKeys(stage, account, ip).map((key) =>
+      rateLimitService.reset(key),
+    ),
+  );
+}
+
 async function enforceRateLimits(
   rateLimitService: RateLimitService,
   limits: Array<{ key: string; max: number }>,
@@ -253,6 +266,16 @@ export function createManagementRouter(
               ? `${error.name}: ${error.message}`
               : "unknown error",
           );
+          await resetManagementLoginRateLimit(
+            rateLimitService,
+            "attempt",
+            account,
+            ip,
+          ).catch((resetError) => {
+            if (!(resetError instanceof RateLimitUnavailableError)) {
+              throw resetError;
+            }
+          });
           response.setHeader("Retry-After", "60");
           response.status(503).json({
             error: "service_unavailable",
