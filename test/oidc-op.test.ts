@@ -1840,6 +1840,26 @@ test("unverified email stays in profile but is omitted from oidc claims when ver
   await state.persistence.runtime.close();
 });
 
+test("rp initiated logout clears the HttpOnly interaction csrf nonce cookie", async () => {
+  const { app, state } = await createTestApp();
+  const agent = request.agent(app);
+  const { loginPage } = await openLoginInteraction(agent, "logout-csrf-nonce");
+  assert.ok(getSetCookieValue(loginPage, "op_csrf_nonce"));
+
+  const logoutPage = await agent.get("/session/end").query({
+    client_id: "demo-site",
+    post_logout_redirect_uri: TEST_POST_LOGOUT_REDIRECT_URI,
+  });
+  const clearHeader = (
+    logoutPage.headers["set-cookie"] as string[] | undefined
+  )?.find((header) => header.startsWith("op_csrf_nonce="));
+  assert.ok(clearHeader);
+  assert.match(clearHeader, /HttpOnly/i);
+  assert.match(clearHeader, /Expires=/i);
+
+  await state.persistence.runtime.close();
+});
+
 test("rp initiated logout redirects to post_logout_redirect_uri", async () => {
   const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);

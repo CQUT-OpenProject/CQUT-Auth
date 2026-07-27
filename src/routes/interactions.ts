@@ -31,7 +31,7 @@ function setNoStore(response: Response) {
 }
 
 type CsrfFlow = "login" | "profile" | "consent";
-const CSRF_NONCE_COOKIE_NAME = "op_csrf_nonce";
+export const CSRF_NONCE_COOKIE_NAME = "op_csrf_nonce";
 
 type CsrfTokenPayload = {
   uid: string;

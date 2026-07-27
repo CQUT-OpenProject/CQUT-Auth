@@ -11,7 +11,10 @@ import {
   createPersistence,
   type PersistenceModules,
 } from "./persistence/persistence.js";
-import { createInteractionRouter } from "./routes/interactions.js";
+import {
+  createInteractionRouter,
+  CSRF_NONCE_COOKIE_NAME,
+} from "./routes/interactions.js";
 import { createManagementRouter } from "./routes/management.js";
 import type { EmailSender } from "./email/email-sender.js";
 import { withAuthorizationContext } from "./oidc/authorization-context.js";
@@ -229,15 +232,11 @@ export async function createOidcApp(
   );
   app.use((request, response, next) => {
     if (request.path === "/session/end") {
-      response.clearCookie("op_csrf", {
-        path: "/",
-        sameSite: "lax",
+      response.clearCookie(CSRF_NONCE_COOKIE_NAME, {
+        httpOnly: true,
         secure: config.cookieSecure,
-      });
-      response.clearCookie("op_csrf_nonce", {
-        path: "/",
         sameSite: "lax",
-        secure: config.cookieSecure,
+        path: "/",
       });
     }
     next();
