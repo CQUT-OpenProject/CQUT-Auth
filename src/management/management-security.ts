@@ -48,6 +48,18 @@ export function clearManagementSessionCookie(
   });
 }
 
+export function clearManagementNonceCookie(
+  response: Response,
+  config: Pick<StaticConfig, "cookieSecure">,
+) {
+  response.clearCookie(managementNonceCookieName(config), {
+    httpOnly: true,
+    secure: config.cookieSecure,
+    sameSite: "lax",
+    path: "/",
+  });
+}
+
 export function ensureManagementNonce(
   request: Request,
   response: Response,

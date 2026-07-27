@@ -138,6 +138,25 @@ async function login(agent: request.Agent, account: string) {
   return response;
 }
 
+function getSetCookieValue(
+  response: request.Response,
+  name: string,
+): string | undefined {
+  const cookies = response.headers["set-cookie"] as string[] | undefined;
+  if (!cookies) {
+    return undefined;
+  }
+  const prefix = `${name}=`;
+  for (const header of cookies) {
+    if (!header.startsWith(prefix)) {
+      continue;
+    }
+    const end = header.indexOf(";");
+    return header.slice(prefix.length, end >= 0 ? end : undefined);
+  }
+  return undefined;
+}
+
 const input = {
   clientType: "web",
   displayName: "New Web",
@@ -146,6 +165,29 @@ const input = {
   postLogoutRedirectUris: [],
   scopeWhitelist: ["openid", "profile"],
 };
+
+test("management logout clears the HttpOnly csrf nonce cookie", async () => {
+  const { app, state } = await createApp();
+  await seedAdmin(state);
+  try {
+    const agent = request.agent(app);
+    const context = await agent.get("/api/management/auth/context");
+    assert.ok(getSetCookieValue(context, "cqut_manage_csrf"));
+    const signedIn = await login(agent, "admin-account");
+    const logout = await agent
+      .post("/api/management/auth/logout")
+      .set("X-CSRF-Token", signedIn.body.csrfToken);
+    assert.equal(logout.status, 204);
+    const clearHeader = (
+      logout.headers["set-cookie"] as string[] | undefined
+    )?.find((header) => header.startsWith("cqut_manage_csrf="));
+    assert.ok(clearHeader);
+    assert.match(clearHeader, /HttpOnly/i);
+    assert.match(clearHeader, /Expires=/i);
+  } finally {
+    await state.persistence.runtime.close();
+  }
+});
 
 test("management login rejects oversized credentials", async () => {
   const { app, state } = await createApp();
