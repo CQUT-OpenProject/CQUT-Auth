@@ -28,6 +28,7 @@ import {
 } from "../src/oidc/provider.js";
 import { sha256Base64Url } from "../src/utils.js";
 import { MOCK_SIMULATE_UPSTREAM_OUTAGE_PASSWORD } from "../src/identity/providers/mock.provider.js";
+import { RateLimitUnavailableError } from "../src/persistence/rate-limit.service.js";
 
 const TEST_REDIRECT_URI = "http://localhost:3002/demo/callback";
 const TEST_POST_LOGOUT_REDIRECT_URI =
@@ -2169,6 +2170,67 @@ test("interactive login upstream outage rolls back consumed attempt rate-limit b
   }
 
   await state.persistence.runtime.close();
+});
+
+test("interactive login rolls back attempt budget when failure rate limiter is unavailable", async () => {
+  const { app, state } = await createTestApp({
+    OIDC_LOGIN_RATE_LIMIT_MAX: "2",
+  });
+  const originalConsume = state.rateLimitService.consume.bind(
+    state.rateLimitService,
+  );
+  let failFailureConsume = false;
+  state.rateLimitService.consume = async (key, max, windowSeconds) => {
+    if (failFailureConsume && key.includes(":failure:")) {
+      throw new RateLimitUnavailableError();
+    }
+    return originalConsume(key, max, windowSeconds);
+  };
+  const agent = request.agent(app);
+  const { interactionLocation, loginPage } = await openLoginInteraction(
+    agent,
+    "login-failure-rate-limit-outage",
+  );
+
+  try {
+    const first = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf: extractCsrf(loginPage.text),
+        account: TEST_LOGIN_ACCOUNT,
+        password: TEST_WRONG_LOGIN_PASSWORD,
+      });
+    assert.equal(first.status, 401);
+
+    failFailureConsume = true;
+    const secondPage = await agent.get(interactionLocation);
+    const second = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf: extractCsrf(secondPage.text),
+        account: TEST_LOGIN_ACCOUNT,
+        password: TEST_WRONG_LOGIN_PASSWORD,
+      });
+    assert.equal(second.status, 503);
+    assert.equal(second.headers["retry-after"], "60");
+
+    failFailureConsume = false;
+    const thirdPage = await agent.get(interactionLocation);
+    const third = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf: extractCsrf(thirdPage.text),
+        account: TEST_LOGIN_ACCOUNT,
+        password: TEST_WRONG_LOGIN_PASSWORD,
+      });
+    assert.equal(third.status, 401);
+  } finally {
+    state.rateLimitService.consume = originalConsume;
+    await state.persistence.runtime.close();
+  }
 });
 
 test("consent denial returns access_denied to client redirect uri", async () => {

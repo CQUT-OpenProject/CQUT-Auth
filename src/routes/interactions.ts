@@ -1303,6 +1303,14 @@ export function createInteractionRouter(
           );
         } catch (consumeError) {
           if (consumeError instanceof RateLimitUnavailableError) {
+            await resetLoginAttemptRateLimit(
+              rateLimitService,
+              loginRateLimitIdentity,
+            ).catch((resetError) => {
+              if (!(resetError instanceof RateLimitUnavailableError)) {
+                throw resetError;
+              }
+            });
             response
               .status(503)
               .setHeader("Retry-After", "60")

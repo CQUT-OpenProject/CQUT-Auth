@@ -9,6 +9,7 @@ import { createClientSecretDigest } from "../src/crypto.js";
 import type { EmailSender } from "../src/email/email-sender.js";
 import type { PolicyValues } from "../src/runtime-policy.js";
 import { MOCK_SIMULATE_UPSTREAM_OUTAGE_PASSWORD } from "../src/identity/providers/mock.provider.js";
+import { RateLimitUnavailableError } from "../src/persistence/rate-limit.service.js";
 
 async function clientsConfig() {
   const path = join(
@@ -223,6 +224,49 @@ test("management login upstream outage rolls back consumed attempt rate-limit bu
       assert.equal(response.headers["retry-after"], "60");
     }
   } finally {
+    await state.persistence.runtime.close();
+  }
+});
+
+test("management login rolls back attempt budget when failure rate limiter is unavailable", async () => {
+  const { app, state } = await createApp({ OIDC_LOGIN_RATE_LIMIT_MAX: "2" });
+  const originalConsume = state.rateLimitService.consume.bind(
+    state.rateLimitService,
+  );
+  let failFailureConsume = false;
+  state.rateLimitService.consume = async (key, max, windowSeconds) => {
+    if (failFailureConsume && key.includes(":failure:")) {
+      throw new RateLimitUnavailableError();
+    }
+    return originalConsume(key, max, windowSeconds);
+  };
+  try {
+    const agent = request.agent(app);
+    const firstContext = await agent.get("/api/management/auth/context");
+    const first = await agent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", firstContext.body.csrfToken)
+      .send({ account: "failure-limit-outage", password: "" });
+    assert.equal(first.status, 401);
+
+    failFailureConsume = true;
+    const secondContext = await agent.get("/api/management/auth/context");
+    const second = await agent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", secondContext.body.csrfToken)
+      .send({ account: "failure-limit-outage", password: "" });
+    assert.equal(second.status, 503);
+    assert.equal(second.headers["retry-after"], "60");
+
+    failFailureConsume = false;
+    const thirdContext = await agent.get("/api/management/auth/context");
+    const third = await agent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", thirdContext.body.csrfToken)
+      .send({ account: "failure-limit-outage", password: "" });
+    assert.equal(third.status, 401);
+  } finally {
+    state.rateLimitService.consume = originalConsume;
     await state.persistence.runtime.close();
   }
 });

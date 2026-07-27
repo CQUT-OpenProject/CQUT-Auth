@@ -284,14 +284,37 @@ export function createManagementRouter(
           });
           return;
         }
-        const failure = await consumeManagementLoginRateLimit(
-          rateLimitService,
-          "failure",
-          account,
-          ip,
-          config.loginFailureLimit,
-          config.loginFailureWindowSeconds,
-        );
+        let failure;
+        try {
+          failure = await consumeManagementLoginRateLimit(
+            rateLimitService,
+            "failure",
+            account,
+            ip,
+            config.loginFailureLimit,
+            config.loginFailureWindowSeconds,
+          );
+        } catch (consumeError) {
+          if (consumeError instanceof RateLimitUnavailableError) {
+            await resetManagementLoginRateLimit(
+              rateLimitService,
+              "attempt",
+              account,
+              ip,
+            ).catch((resetError) => {
+              if (!(resetError instanceof RateLimitUnavailableError)) {
+                throw resetError;
+              }
+            });
+            response.setHeader("Retry-After", "60");
+            response.status(503).json({
+              error: "service_unavailable",
+              error_description: "try again later",
+            });
+            return;
+          }
+          throw consumeError;
+        }
         if (failure) {
           response.setHeader("Retry-After", String(failure.retryAfterSeconds));
           response.status(429).json({
