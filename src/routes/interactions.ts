@@ -1517,6 +1517,16 @@ export function createInteractionRouter(
           );
         } catch (error) {
           if (error instanceof RateLimitUnavailableError) {
+            await resetEmailVerifyRateLimit(rateLimitService, {
+              subjectId: pending.principal.subjectId,
+              email,
+              emailDomain,
+              ip,
+            }).catch((resetError) => {
+              if (!(resetError instanceof RateLimitUnavailableError)) {
+                throw resetError;
+              }
+            });
             response
               .status(503)
               .setHeader("Retry-After", "60")
