@@ -17,12 +17,12 @@ pnpm docker:up
 
 ## 默认服务地址
 
-| 地址 | 用途 |
-| --- | --- |
-| `http://127.0.0.1:3003/manage` | 客户端管理后台 |
-| `http://127.0.0.1:3003/.well-known/openid-configuration` | OIDC Discovery |
-| `http://127.0.0.1:3003/health/live` | 进程存活检查 |
-| `http://127.0.0.1:3003/health/ready` | PostgreSQL、Redis 和邮件状态检查 |
+| 地址                                                     | 用途                             |
+| -------------------------------------------------------- | -------------------------------- |
+| `http://127.0.0.1:3003/manage`                           | 客户端管理后台                   |
+| `http://127.0.0.1:3003/.well-known/openid-configuration` | OIDC Discovery                   |
+| `http://127.0.0.1:3003/health/live`                      | 进程存活检查                     |
+| `http://127.0.0.1:3003/health/ready`                     | PostgreSQL、Redis 和邮件状态检查 |
 
 邮箱验证默认启用。在管理员完成邮件通道配置前，`/health/ready` 会返回 `503 degraded` 和 `email: unconfigured`；这不妨碍打开管理后台完成首次配置。
 

@@ -213,7 +213,9 @@ test("CqutCampusVerifierProvider sends the configured CAS service URL as the del
   const firstCasLogin = upstream.requests.find(
     (item) =>
       item.method === "GET" &&
-      item.pathWithQuery.startsWith(`/center-auth-server/${APP_CODE}/cas/login`),
+      item.pathWithQuery.startsWith(
+        `/center-auth-server/${APP_CODE}/cas/login`,
+      ),
   );
   assert.ok(firstCasLogin);
   assert.equal(firstCasLogin.referer, service);

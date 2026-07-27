@@ -39,15 +39,15 @@ pnpm docker:up
 
 ## 文档
 
-| 章节 | 链接 |
-| --- | --- |
-| 项目介绍 | [指南](https://cqut-openproject.github.io/CQUT-Auth/guide/introduction) |
-| 本地启动 | [快速开始](https://cqut-openproject.github.io/CQUT-Auth/guide/getting-started) |
-| OIDC 接入 | [端点与流程](https://cqut-openproject.github.io/CQUT-Auth/oidc/overview) |
-| 生产部署 | [部署](https://cqut-openproject.github.io/CQUT-Auth/deploy/production) |
-| 配置说明 | [环境变量](https://cqut-openproject.github.io/CQUT-Auth/deploy/configuration) |
-| 开发 | [开发指南](https://cqut-openproject.github.io/CQUT-Auth/guide/development) |
-| 安全 | [安全说明](https://cqut-openproject.github.io/CQUT-Auth/guide/security) |
+| 章节      | 链接                                                                           |
+| --------- | ------------------------------------------------------------------------------ |
+| 项目介绍  | [指南](https://cqut-openproject.github.io/CQUT-Auth/guide/introduction)        |
+| 本地启动  | [快速开始](https://cqut-openproject.github.io/CQUT-Auth/guide/getting-started) |
+| OIDC 接入 | [端点与流程](https://cqut-openproject.github.io/CQUT-Auth/oidc/overview)       |
+| 生产部署  | [部署](https://cqut-openproject.github.io/CQUT-Auth/deploy/production)         |
+| 配置说明  | [环境变量](https://cqut-openproject.github.io/CQUT-Auth/deploy/configuration)  |
+| 开发      | [开发指南](https://cqut-openproject.github.io/CQUT-Auth/guide/development)     |
+| 安全      | [安全说明](https://cqut-openproject.github.io/CQUT-Auth/guide/security)        |
 
 ## 特别感谢
 

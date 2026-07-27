@@ -2,14 +2,14 @@
 
 ## 端点
 
-| 端点 | 用途 |
-| --- | --- |
-| `GET /.well-known/openid-configuration` | Discovery |
-| `GET /auth` | Authorization Endpoint |
-| `POST /token` | Token Endpoint |
-| `GET /userinfo` | UserInfo Endpoint |
-| `GET /jwks` | 签名公钥 |
-| `GET /session/end` | RP-Initiated Logout |
+| 端点                                    | 用途                   |
+| --------------------------------------- | ---------------------- |
+| `GET /.well-known/openid-configuration` | Discovery              |
+| `GET /auth`                             | Authorization Endpoint |
+| `POST /token`                           | Token Endpoint         |
+| `GET /userinfo`                         | UserInfo Endpoint      |
+| `GET /jwks`                             | 签名公钥               |
+| `GET /session/end`                      | RP-Initiated Logout    |
 
 ## 流程要求
 
