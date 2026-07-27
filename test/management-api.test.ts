@@ -8,6 +8,7 @@ import { createOidcApp } from "../src/app.js";
 import { createClientSecretDigest } from "../src/crypto.js";
 import type { EmailSender } from "../src/email/email-sender.js";
 import type { PolicyValues } from "../src/runtime-policy.js";
+import { MOCK_SIMULATE_UPSTREAM_OUTAGE_PASSWORD } from "../src/identity/providers/mock.provider.js";
 
 async function clientsConfig() {
   const path = join(
@@ -158,6 +159,27 @@ test("management login rejects oversized credentials", async () => {
 
     assert.equal(response.status, 400);
     assert.equal(response.body.error, "invalid_request");
+  } finally {
+    await state.persistence.runtime.close();
+  }
+});
+
+test("management login upstream outage rolls back consumed attempt rate-limit budget", async () => {
+  const { app, state } = await createApp({ OIDC_LOGIN_RATE_LIMIT_MAX: "1" });
+  try {
+    const agent = request.agent(app);
+    for (let index = 0; index < 2; index += 1) {
+      const context = await agent.get("/api/management/auth/context");
+      const response = await agent
+        .post("/api/management/auth/login")
+        .set("X-CSRF-Token", context.body.csrfToken)
+        .send({
+          account: "outage-account",
+          password: MOCK_SIMULATE_UPSTREAM_OUTAGE_PASSWORD,
+        });
+      assert.equal(response.status, 503);
+      assert.equal(response.headers["retry-after"], "60");
+    }
   } finally {
     await state.persistence.runtime.close();
   }

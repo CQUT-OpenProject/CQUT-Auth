@@ -2123,6 +2123,34 @@ test("interactive login treats upstream outages as retryable 503 without consumi
   await state.persistence.runtime.close();
 });
 
+test("interactive login upstream outage rolls back consumed attempt rate-limit budget", async () => {
+  const { app, state } = await createTestApp({
+    OIDC_LOGIN_RATE_LIMIT_MAX: "1",
+  });
+  const agent = request.agent(app);
+  const { interactionLocation, loginPage } = await openLoginInteraction(
+    agent,
+    "manual-state-upstream-attempt-limit",
+  );
+
+  for (let index = 0; index < 2; index += 1) {
+    const page = index === 0 ? loginPage : await agent.get(interactionLocation);
+    const csrf = extractCsrf(page.text);
+    const login = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf,
+        account: TEST_LOGIN_ACCOUNT,
+        password: MOCK_SIMULATE_UPSTREAM_OUTAGE_PASSWORD,
+      });
+    assert.equal(login.status, 503);
+    assert.equal(login.headers["retry-after"], "60");
+  }
+
+  await state.persistence.runtime.close();
+});
+
 test("consent denial returns access_denied to client redirect uri", async () => {
   const { app, state, emailSender } = await createTestApp();
   await disableDemoAutoConsent(state);

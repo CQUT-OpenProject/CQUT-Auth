@@ -936,6 +936,20 @@ async function resetLoginFailureRateLimit(
   ]);
 }
 
+async function resetLoginAttemptRateLimit(
+  rateLimitService: RateLimitService,
+  identity: {
+    ip: string;
+    account: string;
+  },
+) {
+  await Promise.all([
+    rateLimitService.reset(loginAttemptAccountKey(identity.account)),
+    rateLimitService.reset(loginAttemptIpKey(identity.ip)),
+    rateLimitService.reset(loginAttemptKey(identity.ip, identity.account)),
+  ]);
+}
+
 function emailVerifySubjectRateLimitKey(subjectId: string) {
   return `oidc:email-verify:subject:${subjectId}`;
 }
@@ -1265,6 +1279,14 @@ export function createInteractionRouter(
             "[oidc-op] interactive sign-in upstream unavailable",
             error,
           );
+          await resetLoginAttemptRateLimit(
+            rateLimitService,
+            loginRateLimitIdentity,
+          ).catch((resetError) => {
+            if (!(resetError instanceof RateLimitUnavailableError)) {
+              throw resetError;
+            }
+          });
           response
             .status(503)
             .setHeader("Retry-After", "60")
