@@ -22,6 +22,7 @@ import type { RuntimePolicyModule } from "../runtime-policy.js";
 import {
   clearManagementSessionCookie,
   clearManagementNonceCookie,
+  rotateManagementNonceCookie,
   ensureManagementNonce,
   issueManagementCsrf,
   readManagementNonce,
@@ -250,6 +251,7 @@ export function createManagementRouter(
             .map((key) => rateLimitService.reset(key)),
         ).catch(() => undefined);
         const session = await sessions.create(principal.subjectId);
+        rotateManagementNonceCookie(response, config);
         setManagementSessionCookie(response, config, session.token);
         response.json(
           contextPayload(

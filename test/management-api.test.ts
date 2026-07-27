@@ -190,6 +190,33 @@ test("management logout clears the HttpOnly csrf nonce cookie", async () => {
   }
 });
 
+test("management login rotates pre-login csrf nonce cookie", async () => {
+  const { app, state } = await createApp();
+  await seedAdmin(state);
+  try {
+    const agent = request.agent(app);
+    const context = await agent.get("/api/management/auth/context");
+    const preLoginCsrf = context.body.csrfToken;
+    const preLoginNonce = getSetCookieValue(context, "cqut_manage_csrf");
+    assert.ok(preLoginNonce);
+
+    const signedIn = await login(agent, "admin-account");
+    assert.equal(signedIn.status, 200);
+    const postLoginNonce = getSetCookieValue(signedIn, "cqut_manage_csrf");
+    assert.ok(postLoginNonce);
+    assert.notEqual(postLoginNonce, preLoginNonce);
+
+    const replay = await agent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", preLoginCsrf)
+      .send({ account: "admin-account", password: "valid-password" });
+    assert.equal(replay.status, 400);
+    assert.equal(replay.body.error_description, "CSRF validation failed");
+  } finally {
+    await state.persistence.runtime.close();
+  }
+});
+
 test("management login rejects oversized credentials", async () => {
   const { app, state } = await createApp();
   try {

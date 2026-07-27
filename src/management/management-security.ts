@@ -60,6 +60,22 @@ export function clearManagementNonceCookie(
   });
 }
 
+export function rotateManagementNonceCookie(
+  response: Response,
+  config: Pick<StaticConfig, "cookieSecure" | "csrfTokenTtlSeconds">,
+) {
+  const name = managementNonceCookieName(config);
+  const nonce = base64Url(randomBytes(24));
+  response.cookie(name, nonce, {
+    httpOnly: true,
+    secure: config.cookieSecure,
+    sameSite: "lax",
+    path: "/",
+    maxAge: config.csrfTokenTtlSeconds * 1000,
+  });
+  return nonce;
+}
+
 export function ensureManagementNonce(
   request: Request,
   response: Response,
