@@ -65,6 +65,18 @@ class FakeEmailSender implements EmailSender {
   }
 }
 
+class FlakyEmailSender implements EmailSender {
+  shouldFail = true;
+  readonly sentVerifications: SendVerificationCodeInput[] = [];
+
+  async sendVerificationCode(input: SendVerificationCodeInput): Promise<void> {
+    if (this.shouldFail) {
+      throw new Error("email delivery unavailable");
+    }
+    this.sentVerifications.push(input);
+  }
+}
+
 function extractInteractionUid(interactionLocation: string) {
   const match = interactionLocation.match(/^\/interaction\/([^/?#]+)/);
   assert.ok(match?.[1]);
@@ -193,8 +205,11 @@ function withHeaders(
   return testRequest;
 }
 
-async function createTestApp(overrides: NodeJS.ProcessEnv = {}) {
-  const emailSender = new FakeEmailSender();
+async function createTestApp(
+  overrides: NodeJS.ProcessEnv = {},
+  options: { emailSender?: EmailSender } = {},
+) {
+  const emailSender = options.emailSender ?? new FakeEmailSender();
   const clientsConfigPath =
     overrides["OIDC_CLIENTS_CONFIG_PATH"] ??
     (await writeTestClientsConfig({ autoConsent: true }));
@@ -2693,6 +2708,36 @@ test("email verification trusted proxy resolution ignores spoofed leading forwar
 
   assert.equal(first.sendCode.status, 200);
   assert.equal(second.sendCode.status, 429);
+  assert.equal(emailSender.sentVerifications.length, 1);
+  await state.persistence.runtime.close();
+});
+
+test("email verification send failure rolls back consumed rate-limit budget", async () => {
+  const emailSender = new FlakyEmailSender();
+  const { app, state } = await createTestApp(
+    {
+      OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX: "10",
+      OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX: "10",
+      OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX: "10",
+      OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "1",
+    },
+    { emailSender },
+  );
+  const agent = request.agent(app);
+  const first = await sendEmailVerificationCode(
+    agent,
+    "email-verify-send-failure-first",
+    "retry@example.com",
+  );
+  assert.equal(first.sendCode.status, 503);
+
+  emailSender.shouldFail = false;
+  const second = await sendEmailVerificationCode(
+    agent,
+    "email-verify-send-failure-second",
+    "retry@example.com",
+  );
+  assert.equal(second.sendCode.status, 200);
   assert.equal(emailSender.sentVerifications.length, 1);
   await state.persistence.runtime.close();
 });

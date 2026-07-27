@@ -991,6 +991,23 @@ async function consumeEmailVerifyRateLimit(
   ]);
 }
 
+async function resetEmailVerifyRateLimit(
+  rateLimitService: RateLimitService,
+  identity: {
+    subjectId: string;
+    email: string;
+    emailDomain: string;
+    ip: string;
+  },
+) {
+  await Promise.all([
+    rateLimitService.reset(emailVerifySubjectRateLimitKey(identity.subjectId)),
+    rateLimitService.reset(emailVerifyEmailRateLimitKey(identity.email)),
+    rateLimitService.reset(emailVerifyDomainRateLimitKey(identity.emailDomain)),
+    rateLimitService.reset(emailVerifyIpRateLimitKey(identity.ip)),
+  ]);
+}
+
 function serviceUnavailableView() {
   return renderPage(
     "服务暂不可用",
@@ -1516,6 +1533,16 @@ export function createInteractionRouter(
           });
         } catch (error) {
           console.error("[oidc-op] email verification send failed", error);
+          await resetEmailVerifyRateLimit(rateLimitService, {
+            subjectId: pending.principal.subjectId,
+            email,
+            emailDomain,
+            ip,
+          }).catch((resetError) => {
+            if (!(resetError instanceof RateLimitUnavailableError)) {
+              throw resetError;
+            }
+          });
           const csrf = issueCsrfToken(response, config, uid, "profile");
           response.status(503).send(
             profileEmailView(uid, csrf, {
