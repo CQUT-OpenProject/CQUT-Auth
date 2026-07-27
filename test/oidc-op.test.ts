@@ -206,6 +206,24 @@ function withHeaders(
   return testRequest;
 }
 
+async function createTestApp(): Promise<{
+  app: Awaited<ReturnType<typeof createOidcApp>>["app"];
+  state: Awaited<ReturnType<typeof createOidcApp>>["state"];
+  emailSender: FakeEmailSender;
+}>;
+async function createTestApp(overrides: NodeJS.ProcessEnv): Promise<{
+  app: Awaited<ReturnType<typeof createOidcApp>>["app"];
+  state: Awaited<ReturnType<typeof createOidcApp>>["state"];
+  emailSender: FakeEmailSender;
+}>;
+async function createTestApp<T extends EmailSender>(
+  overrides: NodeJS.ProcessEnv,
+  options: { emailSender: T },
+): Promise<{
+  app: Awaited<ReturnType<typeof createOidcApp>>["app"];
+  state: Awaited<ReturnType<typeof createOidcApp>>["state"];
+  emailSender: T;
+}>;
 async function createTestApp(
   overrides: NodeJS.ProcessEnv = {},
   options: { emailSender?: EmailSender } = {},
