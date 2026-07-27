@@ -32,12 +32,12 @@ pnpm build
 
 ## 项目结构
 
-| 路径 | 说明 |
-| --- | --- |
-| `src/oidc/`、`src/routes/`、`src/app.ts` | OIDC 协议与 HTTP |
-| `src/identity/` | 身份认证集成 |
-| `src/persistence/` | 持久化、仓储、加密和限流 |
-| `web/` | 管理后台前端 |
-| `docs/` | 文档站（VitePress） |
-| `test/` | 服务测试与集成测试 |
-| `deploy/` | Docker Compose 与客户端配置示例 |
+| 路径                                     | 说明                            |
+| ---------------------------------------- | ------------------------------- |
+| `src/oidc/`、`src/routes/`、`src/app.ts` | OIDC 协议与 HTTP                |
+| `src/identity/`                          | 身份认证集成                    |
+| `src/persistence/`                       | 持久化、仓储、加密和限流        |
+| `web/`                                   | 管理后台前端                    |
+| `docs/`                                  | 文档站（VitePress）             |
+| `test/`                                  | 服务测试与集成测试              |
+| `deploy/`                                | Docker Compose 与客户端配置示例 |

@@ -10,10 +10,7 @@ export default defineConfig({
   cleanUrls: true,
   lastUpdated: true,
   head: [
-    [
-      "link",
-      { rel: "icon", href: `${base}logo.svg`, type: "image/svg+xml" },
-    ],
+    ["link", { rel: "icon", href: `${base}logo.svg`, type: "image/svg+xml" }],
   ],
   themeConfig: {
     logo: "/logo.svg",
