@@ -134,6 +134,25 @@ function ipInCidr(ip: ParsedIpAddress, cidr: ParsedCidr): boolean {
   return false;
 }
 
+function formatIpAddress(parsed: ParsedIpAddress): string {
+  if (parsed.family === 4) {
+    const v = parsed.value;
+    return `${(v >>> 24) & 255}.${(v >>> 16) & 255}.${(v >>> 8) & 255}.${v & 255}`;
+  }
+  let value = parsed.value;
+  const groups: string[] = [];
+  for (let index = 0; index < 8; index += 1) {
+    groups.unshift((value & 0xffffn).toString(16));
+    value >>= 16n;
+  }
+  return groups.join(":");
+}
+
+function canonicalizeResolvedIp(value: string): string {
+  const parsed = parseIpAddress(value);
+  return parsed ? formatIpAddress(parsed) : value;
+}
+
 function isTrustedProxy(remoteAddress: string, cidrs: string[]): boolean {
   const parsedRemote = parseIpAddress(remoteAddress);
   if (!parsedRemote) {
@@ -150,21 +169,23 @@ export function resolveTrustedRequestIp(
   input: TrustedRequestIpInput,
 ): string {
   const remoteAddress = normalizeIp(input.remoteAddress) ?? "unknown";
+  const fallback = canonicalizeResolvedIp(remoteAddress);
   if (config.trustProxyHops <= 0) {
-    return remoteAddress;
+    return fallback;
   }
   if (!isTrustedProxy(remoteAddress, config.trustedProxyCidrs)) {
-    return remoteAddress;
+    return fallback;
   }
 
   const forwardedFor = parseForwardedFor(input.headers?.["x-forwarded-for"]);
   if (forwardedFor.length < config.trustProxyHops) {
-    return remoteAddress;
+    return fallback;
   }
 
   const clientIp =
     forwardedFor[forwardedFor.length - config.trustProxyHops] ?? remoteAddress;
-  return parseIpAddress(clientIp) ? clientIp : remoteAddress;
+  const parsedClient = parseIpAddress(clientIp);
+  return parsedClient ? formatIpAddress(parsedClient) : fallback;
 }
 
 export function resolveTrustedExpressRequestIp(
