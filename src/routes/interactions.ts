@@ -1474,8 +1474,8 @@ export function createInteractionRouter(
           pending.principal.subjectId,
           email,
         );
-        await persistence.artifacts.deleteInteractionLogin(uid);
         await finishInteractionLogin(interactions, request, response, pending);
+        await persistence.artifacts.deleteInteractionLogin(uid);
         return;
       }
 
@@ -1736,13 +1736,13 @@ export function createInteractionRouter(
           result.pending.principal.subjectId,
           result.email,
         );
-        await persistence.artifacts.deleteInteractionLogin(uid);
         await finishInteractionLogin(
           interactions,
           request,
           response,
           result.pending,
         );
+        await persistence.artifacts.deleteInteractionLogin(uid);
         return;
       }
 
