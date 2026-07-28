@@ -84,6 +84,21 @@ export class ManagementSessionRepositoryImpl implements ManagementSessionReposit
     ]);
   }
 
+  async deleteManagementSessionsBySubjectId(subjectId: string): Promise<void> {
+    const pool = this.poolProvider();
+    if (!pool) {
+      for (const [tokenHash, session] of this.sessions) {
+        if (session.subjectId === subjectId) {
+          this.sessions.delete(tokenHash);
+        }
+      }
+      return;
+    }
+    await pool.query("delete from management_sessions where subject_id = $1", [
+      subjectId,
+    ]);
+  }
+
   async deleteExpiredManagementSessions(now: string): Promise<number> {
     const pool = this.poolProvider();
     if (!pool) {

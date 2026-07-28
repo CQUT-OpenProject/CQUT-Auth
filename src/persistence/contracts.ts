@@ -414,6 +414,7 @@ export interface ManagementSessionRepository {
   ): Promise<ManagementSessionRecord | null>;
   touchManagementSession(tokenHash: string, lastSeenAt: string): Promise<void>;
   deleteManagementSession(tokenHash: string): Promise<void>;
+  deleteManagementSessionsBySubjectId(subjectId: string): Promise<void>;
   deleteExpiredManagementSessions(now: string): Promise<number>;
 }
 
