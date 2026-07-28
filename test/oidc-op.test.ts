@@ -2769,6 +2769,31 @@ test("email verification save failure does not send email and rolls back rate li
   }
 });
 
+test("profile verify keeps pending login when oidc finish fails", async () => {
+  const { app, state, emailSender } = await createTestApp();
+  const agent = request.agent(app);
+  const { profileLocation, interactionUid, code, sendCode } =
+    await startEmailVerification(
+      agent,
+      emailSender,
+      "profile-finish-failure",
+    );
+  await state.persistence.artifacts.destroyArtifact(
+    `Interaction:${interactionUid}`,
+  );
+  const verify = await agent.post(profileLocation).type("form").send({
+    csrf: extractCsrf(sendCode.text),
+    action: "verify_code",
+    code,
+  });
+  assert.equal(verify.status, 400);
+  assert.match(verify.text, /登录流程已过期/);
+  assert.ok(
+    await state.persistence.artifacts.getInteractionLogin(interactionUid),
+  );
+  await state.persistence.runtime.close();
+});
+
 test("email verification rejects wrong code after max attempts", async () => {
   const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);
