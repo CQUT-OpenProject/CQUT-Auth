@@ -2251,6 +2251,105 @@ test("interactive login rolls back attempt budget when failure rate limiter is u
   }
 });
 
+test("interactive login attempt rate limit does not bleed across dimensions on deny", async () => {
+  const { app, state } = await createTestApp({
+    OIDC_LOGIN_RATE_LIMIT_MAX: "1",
+  });
+  const originalConsume = state.rateLimitService.consume.bind(
+    state.rateLimitService,
+  );
+  let denyIpAttempt = false;
+  state.rateLimitService.consume = async (key, max, windowSeconds) => {
+    if (denyIpAttempt && key.includes(":attempt:ip:")) {
+      return { allowed: false, retryAfterSeconds: 60 };
+    }
+    return originalConsume(key, max, windowSeconds);
+  };
+  const agent = request.agent(app);
+  const { interactionLocation, loginPage } = await openLoginInteraction(
+    agent,
+    "login-attempt-dimension-bleed",
+  );
+
+  try {
+    denyIpAttempt = true;
+    const blocked = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf: extractCsrf(loginPage.text),
+        account: TEST_LOGIN_ACCOUNT,
+        password: TEST_WRONG_LOGIN_PASSWORD,
+      });
+    assert.equal(blocked.status, 429);
+
+    denyIpAttempt = false;
+    const page = await agent.get(interactionLocation);
+    const retry = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf: extractCsrf(page.text),
+        account: TEST_LOGIN_ACCOUNT,
+        password: TEST_WRONG_LOGIN_PASSWORD,
+      });
+    assert.equal(retry.status, 401);
+  } finally {
+    state.rateLimitService.consume = originalConsume;
+    await state.persistence.runtime.close();
+  }
+});
+
+test("interactive login attempt rate limit outage rolls back partial consume", async () => {
+  const { app, state } = await createTestApp({
+    OIDC_LOGIN_RATE_LIMIT_MAX: "1",
+  });
+  const originalConsume = state.rateLimitService.consume.bind(
+    state.rateLimitService,
+  );
+  let failAttemptIp = false;
+  state.rateLimitService.consume = async (key, max, windowSeconds) => {
+    if (failAttemptIp && key.includes(":attempt:ip:")) {
+      throw new RateLimitUnavailableError();
+    }
+    return originalConsume(key, max, windowSeconds);
+  };
+  const agent = request.agent(app);
+  const { interactionLocation, loginPage } = await openLoginInteraction(
+    agent,
+    "login-attempt-partial-outage",
+  );
+
+  try {
+    failAttemptIp = true;
+    const outage = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf: extractCsrf(loginPage.text),
+        account: TEST_LOGIN_ACCOUNT,
+        password: TEST_WRONG_LOGIN_PASSWORD,
+      });
+    assert.equal(outage.status, 503);
+    assert.equal(outage.headers["retry-after"], "60");
+
+    failAttemptIp = false;
+    const page = await agent.get(interactionLocation);
+    const retry = await agent
+      .post(`${interactionLocation}/login`)
+      .type("form")
+      .send({
+        csrf: extractCsrf(page.text),
+        account: TEST_LOGIN_ACCOUNT,
+        password: TEST_WRONG_LOGIN_PASSWORD,
+      });
+    assert.equal(retry.status, 401);
+  } finally {
+    state.rateLimitService.consume = originalConsume;
+    await state.persistence.runtime.close();
+  }
+});
+
 test("consent denial returns access_denied to client redirect uri", async () => {
   const { app, state, emailSender } = await createTestApp();
   await disableDemoAutoConsent(state);
@@ -2950,6 +3049,43 @@ test("token endpoint returns 503 when fail-closed mode is enabled and REDIS_URL 
   assert.equal(response.status, 503);
   assert.equal(response.body.error, "service_unavailable");
   await state.persistence.runtime.close();
+});
+
+test("token endpoint rate limit outage rolls back partial consume", async () => {
+  const { app, state } = await createTestApp({
+    OIDC_TOKEN_RATE_LIMIT_MAX: "1",
+  });
+  const originalConsume = state.rateLimitService.consume.bind(
+    state.rateLimitService,
+  );
+  let failClientIp = false;
+  state.rateLimitService.consume = async (key, max, windowSeconds) => {
+    if (failClientIp && key.includes(":client-ip:")) {
+      throw new RateLimitUnavailableError();
+    }
+    return originalConsume(key, max, windowSeconds);
+  };
+  try {
+    failClientIp = true;
+    const outage = await request(app)
+      .post("/token")
+      .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
+      .type("form")
+      .send({ grant_type: "refresh_token", refresh_token: "missing-token" });
+    assert.equal(outage.status, 503);
+    assert.equal(outage.body.error, "service_unavailable");
+
+    failClientIp = false;
+    const retry = await request(app)
+      .post("/token")
+      .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
+      .type("form")
+      .send({ grant_type: "refresh_token", refresh_token: "missing-token" });
+    assert.notEqual(retry.status, 429);
+  } finally {
+    state.rateLimitService.consume = originalConsume;
+    await state.persistence.runtime.close();
+  }
 });
 
 test("token endpoint rate limit blocks the same none-auth client_id across trusted proxy ips", async () => {

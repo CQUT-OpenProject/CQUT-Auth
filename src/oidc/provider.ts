@@ -14,6 +14,7 @@ import type { PersistenceModules } from "../persistence/persistence.js";
 import {
   RateLimitService,
   RateLimitUnavailableError,
+  resetRateLimitKeys,
 } from "../persistence/rate-limit.service.js";
 import { resolveTrustedKoaRequestIp } from "../request-ip.js";
 import { createAdapter } from "./adapter.js";
@@ -277,6 +278,7 @@ async function evaluateTokenRateLimit(
 ) {
   const appliedKeys: Set<string> = (ctx.state.tokenRateLimitAppliedKeys ??=
     new Set<string>());
+  const consumedKeys: string[] = [];
   try {
     for (const key of createTokenRateLimitKeys(identity)) {
       if (appliedKeys.has(key)) {
@@ -288,7 +290,15 @@ async function evaluateTokenRateLimit(
         config.tokenRateLimitWindowSeconds,
       );
       appliedKeys.add(key);
+      consumedKeys.push(key);
       if (!decision.allowed) {
+        await resetRateLimitKeys(
+          rateLimitService,
+          consumedKeys.slice(0, -1),
+        );
+        for (const rolledBackKey of consumedKeys.slice(0, -1)) {
+          appliedKeys.delete(rolledBackKey);
+        }
         return new TokenRateLimitError(
           429,
           "rate_limited",
@@ -298,6 +308,16 @@ async function evaluateTokenRateLimit(
       }
     }
   } catch (error) {
+    await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
+      (resetError) => {
+        if (!(resetError instanceof RateLimitUnavailableError)) {
+          throw resetError;
+        }
+      },
+    );
+    for (const rolledBackKey of consumedKeys) {
+      appliedKeys.delete(rolledBackKey);
+    }
     if (error instanceof RateLimitUnavailableError) {
       return new TokenRateLimitError(
         503,

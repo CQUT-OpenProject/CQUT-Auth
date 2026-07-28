@@ -11,6 +11,8 @@ import type { PersistenceModules } from "../persistence/persistence.js";
 import {
   RateLimitService,
   RateLimitUnavailableError,
+  resetRateLimitKeys,
+  type RateLimitDecision,
 } from "../persistence/rate-limit.service.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 import { RetryableProviderError } from "../identity/errors.js";
@@ -65,7 +67,7 @@ async function consumeManagementLoginRateLimit(
       max,
     })),
     windowSeconds,
-  );
+  ).then(({ decision }) => decision);
 }
 
 async function resetManagementLoginRateLimit(
@@ -85,16 +87,38 @@ async function enforceRateLimits(
   rateLimitService: RateLimitService,
   limits: Array<{ key: string; max: number }>,
   windowSeconds: number,
-) {
-  for (const limit of limits) {
-    const decision = await rateLimitService.consume(
-      limit.key,
-      limit.max,
-      windowSeconds,
+): Promise<{
+  decision?: RateLimitDecision;
+  consumedKeys: string[];
+}> {
+  const consumedKeys: string[] = [];
+  try {
+    for (const limit of limits) {
+      const decision = await rateLimitService.consume(
+        limit.key,
+        limit.max,
+        windowSeconds,
+      );
+      consumedKeys.push(limit.key);
+      if (!decision.allowed) {
+        await resetRateLimitKeys(
+          rateLimitService,
+          consumedKeys.slice(0, -1),
+        );
+        return { decision, consumedKeys: [] };
+      }
+    }
+    return { consumedKeys };
+  } catch (error) {
+    await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
+      (resetError) => {
+        if (!(resetError instanceof RateLimitUnavailableError)) {
+          throw resetError;
+        }
+      },
     );
-    if (!decision.allowed) return decision;
+    throw error;
   }
-  return undefined;
 }
 
 function writeRateLimited(
@@ -384,7 +408,7 @@ export function createManagementRouter(
   router.post("/projects", jsonParser, async (request, response, next) => {
     await withMutation(request, response, next, async (auth) => {
       if (!(auth.actor.isAdmin && config.managementProjectQuotaAdminExempt)) {
-        const decision = await enforceRateLimits(
+        const { decision, consumedKeys } = await enforceRateLimits(
           rateLimitService,
           [
             {
@@ -406,6 +430,21 @@ export function createManagementRouter(
           );
           return;
         }
+        try {
+          response
+            .status(201)
+            .json({ project: await projects.create(auth.actor, request.body) });
+        } catch (error) {
+          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
+            (resetError) => {
+              if (!(resetError instanceof RateLimitUnavailableError)) {
+                throw resetError;
+              }
+            },
+          );
+          throw error;
+        }
+        return;
       }
       response
         .status(201)
@@ -566,7 +605,7 @@ export function createManagementRouter(
     jsonParser,
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
-        const decision = await enforceRateLimits(
+        const { decision, consumedKeys } = await enforceRateLimits(
           rateLimitService,
           [
             {
@@ -588,13 +627,24 @@ export function createManagementRouter(
           );
           return;
         }
-        const result = await clients.create(
-          auth.actor,
-          param(request, "projectId"),
-          request.body,
-        );
-        onClientsChanged();
-        response.status(201).json(result);
+        try {
+          const result = await clients.create(
+            auth.actor,
+            param(request, "projectId"),
+            request.body,
+          );
+          onClientsChanged();
+          response.status(201).json(result);
+        } catch (error) {
+          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
+            (resetError) => {
+              if (!(resetError instanceof RateLimitUnavailableError)) {
+                throw resetError;
+              }
+            },
+          );
+          throw error;
+        }
       });
     },
   );
@@ -653,7 +703,7 @@ export function createManagementRouter(
     async (request, response, next) => {
       await withMutation(request, response, next, async (auth) => {
         const clientId = param(request, "clientId");
-        const decision = await enforceRateLimits(
+        const { decision, consumedKeys } = await enforceRateLimits(
           rateLimitService,
           [
             {
@@ -679,13 +729,24 @@ export function createManagementRouter(
           );
           return;
         }
-        const result = await clients.rotateSecret(
-          auth.actor,
-          param(request, "projectId"),
-          clientId,
-          request.body,
-        );
-        response.status(201).json(result);
+        try {
+          const result = await clients.rotateSecret(
+            auth.actor,
+            param(request, "projectId"),
+            clientId,
+            request.body,
+          );
+          response.status(201).json(result);
+        } catch (error) {
+          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
+            (resetError) => {
+              if (!(resetError instanceof RateLimitUnavailableError)) {
+                throw resetError;
+              }
+            },
+          );
+          throw error;
+        }
       });
     },
   );
