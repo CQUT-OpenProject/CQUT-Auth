@@ -71,3 +71,53 @@ test("management sessions persist only a token hash and expire on idle timeout",
     await modules.runtime.close();
   }
 });
+
+test("management session create revokes prior sessions for the same subject", async () => {
+  const modules = await createPersistence(
+    readConfig({
+      APP_ENV: "test",
+      AUTH_PROVIDER: "mock",
+      OIDC_KEY_ENCRYPTION_SECRET: "test-session-key",
+      OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-session-artifact",
+    }),
+  );
+  let now = new Date("2026-01-01T00:00:00.000Z");
+  try {
+    await modules.identity.createSubjectWithIdentity(
+      {
+        subjectId: "subj_relogin",
+        status: "active",
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+      {
+        subjectId: "subj_relogin",
+        provider: "mock",
+        schoolUid: "relogin-user",
+        identityKey: "mock:relogin-user",
+        currentStudentStatus: "active",
+        school: "cqut",
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString(),
+      },
+    );
+    let tokenCounter = 0;
+    const sessions = new ManagementSessionService(
+      modules.sessions,
+      modules.identity,
+      3600,
+      3600,
+      () => now,
+      () => `session-token-${++tokenCounter}`,
+    );
+    const first = await sessions.create("subj_relogin");
+    const second = await sessions.create("subj_relogin");
+    assert.equal(await sessions.authenticate(first.token), null);
+    assert.equal(
+      (await sessions.authenticate(second.token))?.subjectId,
+      "subj_relogin",
+    );
+  } finally {
+    await modules.runtime.close();
+  }
+});

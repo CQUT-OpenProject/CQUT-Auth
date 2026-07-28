@@ -334,6 +334,25 @@ test("management login attempt rate limit outage rolls back partial consume", as
   }
 });
 
+test("management re-login invalidates prior session tokens", async () => {
+  const { app, state } = await createApp();
+  await seedAdmin(state);
+  try {
+    const firstAgent = request.agent(app);
+    const secondAgent = request.agent(app);
+    const firstLogin = await login(firstAgent, "admin-account");
+    await login(secondAgent, "admin-account");
+
+    const stale = await firstAgent
+      .get("/api/management/projects")
+      .set("X-CSRF-Token", firstLogin.body.csrfToken);
+    assert.equal(stale.status, 401);
+    assert.equal(stale.body.error, "login_required");
+  } finally {
+    await state.persistence.runtime.close();
+  }
+});
+
 test("management project quota rejection does not consume creation rate limit", async () => {
   const { app, state } = await createApp({
     OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT: "false",
