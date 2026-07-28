@@ -1582,6 +1582,31 @@ export function createInteractionRouter(
         }
 
         const code = generateVerificationCode();
+        const updatedPending: PendingInteractionLogin = {
+          ...pending,
+          emailVerification: {
+            email,
+            codeHash: hashEmailVerificationCode(config, uid, email, code),
+            expiresAt: now + config.emailVerifyCodeTtlSeconds,
+            attempts: 0,
+            nextResendAt: now + config.emailVerifyResendCooldownSeconds,
+          },
+        };
+        try {
+          await persistence.artifacts.saveInteractionLogin(uid, updatedPending);
+        } catch (error) {
+          await resetEmailVerifyRateLimit(rateLimitService, {
+            subjectId: pending.principal.subjectId,
+            email,
+            emailDomain,
+            ip,
+          }).catch((resetError) => {
+            if (!(resetError instanceof RateLimitUnavailableError)) {
+              throw resetError;
+            }
+          });
+          throw error;
+        }
         try {
           await services.emailSender.sendVerificationCode({
             to: email,
@@ -1591,6 +1616,7 @@ export function createInteractionRouter(
           });
         } catch (error) {
           console.error("[oidc-op] email verification send failed", error);
+          await persistence.artifacts.saveInteractionLogin(uid, pending);
           await resetEmailVerifyRateLimit(rateLimitService, {
             subjectId: pending.principal.subjectId,
             email,
@@ -1611,18 +1637,6 @@ export function createInteractionRouter(
           );
           return;
         }
-
-        const updatedPending: PendingInteractionLogin = {
-          ...pending,
-          emailVerification: {
-            email,
-            codeHash: hashEmailVerificationCode(config, uid, email, code),
-            expiresAt: now + config.emailVerifyCodeTtlSeconds,
-            attempts: 0,
-            nextResendAt: now + config.emailVerifyResendCooldownSeconds,
-          },
-        };
-        await persistence.artifacts.saveInteractionLogin(uid, updatedPending);
         const csrf = issueCsrfToken(response, config, uid, "profile");
         response.status(200).send(
           profileVerifyCodeView(uid, csrf, {

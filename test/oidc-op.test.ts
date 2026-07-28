@@ -2727,6 +2727,48 @@ test("interactive login success clears account failure buckets but keeps shared 
   await state.persistence.runtime.close();
 });
 
+test("email verification save failure does not send email and rolls back rate limit", async () => {
+  const emailSender = new FakeEmailSender();
+  const { app, state } = await createTestApp(
+    {
+      OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX: "1",
+    },
+    { emailSender },
+  );
+  const originalSave = state.persistence.artifacts.saveInteractionLogin.bind(
+    state.persistence.artifacts,
+  );
+  let failSave = true;
+  state.persistence.artifacts.saveInteractionLogin = async (uid, value) => {
+    if (failSave && value.emailVerification) {
+      throw new Error("persistence unavailable");
+    }
+    return originalSave(uid, value);
+  };
+  const agent = request.agent(app);
+  try {
+    const first = await sendEmailVerificationCode(
+      agent,
+      "email-verify-save-failure-first",
+      "save-fail@example.com",
+    );
+    assert.equal(first.sendCode.status, 500);
+    assert.equal(emailSender.sentVerifications.length, 0);
+
+    failSave = false;
+    const second = await sendEmailVerificationCode(
+      agent,
+      "email-verify-save-failure-second",
+      "save-fail@example.com",
+    );
+    assert.equal(second.sendCode.status, 200);
+    assert.equal(emailSender.sentVerifications.length, 1);
+  } finally {
+    state.persistence.artifacts.saveInteractionLogin = originalSave;
+    await state.persistence.runtime.close();
+  }
+});
+
 test("email verification rejects wrong code after max attempts", async () => {
   const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);
