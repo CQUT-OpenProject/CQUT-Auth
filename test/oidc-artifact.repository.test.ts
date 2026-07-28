@@ -422,3 +422,26 @@ test("email verification accepts a concurrent correct code only once", async () 
     19,
   );
 });
+
+test("upsertArtifact preserves consumed_at on re-upsert", async () => {
+  const repository = createInMemoryRepository();
+  await repository.upsertArtifact(
+    "AuthorizationCode:replay",
+    "AuthorizationCode",
+    { value: "code" },
+    120,
+  );
+  await repository.consumeArtifact("AuthorizationCode:replay");
+  await repository.upsertArtifact(
+    "AuthorizationCode:replay",
+    "AuthorizationCode",
+    { value: "code" },
+    120,
+  );
+
+  await assert.rejects(
+    repository.consumeArtifact("AuthorizationCode:replay"),
+    (error: unknown) =>
+      error instanceof Error && error.message === "invalid_grant",
+  );
+});

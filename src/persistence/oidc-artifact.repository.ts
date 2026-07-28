@@ -133,12 +133,13 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
         resolvedGeneration ??= 1;
       }
     }
+    const existing = !pool ? this.artifacts.get(id) : undefined;
     const artifact: ArtifactRecord = {
       id,
       kind,
       payload,
       expiresAt,
-      consumedAt: undefined,
+      consumedAt: existing?.consumedAt,
       grantIdHash:
         typeof payload["grantId"] === "string"
           ? this.computeLookupHash(payload["grantId"])
@@ -186,7 +187,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
           user_code_hash = excluded.user_code_hash,
           payload = excluded.payload,
           expires_at = excluded.expires_at,
-          consumed_at = excluded.consumed_at
+          consumed_at = coalesce(oidc_artifacts.consumed_at, excluded.consumed_at)
       `,
         [
           artifact.id,
