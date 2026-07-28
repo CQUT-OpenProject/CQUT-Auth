@@ -298,6 +298,81 @@ test("management login rolls back attempt budget when failure rate limiter is un
   }
 });
 
+test("management login attempt rate limit outage rolls back partial consume", async () => {
+  const { app, state } = await createApp({ OIDC_LOGIN_RATE_LIMIT_MAX: "1" });
+  const originalConsume = state.rateLimitService.consume.bind(
+    state.rateLimitService,
+  );
+  let failAttemptIp = false;
+  state.rateLimitService.consume = async (key, max, windowSeconds) => {
+    if (failAttemptIp && key.includes(":attempt:ip:")) {
+      throw new RateLimitUnavailableError();
+    }
+    return originalConsume(key, max, windowSeconds);
+  };
+  try {
+    const agent = request.agent(app);
+    failAttemptIp = true;
+    const context = await agent.get("/api/management/auth/context");
+    const outage = await agent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", context.body.csrfToken)
+      .send({ account: "partial-outage-account", password: "" });
+    assert.equal(outage.status, 503);
+    assert.equal(outage.headers["retry-after"], "60");
+
+    failAttemptIp = false;
+    const retryContext = await agent.get("/api/management/auth/context");
+    const retry = await agent
+      .post("/api/management/auth/login")
+      .set("X-CSRF-Token", retryContext.body.csrfToken)
+      .send({ account: "partial-outage-account", password: "" });
+    assert.equal(retry.status, 401);
+  } finally {
+    state.rateLimitService.consume = originalConsume;
+    await state.persistence.runtime.close();
+  }
+});
+
+test("management project quota rejection does not consume creation rate limit", async () => {
+  const { app, state } = await createApp({
+    OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT: "false",
+    OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT: "1",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX: "5",
+    OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX: "5",
+  });
+  await seedAdmin(state);
+  try {
+    const admin = request.agent(app);
+    const signedIn = await login(admin, "admin-account");
+    assert.equal(
+      (
+        await admin
+          .post("/api/management/projects")
+          .set("X-CSRF-Token", signedIn.body.csrfToken)
+          .send({ name: "Only project", description: "" })
+      ).status,
+      201,
+    );
+    for (let index = 0; index < 5; index += 1) {
+      const rejected = await admin
+        .post("/api/management/projects")
+        .set("X-CSRF-Token", signedIn.body.csrfToken)
+        .send({ name: `Too many ${index}`, description: "" });
+      assert.equal(rejected.status, 409);
+      assert.equal(rejected.body.error, "project_quota_exceeded");
+    }
+    const stillQuota = await admin
+      .post("/api/management/projects")
+      .set("X-CSRF-Token", signedIn.body.csrfToken)
+      .send({ name: "Still too many", description: "" });
+    assert.equal(stillQuota.status, 409);
+    assert.equal(stillQuota.body.error, "project_quota_exceeded");
+  } finally {
+    await state.persistence.runtime.close();
+  }
+});
+
 test("management login normalizes account rate-limit keys", async () => {
   const { app, state } = await createApp({ OIDC_LOGIN_RATE_LIMIT_MAX: "1" });
   try {

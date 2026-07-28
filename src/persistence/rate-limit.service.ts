@@ -19,6 +19,25 @@ export class RateLimitUnavailableError extends Error {
   }
 }
 
+export async function resetRateLimitKeys(
+  rateLimitService: RateLimitService,
+  keys: string[],
+) {
+  if (keys.length === 0) {
+    return;
+  }
+  await Promise.all(
+    keys.map((key) =>
+      rateLimitService.reset(key).catch((error) => {
+        if (error instanceof RateLimitUnavailableError) {
+          return;
+        }
+        throw error;
+      }),
+    ),
+  );
+}
+
 export class RateLimitService {
   private readonly logger = console;
   private readonly memory = new Map<string, MemoryCounter>();

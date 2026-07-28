@@ -8,6 +8,7 @@ import express, { type Request, type Response } from "express";
 import type { StaticConfig } from "../config.js";
 import {
   RateLimitUnavailableError,
+  resetRateLimitKeys,
   type RateLimitDecision,
   type RateLimitService,
 } from "../persistence/rate-limit.service.js";
@@ -862,17 +863,34 @@ async function consumeRateLimitChecks(
   rateLimitService: RateLimitService,
   checks: Array<{ key: string; max: number; windowSeconds: number }>,
 ): Promise<RateLimitDecision | undefined> {
-  for (const check of checks) {
-    const decision = await rateLimitService.consume(
-      check.key,
-      check.max,
-      check.windowSeconds,
-    );
-    if (!decision.allowed) {
-      return decision;
+  const consumedKeys: string[] = [];
+  try {
+    for (const check of checks) {
+      const decision = await rateLimitService.consume(
+        check.key,
+        check.max,
+        check.windowSeconds,
+      );
+      consumedKeys.push(check.key);
+      if (!decision.allowed) {
+        await resetRateLimitKeys(
+          rateLimitService,
+          consumedKeys.slice(0, -1),
+        );
+        return decision;
+      }
     }
+    return undefined;
+  } catch (error) {
+    await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
+      (resetError) => {
+        if (!(resetError instanceof RateLimitUnavailableError)) {
+          throw resetError;
+        }
+      },
+    );
+    throw error;
   }
-  return undefined;
 }
 
 async function consumeLoginRateLimit(
