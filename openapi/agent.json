@@ -3,11 +3,29 @@
   "info": {
     "title": "CQUT Auth Agent API",
     "version": "1.0.0",
-    "description": "REST API for AI agents and automation tools to manage OIDC projects and clients."
+    "description": "REST API for AI agents and automation tools to manage OIDC projects and clients. Fetch GET /instructions for the system prompt and operational guidance before calling authenticated endpoints.",
+    "x-agent-instructions": "/instructions"
   },
   "servers": [{ "url": "/api/agent", "description": "Agent API base path" }],
   "security": [{ "bearerAuth": [] }],
   "paths": {
+    "/instructions": {
+      "get": {
+        "summary": "Agent system prompt and operational guidance",
+        "description": "Returns markdown system prompt with resolved base URL. No authentication required. AI agents should fetch this before login.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Instructions payload",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AgentInstructions" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/auth/login": {
       "post": {
         "summary": "Authenticate with school account",
@@ -99,6 +117,17 @@
       "bearerAuth": { "type": "http", "scheme": "bearer" }
     },
     "schemas": {
+      "AgentInstructions": {
+        "type": "object",
+        "required": ["version", "baseUrl", "openapiUrl", "contentType", "prompt"],
+        "properties": {
+          "version": { "type": "string" },
+          "baseUrl": { "type": "string", "format": "uri" },
+          "openapiUrl": { "type": "string", "format": "uri" },
+          "contentType": { "type": "string", "enum": ["text/markdown"] },
+          "prompt": { "type": "string" }
+        }
+      },
       "AgentAuthResponse": {
         "type": "object",
         "properties": {

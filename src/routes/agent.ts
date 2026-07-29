@@ -29,6 +29,13 @@ const agentOpenApiSpec = JSON.parse(
   readFileSync(resolve(process.cwd(), "openapi/agent.json"), "utf8"),
 ) as Record<string, unknown>;
 
+const agentInstructionsTemplate = readFileSync(
+  resolve(process.cwd(), "openapi/agent-instructions.md"),
+  "utf8",
+);
+
+const agentInstructionsVersion = "1.0.0";
+
 export function createAgentRouter(
   config: StaticConfig,
   services: AgentRouterServices,
@@ -51,6 +58,17 @@ export function createAgentRouter(
 
   router.get("/openapi.json", (_request, response) => {
     response.json(agentOpenApiSpec);
+  });
+
+  router.get("/instructions", (request, response) => {
+    const baseUrl = agentBaseUrl(request);
+    response.json({
+      version: agentInstructionsVersion,
+      baseUrl,
+      openapiUrl: `${baseUrl}/openapi.json`,
+      contentType: "text/markdown",
+      prompt: agentInstructionsTemplate.replaceAll("{{baseUrl}}", baseUrl),
+    });
   });
 
   router.post("/auth/login", jsonParser, async (request, response, next) => {
@@ -180,6 +198,13 @@ async function requireAgentAuthentication(
     return null;
   }
   return auth;
+}
+
+function agentBaseUrl(request: Request) {
+  const forwardedProto = request.get("x-forwarded-proto");
+  const protocol = forwardedProto?.split(",")[0]?.trim() ?? request.protocol;
+  const host = request.get("host");
+  return `${protocol}://${host}/api/agent`;
 }
 
 function agentLoginPayload(
