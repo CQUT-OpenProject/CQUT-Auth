@@ -3788,6 +3788,47 @@ test("config rejects missing REDIS_URL in production", () => {
   );
 });
 
+test("config allows small production deployment without redis", () => {
+  const config = readConfig(
+    createProductionConfigEnv({
+      OIDC_SMALL_DEPLOYMENT: "true",
+      REDIS_URL: undefined,
+      OIDC_RATE_LIMIT_FAIL_CLOSED: "false",
+    }),
+  );
+  assert.equal(config.smallDeployment, true);
+  assert.equal(config.redisUrl, undefined);
+  assert.equal(config.rateLimitFailClosed, false);
+});
+
+test("config rejects small production deployment with fail-closed and no redis", () => {
+  assert.throws(
+    () =>
+      readConfig(
+        createProductionConfigEnv({
+          OIDC_SMALL_DEPLOYMENT: "true",
+          REDIS_URL: undefined,
+          OIDC_RATE_LIMIT_FAIL_CLOSED: "true",
+        }),
+      ),
+    /OIDC_RATE_LIMIT_FAIL_CLOSED cannot be true without REDIS_URL when OIDC_SMALL_DEPLOYMENT=true/,
+  );
+});
+
+test("config rejects small deployment flag outside production", () => {
+  assert.throws(
+    () =>
+      readConfig({
+        APP_ENV: "test",
+        OIDC_SMALL_DEPLOYMENT: "true",
+        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
+        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
+        OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
+      }),
+    /OIDC_SMALL_DEPLOYMENT is only allowed when APP_ENV=production/,
+  );
+});
+
 test("config rejects OIDC_RATE_LIMIT_FAIL_CLOSED=false in production", () => {
   assert.throws(
     () =>

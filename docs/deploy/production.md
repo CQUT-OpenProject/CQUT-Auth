@@ -18,7 +18,35 @@ pnpm init-env --profile production --issuer https://auth.example.com
 
 `init-env` 还会生成演示客户端。请在首次启动前检查 `deploy/oidc-clients.json` 的 Redirect URI 和 Scope；不需要引导客户端时，可以将 `clients` 改为空数组。
 
-在生产模式下，缺少 PostgreSQL 或 Redis、关闭邮箱验证或 Artifact 清理、未启用限流的 fail-closed 策略、使用内存存储，或代理配置不完整，都会导致应用拒绝启动。
+在生产模式下，缺少 PostgreSQL、关闭邮箱验证或 Artifact 清理、使用内存存储，或代理配置不完整，都会导致应用拒绝启动。标准生产部署还需要 Redis 且 `OIDC_RATE_LIMIT_FAIL_CLOSED=true`；单实例小部署见下文。
+
+## 小部署（无 Redis）
+
+用户量级不大、仅运行**单个**应用实例时，可启用小部署模式，用进程内内存限流替代 Redis：
+
+```bash
+pnpm init-env --profile production-small --issuer https://auth.example.com
+```
+
+确认 `deploy/.env` 中：
+
+- `OIDC_SMALL_DEPLOYMENT=true`
+- `REDIS_URL` 留空
+- `OIDC_RATE_LIMIT_FAIL_CLOSED=false`
+
+使用不含 Redis 的 Compose 启动：
+
+```bash
+docker compose -f deploy/docker-compose.prod-small.yml up -d --build
+```
+
+**取舍：**
+
+- 限流计数保存在进程内存，**重启后清零**
+- **不支持**多实例水平扩展（各实例计数不共享）
+- 仍建议在前置反向代理层配置 fail2ban 或 IP 限流作为补充
+
+若后续需要多实例或更严格的 fail-closed 语义，去掉 `OIDC_SMALL_DEPLOYMENT`、配置 `REDIS_URL` 并改回标准 `docker-compose.prod.yml` 即可。
 
 ## 2. 初始化签名密钥并启动
 

@@ -7,6 +7,11 @@ async function bootstrap() {
   console.warn(
     "[oidc-op] Managed OIDC profile active: only controlled, allowlisted clients are supported; this deployment is not a general-purpose open ecosystem OP.",
   );
+  if (state.config.smallDeployment && !state.config.redisUrl) {
+    console.warn(
+      "[oidc-op] Small deployment mode: rate limiting uses in-process memory (single instance only; counters reset on restart).",
+    );
+  }
   const server = app.listen(state.config.port);
   process.on("SIGINT", async () => {
     server.close();

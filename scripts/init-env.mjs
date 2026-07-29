@@ -14,7 +14,7 @@ const defaultClientsOutputPath = resolve(
   projectRoot,
   "deploy/oidc-clients.json",
 );
-const allowedProfiles = new Set(["production", "local", "test"]);
+const allowedProfiles = new Set(["production", "production-small", "local", "test"]);
 
 const args = process.argv.slice(2);
 const outputPath = getArgValue("--write");
@@ -27,7 +27,9 @@ const demoBaseUrl = normalizeOptionalAbsoluteUrl(
 const issuerOverride = normalizeOptionalAbsoluteUrl(getArgValue("--issuer"));
 
 if (!allowedProfiles.has(profile)) {
-  throw new Error("--profile must be one of: production, local, test");
+  throw new Error(
+    "--profile must be one of: production, production-small, local, test",
+  );
 }
 
 const generatedDemoClientSecret = randomToken(24);
@@ -42,6 +44,18 @@ const randomReplacements = {
 const profileReplacements = {
   production: {
     APP_ENV: "production",
+    OIDC_ISSUER: issuerOverride ?? "https://auth-cqut.xxx.com",
+    OIDC_COOKIE_SECURE: "true",
+    TRUST_PROXY_HOPS: "1",
+    OIDC_APP_PORT: "3003",
+    OIDC_AUTO_SEED_SIGNING_KEY: "false",
+    OIDC_EMAIL_VERIFICATION_ENABLED: "true",
+  },
+  "production-small": {
+    APP_ENV: "production",
+    OIDC_SMALL_DEPLOYMENT: "true",
+    REDIS_URL: "",
+    OIDC_RATE_LIMIT_FAIL_CLOSED: "false",
     OIDC_ISSUER: issuerOverride ?? "https://auth-cqut.xxx.com",
     OIDC_COOKIE_SECURE: "true",
     TRUST_PROXY_HOPS: "1",

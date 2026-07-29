@@ -25,6 +25,7 @@ pnpm docs:build                      # 构建文档站静态产物
 pnpm init-env --force --profile test # 生成本地测试环境配置
 pnpm docker:up                       # 构建并启动本地服务栈
 pnpm docker:down                     # 停止本地服务栈
+pnpm docker:up:prod-small            # 小部署生产栈（无 Redis）
 ```
 
 针对单个模块迭代时，可使用 `pnpm test -- test/crypto.test.ts` 运行指定测试。

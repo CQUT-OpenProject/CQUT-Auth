@@ -80,6 +80,7 @@ export type StaticConfig = {
   autoSeedSigningKey: boolean;
   adminSubjectIds: string[];
   agentApiEnabled: boolean;
+  smallDeployment: boolean;
 };
 
 function requireSecret(
@@ -165,6 +166,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
   }
   const appEnv = env["APP_ENV"] ?? env["NODE_ENV"] ?? "development";
   const isProduction = appEnv === "production";
+  const smallDeployment = env["OIDC_SMALL_DEPLOYMENT"] === "true";
+  if (smallDeployment && !isProduction) {
+    throw new Error(
+      "OIDC_SMALL_DEPLOYMENT is only allowed when APP_ENV=production",
+    );
+  }
   const trustProxyHops = Number(
     env["TRUST_PROXY_HOPS"] ?? (isProduction ? 1 : 0),
   );
@@ -241,7 +248,8 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
   }
   const port = Number(env["PORT"] ?? 3003);
   const databaseUrl = env["DATABASE_URL"];
-  const redisUrl = env["REDIS_URL"];
+  const redisUrlRaw = env["REDIS_URL"]?.trim();
+  const redisUrl = redisUrlRaw ? redisUrlRaw : undefined;
   const allowInMemoryStore =
     env["OIDC_ALLOW_IN_MEMORY_STORE"] === "true" || appEnv === "test";
   const issuer =
@@ -641,13 +649,21 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
     if (!databaseUrl) {
       throw new Error("DATABASE_URL is required when APP_ENV=production");
     }
-    if (!redisUrl) {
-      throw new Error("REDIS_URL is required when APP_ENV=production");
-    }
-    if (!rateLimitFailClosed) {
-      throw new Error(
-        "OIDC_RATE_LIMIT_FAIL_CLOSED must be true when APP_ENV=production",
-      );
+    if (smallDeployment) {
+      if (!redisUrl && rateLimitFailClosed) {
+        throw new Error(
+          "OIDC_RATE_LIMIT_FAIL_CLOSED cannot be true without REDIS_URL when OIDC_SMALL_DEPLOYMENT=true",
+        );
+      }
+    } else {
+      if (!redisUrl) {
+        throw new Error("REDIS_URL is required when APP_ENV=production");
+      }
+      if (!rateLimitFailClosed) {
+        throw new Error(
+          "OIDC_RATE_LIMIT_FAIL_CLOSED must be true when APP_ENV=production",
+        );
+      }
     }
     if (trustProxyHops !== 1) {
       throw new Error("TRUST_PROXY_HOPS must be 1 when APP_ENV=production");
@@ -791,6 +807,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
         ? env["OIDC_AUTO_SEED_SIGNING_KEY"] === "true"
         : appEnv === "test",
     agentApiEnabled,
+    smallDeployment,
   };
 }
 
