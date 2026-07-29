@@ -14,11 +14,26 @@ Agent API 通过环境变量控制：
 
 ## 发现规范
 
-```
-GET /api/agent/openapi.json
+AI 接入时建议按以下顺序自发现：
+
+1. **`GET /api/agent/instructions`** — 返回系统提示词与操作指南（Markdown，无需认证）
+2. **`GET /api/agent/openapi.json`** — OpenAPI 3.1 规范，描述端点与请求格式
+
+`instructions` 响应示例：
+
+```json
+{
+  "version": "1.0.0",
+  "baseUrl": "https://auth.example.com/api/agent",
+  "openapiUrl": "https://auth.example.com/api/agent/openapi.json",
+  "contentType": "text/markdown",
+  "prompt": "你是 CQUT Auth 客户端管理助手..."
+}
 ```
 
-返回 OpenAPI 3.1 规范，便于 AI 自发现端点与请求格式。仓库内规范文件见 [`openapi/agent.json`](https://github.com/CQUT-OpenProject/CQUT-Auth/blob/master/openapi/agent.json)。
+OpenAPI 的 `info.x-agent-instructions` 字段指向 `/instructions`。仓库内源文件见 [`openapi/agent-instructions.md`](https://github.com/CQUT-OpenProject/CQUT-Auth/blob/master/openapi/agent-instructions.md) 与 [`openapi/agent.json`](https://github.com/CQUT-OpenProject/CQUT-Auth/blob/master/openapi/agent.json)。
+
+用户只需告诉 AI 服务地址（如 `https://auth.example.com/api/agent`），Agent 即可自行拉取提示词与规范。
 
 ## 认证流程
 

@@ -247,6 +247,29 @@ test("agent openapi.json is served", async () => {
     assert.equal(spec.status, 200);
     assert.equal(spec.body.openapi, "3.1.0");
     assert.ok(spec.body.paths["/auth/login"]);
+    assert.equal(spec.body.info["x-agent-instructions"], "/instructions");
+  } finally {
+    await state.close();
+  }
+});
+
+test("agent instructions are served without auth", async () => {
+  const { app, state } = await createApp();
+  try {
+    const instructions = await request(app).get("/api/agent/instructions");
+    assert.equal(instructions.status, 200);
+    assert.equal(instructions.body.version, "1.0.0");
+    assert.equal(instructions.body.contentType, "text/markdown");
+    assert.match(
+      instructions.body.baseUrl,
+      /^http:\/\/127\.0\.0\.1:\d+\/api\/agent$/,
+    );
+    assert.equal(
+      instructions.body.openapiUrl,
+      `${instructions.body.baseUrl}/openapi.json`,
+    );
+    assert.match(instructions.body.prompt, /CQUT Auth 客户端管理助手/);
+    assert.doesNotMatch(instructions.body.prompt, /\{\{baseUrl\}\}/);
   } finally {
     await state.close();
   }
