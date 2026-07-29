@@ -24,6 +24,14 @@
 - UIS / CAS 登录与学校身份关联；PostgreSQL 持久化；Redis 限流（生产 fail-closed）
 - 客户端 Revision 审核、项目成员权限、Secret 轮换、邮箱验证与运行策略
 
+## 使用 AI 创建与管理客户端
+
+将以下内容发送给你的 Agent：
+
+```text
+我需要为项目对接 OAuth 平台，访问 https://your-domain.com/api/agent 并按照其指示协助我完成客户端创建工作。
+```
+
 ## 快速体验
 
 本地功能测试（非生产配置）：
