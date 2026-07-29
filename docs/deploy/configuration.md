@@ -16,6 +16,7 @@
 | `TRUSTED_PROXY_CIDRS`             | 允许提供转发 IP 的代理来源 CIDR                          |
 | `OIDC_ADMIN_SUBJECT_IDS`          | 管理员 Subject ID 白名单                                 |
 | `OIDC_AUTO_SEED_SIGNING_KEY`      | 是否在无签名密钥时自动初始化，生产常态应为 `false`       |
+| `OIDC_AGENT_API_ENABLED`          | 是否启用 `/api/agent` REST 入口；生产默认 `false`        |
 | `CQUT_UIS_BASE_URL`               | UIS 基础地址                                             |
 | `CQUT_CAS_APPLICATION_CODE`       | CAS 应用代码                                             |
 | `CQUT_CAS_SERVICE_URL`            | CAS Ticket 绑定的 Service URL                            |
