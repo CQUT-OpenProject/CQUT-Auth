@@ -49,9 +49,13 @@ pnpm docker:up
 | 开发      | [开发指南](https://cqut-openproject.github.io/CQUT-Auth/guide/development)     |
 | 安全      | [安全说明](https://cqut-openproject.github.io/CQUT-Auth/guide/security)        |
 
+## 切换到旧版
+
+旧版系统位于 `legacy` 分支，不包含客户端管理功能，目前已停止维护。
+
 ## 特别感谢
 
-「[CQUT校园网登录脚本](https://github.com/coldriver-chen/cqut-net-login) 」公开的重要信息，作为本项目的基座。本项目在其基础上进行了进一步的逆向分析与改进。
+「[CQUT校园网登录脚本](https://github.com/coldriver-chen/cqut-net-login)」公开的重要信息，作为本项目的基座。本项目在其基础上进行了进一步的逆向分析与改进。
 
 ## 许可证
 
