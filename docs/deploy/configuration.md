@@ -7,7 +7,9 @@
 | `APP_ENV`                         | `production`、`development` 或 `test`                    |
 | `OIDC_ISSUER`                     | 对外 Issuer；非测试环境必须使用 HTTPS                    |
 | `DATABASE_URL`                    | 应用使用的 PostgreSQL URL，由 Compose 根据数据库变量组装 |
-| `REDIS_URL`                       | Redis URL；生产环境必需                                  |
+| `REDIS_URL`                       | Redis URL；标准生产必需；小部署可留空                    |
+| `OIDC_SMALL_DEPLOYMENT`           | 单实例小部署；`true` 时允许生产环境无 Redis、使用内存限流  |
+| `OIDC_RATE_LIMIT_FAIL_CLOSED`     | 限流后端不可用时拒绝请求；无 Redis 的小部署必须为 `false` |
 | `OIDC_KEY_ENCRYPTION_SECRET`      | 数据库签名私钥加密密钥                                   |
 | `OIDC_ARTIFACT_ENCRYPTION_SECRET` | OIDC Artifact 载荷加密密钥，必须与前者不同               |
 | `OIDC_COOKIE_KEYS`                | Cookie 签名密钥列表，可按顺序轮换                        |
