@@ -5,21 +5,11 @@ import type {
   AuthenticatedPrincipal,
   InteractiveAuthenticatorService,
 } from "../identity/index.js";
-import { ClientManagementService } from "../clients/client-management.service.js";
 import { ClientManagementError } from "../management/management-error.js";
 import type { PersistenceModules } from "../persistence/persistence.js";
-import {
-  RateLimitService,
-  RateLimitUnavailableError,
-  resetRateLimitKeys,
-  type RateLimitDecision,
-} from "../persistence/rate-limit.service.js";
+import { RateLimitService } from "../persistence/rate-limit.service.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
-import { RetryableProviderError } from "../identity/errors.js";
-import { hasSafeCredentialLengths } from "../identity/types.js";
-import { sha256 } from "../utils.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
-import { ProjectManagementService } from "../projects/project-management.service.js";
 import type { RuntimePolicyModule } from "../runtime-policy.js";
 import {
   clearManagementSessionCookie,
@@ -32,106 +22,22 @@ import {
   setManagementSessionCookie,
   validateManagementCsrf,
 } from "../management/management-security.js";
+import { registerManagementOperations } from "./management-operations.js";
+import {
+  handleInteractiveLoginOuterError,
+  performInteractiveLogin,
+} from "./management-login.js";
+import { createManagementDomainServices } from "./management-services.js";
+import {
+  handleManagementError,
+  jsonBodyErrorHandler,
+  type ManagementAuth,
+} from "./management-shared.js";
 
 type ManagementRouterServices = {
   interactiveAuthenticator: InteractiveAuthenticatorService;
   runtimePolicy: RuntimePolicyModule;
 };
-
-function managementLoginRateLimitKeys(
-  stage: "attempt" | "failure",
-  account: string,
-  ip: string,
-) {
-  const prefix = `oidc:login:${stage}`;
-  const accountHash = sha256(account);
-  return [
-    `${prefix}:account:${accountHash}`,
-    `${prefix}:ip:${ip}`,
-    `${prefix}:account-ip:${accountHash}:${ip}`,
-  ];
-}
-
-async function consumeManagementLoginRateLimit(
-  rateLimitService: RateLimitService,
-  stage: "attempt" | "failure",
-  account: string,
-  ip: string,
-  max: number,
-  windowSeconds: number,
-) {
-  return enforceRateLimits(
-    rateLimitService,
-    managementLoginRateLimitKeys(stage, account, ip).map((key) => ({
-      key,
-      max,
-    })),
-    windowSeconds,
-  ).then(({ decision }) => decision);
-}
-
-async function resetManagementLoginRateLimit(
-  rateLimitService: RateLimitService,
-  stage: "attempt" | "failure",
-  account: string,
-  ip: string,
-) {
-  await Promise.all(
-    managementLoginRateLimitKeys(stage, account, ip).map((key) =>
-      rateLimitService.reset(key),
-    ),
-  );
-}
-
-async function enforceRateLimits(
-  rateLimitService: RateLimitService,
-  limits: Array<{ key: string; max: number }>,
-  windowSeconds: number,
-): Promise<{
-  decision?: RateLimitDecision;
-  consumedKeys: string[];
-}> {
-  const consumedKeys: string[] = [];
-  try {
-    for (const limit of limits) {
-      const decision = await rateLimitService.consume(
-        limit.key,
-        limit.max,
-        windowSeconds,
-      );
-      consumedKeys.push(limit.key);
-      if (!decision.allowed) {
-        await resetRateLimitKeys(
-          rateLimitService,
-          consumedKeys.slice(0, -1),
-        );
-        return { decision, consumedKeys: [] };
-      }
-    }
-    return { consumedKeys };
-  } catch (error) {
-    await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-      (resetError) => {
-        if (!(resetError instanceof RateLimitUnavailableError)) {
-          throw resetError;
-        }
-      },
-    );
-    throw error;
-  }
-}
-
-function writeRateLimited(
-  response: Response,
-  decision: { retryAfterSeconds: number },
-  description: string,
-) {
-  response.setHeader("Retry-After", String(decision.retryAfterSeconds));
-  response.status(429).json({
-    error: "rate_limited",
-    error_description: description,
-  });
-}
 
 export function createManagementRouter(
   config: StaticConfig,
@@ -146,37 +52,8 @@ export function createManagementRouter(
 ): Router {
   const router = express.Router();
   const jsonParser = express.json({ limit: "64kb", strict: true });
-  const sessions = new ManagementSessionService(
-    persistence.sessions,
-    persistence.identity,
-    config.sessionTtlSeconds,
-    config.sessionIdleTtlSeconds,
-  );
-  const projects = new ProjectManagementService(
-    persistence.projects,
-    undefined,
-    undefined,
-    {
-      maxActiveProjects: config.managementProjectMaxActivePerSubject,
-      adminQuotaExempt: config.managementProjectQuotaAdminExempt,
-    },
-    persistence.clients,
-  );
-  const clients = new ClientManagementService(
-    persistence.clients,
-    projects.access,
-    config.appEnv,
-    {
-      maxClientsPerProject: config.managementClientMaxPerProject,
-      maxClientsPerSubject: config.managementClientMaxPerSubject,
-      adminQuotaExempt: config.managementClientQuotaAdminExempt,
-      defaultSecretGraceSeconds: config.clientSecretDefaultGraceSeconds,
-      maxSecretGraceSeconds: config.clientSecretMaxGraceSeconds,
-      minimumSecretRotationIntervalSeconds:
-        config.clientSecretRotateMinimumIntervalSeconds,
-    },
-  );
-  const adminIds = new Set(config.adminSubjectIds);
+  const { sessions, projects, clients, adminIds } =
+    createManagementDomainServices(config, persistence);
   const emailSettings = services.runtimePolicy;
 
   function requireAdmin(actor: { isAdmin: boolean }) {
@@ -229,147 +106,31 @@ export function createManagementRouter(
         });
         return;
       }
-      const account =
-        typeof request.body?.account === "string"
-          ? request.body.account.trim().toLowerCase()
-          : "";
-      const password =
-        typeof request.body?.password === "string" ? request.body.password : "";
-      if (!hasSafeCredentialLengths(account, password)) {
-        response.status(400).json({
-          error: "invalid_request",
-          error_description: "invalid credential length",
-        });
-        return;
-      }
-      const ip = resolveTrustedExpressRequestIp(config, request);
-      const attempt = await consumeManagementLoginRateLimit(
-        rateLimitService,
-        "attempt",
-        account,
-        ip,
-        config.loginRateLimitMax,
-        config.loginRateLimitWindowSeconds,
+      await performInteractiveLogin(
+        {
+          config,
+          rateLimitService,
+          interactiveAuthenticator: services.interactiveAuthenticator,
+          request,
+          response,
+          logLabel: "management",
+        },
+        async (principal) => {
+          const session = await sessions.create(principal.subjectId);
+          rotateManagementNonceCookie(response, config);
+          setManagementSessionCookie(response, config, session.token);
+          response.json(
+            contextPayload(
+              config,
+              principal,
+              adminIds.has(principal.subjectId),
+              session.token,
+            ),
+          );
+        },
       );
-      if (attempt) {
-        response.setHeader("Retry-After", String(attempt.retryAfterSeconds));
-        response.status(429).json({
-          error: "rate_limited",
-          error_description: "login attempts exceeded",
-        });
-        return;
-      }
-      try {
-        const principal = await services.interactiveAuthenticator.authenticate({
-          provider: config.authProvider,
-          account,
-          password,
-          ip,
-          ...(request.get("user-agent")
-            ? { userAgent: request.get("user-agent") as string }
-            : {}),
-        });
-        await Promise.all(
-          managementLoginRateLimitKeys("failure", account, ip)
-            .filter((key) => !key.includes(":ip:"))
-            .map((key) => rateLimitService.reset(key)),
-        ).catch(() => undefined);
-        const session = await sessions.create(principal.subjectId);
-        rotateManagementNonceCookie(response, config);
-        setManagementSessionCookie(response, config, session.token);
-        response.json(
-          contextPayload(
-            config,
-            principal,
-            adminIds.has(principal.subjectId),
-            session.token,
-          ),
-        );
-      } catch (error) {
-        if (error instanceof RetryableProviderError) {
-          console.error(
-            "[oidc-op] management sign-in upstream unavailable",
-            error instanceof Error
-              ? `${error.name}: ${error.message}`
-              : "unknown error",
-          );
-          await resetManagementLoginRateLimit(
-            rateLimitService,
-            "attempt",
-            account,
-            ip,
-          ).catch((resetError) => {
-            if (!(resetError instanceof RateLimitUnavailableError)) {
-              throw resetError;
-            }
-          });
-          response.setHeader("Retry-After", "60");
-          response.status(503).json({
-            error: "service_unavailable",
-            error_description: "try again later",
-          });
-          return;
-        }
-        let failure;
-        try {
-          failure = await consumeManagementLoginRateLimit(
-            rateLimitService,
-            "failure",
-            account,
-            ip,
-            config.loginFailureLimit,
-            config.loginFailureWindowSeconds,
-          );
-        } catch (consumeError) {
-          if (consumeError instanceof RateLimitUnavailableError) {
-            await resetManagementLoginRateLimit(
-              rateLimitService,
-              "attempt",
-              account,
-              ip,
-            ).catch((resetError) => {
-              if (!(resetError instanceof RateLimitUnavailableError)) {
-                throw resetError;
-              }
-            });
-            response.setHeader("Retry-After", "60");
-            response.status(503).json({
-              error: "service_unavailable",
-              error_description: "try again later",
-            });
-            return;
-          }
-          throw consumeError;
-        }
-        if (failure) {
-          response.setHeader("Retry-After", String(failure.retryAfterSeconds));
-          response.status(429).json({
-            error: "rate_limited",
-            error_description: "login failures exceeded",
-          });
-          return;
-        }
-        console.error(
-          "[oidc-op] management sign-in failed",
-          error instanceof Error
-            ? `${error.name}: ${error.message}`
-            : "unknown error",
-        );
-        response.status(401).json({
-          error: "access_denied",
-          error_description: "invalid account or password",
-        });
-      }
     } catch (error) {
-      if (error instanceof RateLimitUnavailableError) {
-        response.setHeader("Retry-After", "60");
-        response.status(503).json({
-          error: "service_unavailable",
-          error_description: "try again later",
-        });
-        return;
-      }
-      next(error);
+      handleInteractiveLoginOuterError(error, response, next);
     }
   });
 
@@ -399,506 +160,33 @@ export function createManagementRouter(
     }
   });
 
-  router.get("/projects", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      response.json({ projects: await projects.list(auth.actor) });
-    });
+  registerManagementOperations({
+    router,
+    config,
+    jsonParser,
+    projects,
+    clients,
+    rateLimitService,
+    onClientsChanged,
+    withActor,
+    withMutation,
+    scope: {
+      includeAuditLogs: true,
+      includeClientSafety: true,
+      includeSettings: true,
+    },
+    emailSettings,
+    ...(onRestartRequested ? { onRestartRequested } : {}),
+    requireAdmin,
   });
 
-  router.post("/projects", jsonParser, async (request, response, next) => {
-    await withMutation(request, response, next, async (auth) => {
-      if (!(auth.actor.isAdmin && config.managementProjectQuotaAdminExempt)) {
-        const { decision, consumedKeys } = await enforceRateLimits(
-          rateLimitService,
-          [
-            {
-              key: `oidc:management:project-create:subject:${sha256(auth.actor.subjectId)}`,
-              max: config.managementProjectCreateRateLimitSubjectMax,
-            },
-            {
-              key: `oidc:management:project-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
-              max: config.managementProjectCreateRateLimitIpMax,
-            },
-          ],
-          config.managementProjectCreateRateLimitWindowSeconds,
-        );
-        if (decision) {
-          writeRateLimited(
-            response,
-            decision,
-            "project creation rate limit exceeded",
-          );
-          return;
-        }
-        try {
-          response
-            .status(201)
-            .json({ project: await projects.create(auth.actor, request.body) });
-        } catch (error) {
-          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-            (resetError) => {
-              if (!(resetError instanceof RateLimitUnavailableError)) {
-                throw resetError;
-              }
-            },
-          );
-          throw error;
-        }
-        return;
-      }
-      response
-        .status(201)
-        .json({ project: await projects.create(auth.actor, request.body) });
-    });
-  });
-
-  router.get("/projects/:projectId", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      response.json({
-        project: await projects.get(auth.actor, param(request, "projectId")),
-      });
-    });
-  });
-
-  router.patch(
-    "/projects/:projectId",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        response.json({
-          project: await projects.update(
-            auth.actor,
-            param(request, "projectId"),
-            request.body,
-          ),
-        });
-      });
-    },
-  );
-
-  router.get(
-    "/projects/:projectId/members",
-    async (request, response, next) => {
-      await withActor(request, response, next, async (auth) => {
-        response.json({
-          members: await projects.members(
-            auth.actor,
-            param(request, "projectId"),
-          ),
-        });
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/members",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        response.status(201).json({
-          project: await projects.addMember(
-            auth.actor,
-            param(request, "projectId"),
-            request.body,
-          ),
-        });
-      });
-    },
-  );
-
-  router.patch(
-    "/projects/:projectId/members/:subjectId",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        response.json({
-          project: await projects.updateMember(
-            auth.actor,
-            param(request, "projectId"),
-            param(request, "subjectId"),
-            request.body,
-          ),
-        });
-      });
-    },
-  );
-
-  router.delete(
-    "/projects/:projectId/members/:subjectId",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        response.json({
-          project: await projects.removeMember(
-            auth.actor,
-            param(request, "projectId"),
-            param(request, "subjectId"),
-            request.body,
-          ),
-        });
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/ownership/transfer",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        response.json({
-          project: await projects.transfer(
-            auth.actor,
-            param(request, "projectId"),
-            request.body,
-          ),
-        });
-      });
-    },
-  );
-
-  router.get(
-    "/projects/:projectId/audit-logs",
-    async (request, response, next) => {
-      await withActor(request, response, next, async (auth) => {
-        const limit = Math.min(
-          100,
-          Math.max(1, Number(request.query["limit"] ?? 50) || 50),
-        );
-        const rawBeforeId = request.query["beforeId"];
-        const beforeId =
-          rawBeforeId === undefined ? undefined : Number(rawBeforeId);
-        if (
-          beforeId !== undefined &&
-          (!Number.isInteger(beforeId) || beforeId <= 0)
-        ) {
-          throw new ClientManagementError(
-            400,
-            "invalid_request",
-            "beforeId must be a positive integer",
-          );
-        }
-        response.json({
-          auditLogs: await projects.audits(
-            auth.actor,
-            param(request, "projectId"),
-            limit,
-            beforeId,
-          ),
-        });
-      });
-    },
-  );
-
-  router.get(
-    "/projects/:projectId/clients",
-    async (request, response, next) => {
-      await withActor(request, response, next, async (auth) => {
-        response.json({
-          clients: await clients.list(auth.actor, param(request, "projectId")),
-        });
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/clients",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const { decision, consumedKeys } = await enforceRateLimits(
-          rateLimitService,
-          [
-            {
-              key: `oidc:management:client-create:subject:${sha256(auth.actor.subjectId)}`,
-              max: config.managementClientCreateRateLimitSubjectMax,
-            },
-            {
-              key: `oidc:management:client-create:ip:${auth.actor.sourceIp ?? "unknown"}`,
-              max: config.managementClientCreateRateLimitIpMax,
-            },
-          ],
-          config.managementClientCreateRateLimitWindowSeconds,
-        );
-        if (decision) {
-          writeRateLimited(
-            response,
-            decision,
-            "client creation rate limit exceeded",
-          );
-          return;
-        }
-        try {
-          const result = await clients.create(
-            auth.actor,
-            param(request, "projectId"),
-            request.body,
-          );
-          onClientsChanged();
-          response.status(201).json(result);
-        } catch (error) {
-          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-            (resetError) => {
-              if (!(resetError instanceof RateLimitUnavailableError)) {
-                throw resetError;
-              }
-            },
-          );
-          throw error;
-        }
-      });
-    },
-  );
-
-  router.get(
-    "/projects/:projectId/clients/:clientId",
-    async (request, response, next) => {
-      await withActor(request, response, next, async (auth) => {
-        response.json({
-          client: await clients.get(
-            auth.actor,
-            param(request, "projectId"),
-            param(request, "clientId"),
-          ),
-        });
-      });
-    },
-  );
-
-  router.put(
-    "/projects/:projectId/clients/:clientId/revision",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.saveRevision(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          request.body,
-        );
-        onClientsChanged();
-        response.json({ client });
-      });
-    },
-  );
-
-  router.patch(
-    "/projects/:projectId/clients/:clientId",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.update(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          request.body,
-        );
-        response.json({ client });
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/clients/:clientId/secrets/rotate",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const clientId = param(request, "clientId");
-        const { decision, consumedKeys } = await enforceRateLimits(
-          rateLimitService,
-          [
-            {
-              key: `oidc:management:secret-rotate:subject:${sha256(auth.actor.subjectId)}`,
-              max: config.clientSecretRotateRateLimitSubjectMax,
-            },
-            {
-              key: `oidc:management:secret-rotate:client:${sha256(clientId)}`,
-              max: config.clientSecretRotateRateLimitClientMax,
-            },
-            {
-              key: `oidc:management:secret-rotate:ip:${auth.actor.sourceIp ?? "unknown"}`,
-              max: config.clientSecretRotateRateLimitIpMax,
-            },
-          ],
-          config.clientSecretRotateRateLimitWindowSeconds,
-        );
-        if (decision) {
-          writeRateLimited(
-            response,
-            decision,
-            "secret rotation rate limit exceeded",
-          );
-          return;
-        }
-        try {
-          const result = await clients.rotateSecret(
-            auth.actor,
-            param(request, "projectId"),
-            clientId,
-            request.body,
-          );
-          response.status(201).json(result);
-        } catch (error) {
-          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-            (resetError) => {
-              if (!(resetError instanceof RateLimitUnavailableError)) {
-                throw resetError;
-              }
-            },
-          );
-          throw error;
-        }
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/clients/:clientId/secrets/:secretId/revoke",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.revokeSecret(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          param(request, "secretId"),
-          request.body,
-        );
-        response.json({ client });
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/clients/:clientId/authorizations/revoke",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.revokeAuthorizations(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          request.body,
-        );
-        response.json({ client });
-      });
-    },
-  );
-
-  router.post(
-    "/projects/:projectId/clients/:clientId/disable",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        const client = await clients.disable(
-          auth.actor,
-          param(request, "projectId"),
-          param(request, "clientId"),
-          request.body,
-        );
-        onClientsChanged();
-        response.json({ client });
-      });
-    },
-  );
-
-  router.get("/settings/runtime-policy", async (request, response, next) => {
-    await withActor(request, response, next, async (auth) => {
-      requireAdmin(auth.actor);
-      response.json({ settings: await emailSettings.getView() });
-    });
-  });
-
-  router.get(
-    "/settings/runtime-policy/audit-logs",
-    async (request, response, next) => {
-      await withActor(request, response, next, async (auth) => {
-        requireAdmin(auth.actor);
-        const limit = Math.min(
-          100,
-          Math.max(1, Number(request.query["limit"] ?? 50) || 50),
-        );
-        response.json({ auditLogs: await emailSettings.listAuditLogs(limit) });
-      });
-    },
-  );
-
-  router.put(
-    "/settings/runtime-policy",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        requireAdmin(auth.actor);
-        const settings = await emailSettings.update(
-          request.body ?? {},
-          auth.actor,
-        );
-        response.json({ settings });
-      });
-    },
-  );
-
-  router.post(
-    "/settings/runtime-policy/email/test",
-    jsonParser,
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        requireAdmin(auth.actor);
-        // No sender is injected here on purpose: sendTest builds one from the
-        // submitted draft (falling back to stored settings), so the test
-        // exercises the configuration the admin is actually looking at.
-        const settings = await emailSettings.sendTest(
-          request.body ?? {},
-          auth.actor,
-        );
-        response.json({ settings });
-      });
-    },
-  );
-
-  router.post(
-    "/settings/runtime-policy/restart",
-    async (request, response, next) => {
-      await withMutation(request, response, next, async (auth) => {
-        requireAdmin(auth.actor);
-        if (!onRestartRequested) {
-          throw new ClientManagementError(
-            503,
-            "restart_unavailable",
-            "service restart is not available in this deployment",
-          );
-        }
-        response.status(202).json({ restarting: true });
-        response.once("finish", onRestartRequested);
-      });
-    },
-  );
-
-  router.use(
-    (
-      error: unknown,
-      _request: Request,
-      response: Response,
-      next: NextFunction,
-    ) => {
-      const status = (error as { status?: unknown }).status;
-      if (status === 400) {
-        response.status(400).json({
-          error: "invalid_request",
-          error_description: "invalid JSON request body",
-        });
-        return;
-      }
-      handleManagementError(error, response, next);
-    },
-  );
+  router.use(jsonBodyErrorHandler);
 
   async function withActor(
     request: Request,
     response: Response,
     next: NextFunction,
-    handler: (
-      auth: Awaited<ReturnType<typeof requireAuthentication>> & {},
-    ) => Promise<void>,
+    handler: (auth: ManagementAuth) => Promise<void>,
   ) {
     try {
       const auth = await requireAuthentication(
@@ -919,9 +207,7 @@ export function createManagementRouter(
     request: Request,
     response: Response,
     next: NextFunction,
-    handler: (
-      auth: Awaited<ReturnType<typeof requireAuthentication>> & {},
-    ) => Promise<void>,
+    handler: (auth: ManagementAuth) => Promise<void>,
   ) {
     await withActor(request, response, next, async (auth) => {
       if (!validateManagementCsrf(request, config, auth.token)) {
@@ -944,7 +230,7 @@ async function requireAuthentication(
   config: StaticConfig,
   sessions: ManagementSessionService,
   adminIds: Set<string>,
-) {
+): Promise<ManagementAuth | null> {
   const token = readManagementSessionToken(request, config);
   const principal = await sessions.authenticate(token);
   if (!principal || !token) {
@@ -985,38 +271,4 @@ function contextPayload(
       maxGraceSeconds: config.clientSecretMaxGraceSeconds,
     },
   };
-}
-
-function handleManagementError(
-  error: unknown,
-  response: Response,
-  next: NextFunction,
-) {
-  if (error instanceof ClientManagementError) {
-    if (error.retryAfterSeconds !== undefined) {
-      response.setHeader("Retry-After", String(error.retryAfterSeconds));
-    }
-    response.status(error.status).json({
-      error: error.code,
-      error_description: error.message,
-      ...(error.field
-        ? { field_errors: { [error.field]: error.message } }
-        : {}),
-    });
-    return;
-  }
-  if (error instanceof RateLimitUnavailableError) {
-    response.setHeader("Retry-After", "60");
-    response.status(503).json({
-      error: "service_unavailable",
-      error_description: "try again later",
-    });
-    return;
-  }
-  next(error);
-}
-
-function param(request: Request, name: string) {
-  const value = request.params[name];
-  return Array.isArray(value) ? (value[0] ?? "") : (value ?? "");
 }

@@ -79,6 +79,7 @@ export type StaticConfig = {
   oidcClientsConfigPath: string;
   autoSeedSigningKey: boolean;
   adminSubjectIds: string[];
+  agentApiEnabled: boolean;
 };
 
 function requireSecret(
@@ -680,6 +681,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
       "OIDC_GRANT_TTL_SECONDS must be greater than or equal to OIDC_REFRESH_TTL_SECONDS",
     );
   }
+  const agentApiEnabledRaw = env["OIDC_AGENT_API_ENABLED"];
+  const agentApiEnabled =
+    agentApiEnabledRaw === undefined
+      ? !isProduction
+      : agentApiEnabledRaw === "true";
   return {
     port,
     appEnv,
@@ -784,6 +790,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
       env["OIDC_AUTO_SEED_SIGNING_KEY"] !== undefined
         ? env["OIDC_AUTO_SEED_SIGNING_KEY"] === "true"
         : appEnv === "test",
+    agentApiEnabled,
   };
 }
 

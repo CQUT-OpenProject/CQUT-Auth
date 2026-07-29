@@ -16,6 +16,7 @@ import {
   CSRF_NONCE_COOKIE_NAME,
 } from "./routes/interactions.js";
 import { createManagementRouter } from "./routes/management.js";
+import { createAgentRouter } from "./routes/agent.js";
 import type { EmailSender } from "./email/email-sender.js";
 import { withAuthorizationContext } from "./oidc/authorization-context.js";
 
@@ -195,6 +196,18 @@ export async function createOidcApp(
       dependencies.requestRestart,
     ),
   );
+  if (config.agentApiEnabled) {
+    app.use(
+      "/api/agent",
+      createAgentRouter(
+        config,
+        { interactiveAuthenticator: services.interactiveAuthenticator },
+        persistence,
+        rateLimitService,
+        invalidateClientOrigins,
+      ),
+    );
+  }
   const managementAssets = resolve(process.cwd(), "dist/management");
   app.get("/favicon.svg", (_request, response) => {
     response.sendFile(resolve(managementAssets, "favicon.svg"));
