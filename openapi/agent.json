@@ -1,0 +1,132 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "CQUT Auth Agent API",
+    "version": "1.0.0",
+    "description": "REST API for AI agents and automation tools to manage OIDC projects and clients."
+  },
+  "servers": [{ "url": "/api/agent", "description": "Agent API base path" }],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "summary": "Authenticate with school account",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["account", "password"],
+                "properties": {
+                  "account": { "type": "string" },
+                  "password": { "type": "string", "format": "password" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AgentAuthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/me": {
+      "get": {
+        "summary": "Current authenticated user",
+        "responses": {
+          "200": {
+            "description": "Session info",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/AgentAuthResponse" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Revoke access token",
+        "responses": { "204": { "description": "Logged out" } }
+      }
+    },
+    "/projects": {
+      "get": { "summary": "List projects" },
+      "post": { "summary": "Create project" }
+    },
+    "/projects/{projectId}": {
+      "get": { "summary": "Get project" },
+      "patch": { "summary": "Update project" }
+    },
+    "/projects/{projectId}/members": {
+      "get": { "summary": "List members" },
+      "post": { "summary": "Add member" }
+    },
+    "/projects/{projectId}/members/{subjectId}": {
+      "patch": { "summary": "Update member role" },
+      "delete": { "summary": "Remove member" }
+    },
+    "/projects/{projectId}/ownership/transfer": {
+      "post": { "summary": "Transfer ownership" }
+    },
+    "/projects/{projectId}/clients": {
+      "get": { "summary": "List clients" },
+      "post": { "summary": "Register client" }
+    },
+    "/projects/{projectId}/clients/{clientId}": {
+      "get": { "summary": "Get client" },
+      "patch": { "summary": "Update client metadata" }
+    },
+    "/projects/{projectId}/clients/{clientId}/revision": {
+      "put": { "summary": "Update OIDC configuration" }
+    },
+    "/projects/{projectId}/clients/{clientId}/secrets/rotate": {
+      "post": { "summary": "Rotate client secret" }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer" }
+    },
+    "schemas": {
+      "AgentAuthResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": { "type": "string" },
+          "tokenType": { "type": "string", "enum": ["Bearer"] },
+          "expiresIn": { "type": "integer" },
+          "user": { "$ref": "#/components/schemas/User" }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "subjectId": { "type": "string" },
+          "displayName": { "type": "string" },
+          "isAdmin": { "type": "boolean" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string" },
+          "error_description": { "type": "string" },
+          "field_errors": {
+            "type": "object",
+            "additionalProperties": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
