@@ -268,7 +268,7 @@ test("agent instructions are served without auth", async () => {
       instructions.body.openapiUrl,
       `${instructions.body.baseUrl}/openapi.json`,
     );
-    assert.match(instructions.body.prompt, /CQUT Auth 客户端管理助手/);
+    assert.match(instructions.body.prompt, /CQUT Auth 客户端管理入口/);
     assert.doesNotMatch(instructions.body.prompt, /\{\{baseUrl\}\}/);
   } finally {
     await state.close();

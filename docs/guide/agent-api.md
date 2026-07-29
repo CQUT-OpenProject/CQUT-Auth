@@ -27,7 +27,7 @@ AI 接入时建议按以下顺序自发现：
   "baseUrl": "https://auth.example.com/api/agent",
   "openapiUrl": "https://auth.example.com/api/agent/openapi.json",
   "contentType": "text/markdown",
-  "prompt": "你是 CQUT Auth 客户端管理助手..."
+  "prompt": "# CQUT Auth 客户端管理入口..."
 }
 ```
 
