@@ -79,9 +79,8 @@ export async function resetManagementLoginRateLimit(
   account: string,
   ip: string,
 ) {
-  await Promise.all(
-    managementLoginRateLimitKeys(stage, account, ip).map((key) =>
-      rateLimitService.reset(key),
-    ),
+  await resetRateLimitKeys(
+    rateLimitService,
+    managementLoginRateLimitKeys(stage, account, ip),
   );
 }

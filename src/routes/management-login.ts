@@ -89,11 +89,7 @@ export async function performInteractiveLogin(
         "attempt",
         account,
         ip,
-      ).catch((resetError) => {
-        if (!(resetError instanceof RateLimitUnavailableError)) {
-          throw resetError;
-        }
-      });
+      );
       response.setHeader("Retry-After", "60");
       response.status(503).json({
         error: "service_unavailable",
@@ -118,11 +114,7 @@ export async function performInteractiveLogin(
           "attempt",
           account,
           ip,
-        ).catch((resetError) => {
-          if (!(resetError instanceof RateLimitUnavailableError)) {
-            throw resetError;
-          }
-        });
+        );
         response.setHeader("Retry-After", "60");
         response.status(503).json({
           error: "service_unavailable",
