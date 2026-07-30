@@ -5,7 +5,6 @@ import { ClientManagementError } from "../management/management-error.js";
 import { ProjectManagementService } from "../projects/project-management.service.js";
 import {
   RateLimitService,
-  RateLimitUnavailableError,
   resetRateLimitKeys,
 } from "../persistence/rate-limit.service.js";
 import type { RuntimePolicyModule } from "../runtime-policy.js";
@@ -97,13 +96,7 @@ export function registerManagementOperations(deps: ManagementOperationsDeps) {
             .status(201)
             .json({ project: await projects.create(auth.actor, request.body) });
         } catch (error) {
-          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-            (resetError) => {
-              if (!(resetError instanceof RateLimitUnavailableError)) {
-                throw resetError;
-              }
-            },
-          );
+          await resetRateLimitKeys(rateLimitService, consumedKeys);
           throw error;
         }
         return;
@@ -306,13 +299,7 @@ export function registerManagementOperations(deps: ManagementOperationsDeps) {
           onClientsChanged();
           response.status(201).json(result);
         } catch (error) {
-          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-            (resetError) => {
-              if (!(resetError instanceof RateLimitUnavailableError)) {
-                throw resetError;
-              }
-            },
-          );
+          await resetRateLimitKeys(rateLimitService, consumedKeys);
           throw error;
         }
       });
@@ -408,13 +395,7 @@ export function registerManagementOperations(deps: ManagementOperationsDeps) {
           );
           response.status(201).json(result);
         } catch (error) {
-          await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-            (resetError) => {
-              if (!(resetError instanceof RateLimitUnavailableError)) {
-                throw resetError;
-              }
-            },
-          );
+          await resetRateLimitKeys(rateLimitService, consumedKeys);
           throw error;
         }
       });
