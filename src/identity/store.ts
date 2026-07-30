@@ -2,7 +2,6 @@ import type {
   SubjectIdentityRecord,
   SubjectProfileRecord,
   SubjectRecord,
-  VerificationIdentity,
 } from "./types.js";
 
 export interface IdentityStore {
@@ -26,8 +25,3 @@ export interface IdentityStore {
   getProfile(subjectId: string): Promise<SubjectProfileRecord | null>;
   upsertProfile(profile: SubjectProfileRecord): Promise<SubjectProfileRecord>;
 }
-
-export type LinkIdentityInput = {
-  provider: string;
-  identity: VerificationIdentity;
-};
