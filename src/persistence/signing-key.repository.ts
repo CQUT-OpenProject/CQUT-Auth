@@ -91,13 +91,9 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
       publicJwk: row["public_jwk"] as JsonWebKey,
       privateJwkCiphertext: String(row["private_jwk_ciphertext"]),
       status: row["status"] as OidcSigningKeyRecord["status"],
-      createdAt: (row["created_at"] as Date).toISOString(),
-      activatedAt: row["activated_at"]
-        ? (row["activated_at"] as Date).toISOString()
-        : undefined,
-      retiredAt: row["retired_at"]
-        ? (row["retired_at"] as Date).toISOString()
-        : undefined,
+      createdAt: toIsoString(row["created_at"])!,
+      activatedAt: toIsoString(row["activated_at"]),
+      retiredAt: toIsoString(row["retired_at"]),
     }));
   }
 
@@ -120,4 +116,9 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
       JsonWebKey & { kid: string; alg: string; use: string }
     >;
   }
+}
+
+function toIsoString(value: unknown): string | undefined {
+  if (!value) return undefined;
+  return (value instanceof Date ? value : new Date(String(value))).toISOString();
 }
