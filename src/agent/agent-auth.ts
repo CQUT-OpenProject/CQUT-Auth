@@ -19,8 +19,11 @@ export async function authenticateAgentRequest(
   adminIds: Set<string>,
 ) {
   const token = readAgentAccessToken(request);
+  if (!token) {
+    return null;
+  }
   const principal = await sessions.authenticate(token);
-  if (!principal || !token) {
+  if (!principal) {
     return null;
   }
   return {
