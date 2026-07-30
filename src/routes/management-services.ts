@@ -17,16 +17,13 @@ export function createManagementDomainServices(
     config.sessionTtlSeconds,
     config.sessionIdleTtlSeconds,
   );
-  const projects = new ProjectManagementService(
-    persistence.projects,
-    undefined,
-    undefined,
-    {
+  const projects = new ProjectManagementService(persistence.projects, {
+    limits: {
       maxActiveProjects: config.managementProjectMaxActivePerSubject,
       adminQuotaExempt: config.managementProjectQuotaAdminExempt,
     },
-    persistence.clients,
-  );
+    clientAudits: persistence.clients,
+  });
   const clients = new ClientManagementService(
     persistence.clients,
     projects.access,

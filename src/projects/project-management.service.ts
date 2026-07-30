@@ -27,21 +27,45 @@ type ClientAuditSource = {
   ): Promise<ManagedOidcClientRecord | null>;
 };
 
+export type ProjectManagementServiceLimits = {
+  maxActiveProjects?: number;
+  adminQuotaExempt?: boolean;
+};
+
+export type ProjectManagementServiceOptions = {
+  now?: () => Date;
+  createProjectId?: () => string;
+  limits?: ProjectManagementServiceLimits;
+  clientAudits?: ClientAuditSource;
+};
+
 export class ProjectManagementService {
   readonly access: ProjectAccessService;
+  private readonly now: () => Date;
+  private readonly createProjectId: () => string;
+  private readonly limits: ProjectManagementServiceLimits;
+  private readonly clientAudits?: ClientAuditSource | undefined;
 
   constructor(
     private readonly repository: ProjectRepository,
-    private readonly now: () => Date = () => new Date(),
-    private readonly createProjectId: () => string = () =>
-      randomId("project", 18),
-    private readonly limits: {
-      maxActiveProjects?: number;
-      adminQuotaExempt?: boolean;
-    } = {},
-    private readonly clientAudits?: ClientAuditSource,
+    optionsOrNow?: ProjectManagementServiceOptions | (() => Date),
+    createProjectId: () => string = () => randomId("project", 18),
+    limits: ProjectManagementServiceLimits = {},
+    clientAudits?: ClientAuditSource,
   ) {
     this.access = new ProjectAccessService(repository);
+    if (typeof optionsOrNow === "object" && optionsOrNow !== null) {
+      this.now = optionsOrNow.now ?? (() => new Date());
+      this.createProjectId =
+        optionsOrNow.createProjectId ?? (() => randomId("project", 18));
+      this.limits = optionsOrNow.limits ?? {};
+      this.clientAudits = optionsOrNow.clientAudits;
+    } else {
+      this.now = optionsOrNow ?? (() => new Date());
+      this.createProjectId = createProjectId;
+      this.limits = limits;
+      this.clientAudits = clientAudits;
+    }
   }
 
   async list(actor: ProjectActor) {
