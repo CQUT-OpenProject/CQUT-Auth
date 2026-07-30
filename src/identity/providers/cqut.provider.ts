@@ -1,4 +1,4 @@
-import axios, { type AxiosError, type AxiosInstance, type AxiosResponse } from "axios";
+import axios, { type AxiosInstance, type AxiosResponse } from "axios";
 import { wrapper } from "axios-cookiejar-support";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SaxesParser } from "saxes";
