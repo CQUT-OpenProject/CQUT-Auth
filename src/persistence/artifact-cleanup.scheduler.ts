@@ -31,7 +31,7 @@ export async function ensureArtifactCleanupJob(
       "OIDC_ARTIFACT_CLEANUP_BATCH_SIZE must be a positive integer",
     );
   }
-  const command = buildCleanupCommand(options.batchSize);
+  const command = buildArtifactCleanupSql(options.batchSize);
   const normalizedCommand = normalizeSql(command);
 
   try {
@@ -72,10 +72,6 @@ export async function ensureArtifactCleanupJob(
     options.schedule,
     command,
   ]);
-}
-
-function buildCleanupCommand(batchSize: number) {
-  return buildArtifactCleanupSql(batchSize);
 }
 
 function normalizeSql(raw: string) {
