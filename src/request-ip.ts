@@ -127,11 +127,8 @@ function ipInCidr(ip: ParsedIpAddress, cidr: ParsedCidr): boolean {
     const mask = cidr.prefixLength === 0 ? 0 : (0xffffffff << shift) >>> 0;
     return (ip.value & mask) === (cidr.value & mask);
   }
-  if (ip.family === 6 && cidr.family === 6) {
-    const shift = BigInt(128 - cidr.prefixLength);
-    return ip.value >> shift === cidr.value >> shift;
-  }
-  return false;
+  const shift = BigInt(128 - cidr.prefixLength);
+  return (ip.value as bigint) >> shift === ((cidr as ParsedCidr & { family: 6 }).value) >> shift;
 }
 
 function formatIpAddress(parsed: ParsedIpAddress): string {
@@ -160,7 +157,7 @@ function isTrustedProxy(remoteAddress: string, cidrs: string[]): boolean {
   }
   return cidrs.some((cidr) => {
     const parsedCidr = parseCidr(cidr);
-    return parsedCidr ? ipInCidr(parsedRemote, parsedCidr) : false;
+    return Boolean(parsedCidr && ipInCidr(parsedRemote, parsedCidr));
   });
 }
 
