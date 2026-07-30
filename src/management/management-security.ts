@@ -81,20 +81,11 @@ export function ensureManagementNonce(
   response: Response,
   config: Pick<StaticConfig, "cookieSecure" | "csrfTokenTtlSeconds">,
 ) {
-  const name = managementNonceCookieName(config);
-  const existing = parseCookies(request.get("cookie"))[name];
+  const existing = readManagementNonce(request, config);
   if (existing) {
     return existing;
   }
-  const nonce = base64Url(randomBytes(24));
-  response.cookie(name, nonce, {
-    httpOnly: true,
-    secure: config.cookieSecure,
-    sameSite: "lax",
-    path: "/",
-    maxAge: config.csrfTokenTtlSeconds * 1000,
-  });
-  return nonce;
+  return rotateManagementNonceCookie(response, config);
 }
 
 export function issueManagementCsrf(
