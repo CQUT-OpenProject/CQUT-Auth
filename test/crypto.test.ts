@@ -36,3 +36,21 @@ test("client secret verification does not cache submitted secrets", async () => 
 
   assert.deepEqual(__cryptoTestHooks.derivedKeyCacheKeys(), []);
 });
+
+test("decryptJson rejects malformed or invalid ciphertext formats", async () => {
+  const secret = "test-secret";
+  await assert.rejects(
+    decryptJson(secret, "invalid$format"),
+    /invalid ciphertext format/,
+  );
+  await assert.rejects(
+    decryptJson(secret, "v1$scrypt$N=16384,r=8,p=1,keylen=32$salt$payload"),
+    /unsupported ciphertext version/,
+  );
+});
+
+test("verifyClientSecretDigest handles invalid or malformed digests gracefully", async () => {
+  assert.equal(await verifyClientSecretDigest("secret", "invalid-digest"), false);
+  assert.equal(await verifyClientSecretDigest("secret", "scrypt$invalid_params$salt$digest"), false);
+});
+

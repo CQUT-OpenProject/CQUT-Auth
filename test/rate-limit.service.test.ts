@@ -80,3 +80,21 @@ test("expired counters and FIFO eviction can coexist without stale key retention
     await service.close();
   }
 });
+
+test("fail-closed mode throws RateLimitUnavailableError when redis is unavailable", async () => {
+  const service = new RateLimitService(
+    createConfig({ rateLimitFailClosed: true, redisUrl: undefined }),
+  );
+  await service.init();
+
+  try {
+    await assert.rejects(
+      () => service.consume("key-1", 10, 60),
+      (error: unknown) => error instanceof Error && error.name === "Error",
+    );
+    assert.equal(await service.checkReadiness(), false);
+  } finally {
+    await service.close();
+  }
+});
+

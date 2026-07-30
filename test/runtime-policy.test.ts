@@ -255,3 +255,25 @@ test("runtime policy ignores the removed legacy email row", async () => {
   assert.equal(view.version, 0);
   assert.equal(view.restartRequired, false);
 });
+
+test("listAuditLogs returns app setting audit logs", async () => {
+  const store = new AppSettingsRepositoryImpl(() => undefined);
+  const defaults = defaultRuntimePolicy(config());
+  const service = new RuntimePolicyModule(store, secret, defaults);
+  await service.initialize();
+
+  await service.update(
+    {
+      expectedVersion: 0,
+      policy: defaults.policy,
+      email: emptyEmailSettings(),
+    },
+    { subjectId: "admin-1" },
+  );
+
+  const logs = await service.listAuditLogs();
+  assert.equal(logs.length, 1);
+  assert.equal(logs[0]?.actorSubjectId, "admin-1");
+  assert.equal(logs[0]?.action, "runtime_policy.updated");
+});
+
