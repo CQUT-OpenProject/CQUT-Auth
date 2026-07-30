@@ -51,7 +51,7 @@ export function registerManagementOperations(deps: ManagementOperationsDeps) {
     withMutation,
     emailSettings,
     onRestartRequested,
-    requireAdmin,
+    requireAdmin = defaultRequireAdmin,
   } = deps;
   const scope = {
     includeAuditLogs: false,
@@ -524,6 +524,16 @@ export function registerManagementOperations(deps: ManagementOperationsDeps) {
           response.once("finish", onRestartRequested);
         });
       },
+    );
+  }
+}
+
+function defaultRequireAdmin(actor: { isAdmin: boolean }) {
+  if (!actor.isAdmin) {
+    throw new ClientManagementError(
+      403,
+      "admin_required",
+      "administrator privilege required",
     );
   }
 }
