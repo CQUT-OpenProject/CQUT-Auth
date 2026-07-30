@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance, type AxiosResponse } from "axios";
+import axios, { type AxiosError, type AxiosInstance, type AxiosResponse } from "axios";
 import { wrapper } from "axios-cookiejar-support";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SaxesParser } from "saxes";
@@ -88,12 +88,6 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
       );
       const serviceWithDelegatedClientId =
         new URL(finalUrl).searchParams.get("service") ?? casServiceUrl;
-      if (!serviceWithDelegatedClientId) {
-        throw new IdentityCoreError(
-          "verification_failed",
-          "failed to obtain delegated service",
-        );
-      }
       const casLoginUrl = resolveCasLoginUrl(
         uisBaseUrl,
         finalUrl,
