@@ -4,12 +4,6 @@ export function base64Url(buffer: Buffer): string {
   return buffer.toString("base64url");
 }
 
-export function toIsoString(value: unknown): string {
-  return value instanceof Date
-    ? value.toISOString()
-    : new Date(String(value)).toISOString();
-}
-
 export function randomId(prefix: string, size = 18): string {
   return `${prefix}_${base64Url(randomBytes(size))}`;
 }
@@ -32,6 +26,9 @@ export function parseCookies(raw: string | undefined): Record<string, string> {
       return cookies;
     }
     const key = part.slice(0, separatorIndex).trim();
+    if (key === "__proto__" || key === "constructor") {
+      return cookies;
+    }
     const value = part.slice(separatorIndex + 1).trim();
     try {
       cookies[key] = decodeURIComponent(value);

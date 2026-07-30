@@ -386,20 +386,6 @@ function sameEmailConfig(a: EmailSettings, b: EmailSettings) {
   );
 }
 
-function normalizeEmail(email: EmailSettings): EmailSettings {
-  return {
-    provider:
-      email?.provider === "resend" || email?.provider === "smtp"
-        ? email.provider
-        : "disabled",
-    resend: email?.resend ?? {},
-    smtp: email?.smtp ?? {},
-    ...(typeof email?.lastVerifiedAt === "string"
-      ? { lastVerifiedAt: email.lastVerifiedAt }
-      : {}),
-  };
-}
-
 function validateEmail(email: EmailSettings) {
   if (
     email.provider === "resend" &&
