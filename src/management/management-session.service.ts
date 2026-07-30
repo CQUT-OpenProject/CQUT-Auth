@@ -51,11 +51,12 @@ export class ManagementSessionService {
       return null;
     }
     const now = this.now();
-    const idleExpiresAt =
-      new Date(session.lastSeenAt).getTime() + this.idleTtlSeconds * 1000;
+    const nowMs = now.getTime();
+    const lastSeenMs = new Date(session.lastSeenAt).getTime();
+    const idleExpiresAt = lastSeenMs + this.idleTtlSeconds * 1000;
     if (
-      new Date(session.expiresAt).getTime() <= now.getTime() ||
-      idleExpiresAt <= now.getTime()
+      new Date(session.expiresAt).getTime() <= nowMs ||
+      idleExpiresAt <= nowMs
     ) {
       await this.sessions.deleteManagementSession(tokenHash);
       return null;
@@ -67,10 +68,7 @@ export class ManagementSessionService {
       await this.sessions.deleteManagementSession(tokenHash);
       return null;
     }
-    if (
-      now.getTime() - new Date(session.lastSeenAt).getTime() >=
-      5 * 60 * 1000
-    ) {
+    if (nowMs - lastSeenMs >= 5 * 60 * 1000) {
       await this.sessions.touchManagementSession(tokenHash, now.toISOString());
     }
     return principal;
