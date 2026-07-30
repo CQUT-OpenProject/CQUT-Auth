@@ -44,27 +44,30 @@ export class RuntimeEmailSender implements EmailSender {
 }
 
 export function buildEmailSender(settings: EmailSettings): EmailSender {
-  if (settings.provider === "resend") {
-    if (settings.resend.apiKey && settings.resend.from) {
-      return new ResendEmailSender({
-        apiKey: settings.resend.apiKey,
-        from: settings.resend.from,
-      });
-    }
-    return new DisabledEmailSender();
+  if (
+    settings.provider === "resend" &&
+    settings.resend.apiKey &&
+    settings.resend.from
+  ) {
+    return new ResendEmailSender({
+      apiKey: settings.resend.apiKey,
+      from: settings.resend.from,
+    });
   }
-  if (settings.provider === "smtp") {
-    if (settings.smtp.host && settings.smtp.port && settings.smtp.from) {
-      return new SmtpEmailSender({
-        host: settings.smtp.host,
-        port: settings.smtp.port,
-        secure: settings.smtp.secure ?? false,
-        user: settings.smtp.user,
-        password: settings.smtp.password,
-        from: settings.smtp.from,
-      });
-    }
-    return new DisabledEmailSender();
+  if (
+    settings.provider === "smtp" &&
+    settings.smtp.host &&
+    settings.smtp.port &&
+    settings.smtp.from
+  ) {
+    return new SmtpEmailSender({
+      host: settings.smtp.host,
+      port: settings.smtp.port,
+      secure: settings.smtp.secure ?? false,
+      user: settings.smtp.user,
+      password: settings.smtp.password,
+      from: settings.smtp.from,
+    });
   }
   return new DisabledEmailSender();
 }
