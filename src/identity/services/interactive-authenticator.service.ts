@@ -149,9 +149,9 @@ export class InteractiveAuthenticatorService {
     const next: SubjectProfileRecord = {
       subjectId,
       emailVerified: existing?.emailVerified ?? false,
-      updatedAt: new Date().toISOString(),
       ...existing,
       ...merge(existing),
+      updatedAt: new Date().toISOString(),
     };
     return this.store.upsertProfile(next);
   }
