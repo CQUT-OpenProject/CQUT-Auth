@@ -6,7 +6,7 @@ import { accessControlProvider } from "./providers/access-control-provider";
 import { notificationProvider } from "./providers/notification-provider";
 import { resources } from "./resources";
 import { AppRouter } from "./router";
-import { BrowserRouter } from "react-router-dom";
+import { BrowserRouter } from "react-router";
 import routerProvider from "@refinedev/react-router";
 import { ConfigProvider, App as AntdApp } from "antd";
 import zhCN from "antd/locale/zh_CN";

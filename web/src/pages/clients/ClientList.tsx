@@ -14,7 +14,7 @@ import { PlusOutlined, EyeOutlined, SearchOutlined } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
 import { useList } from "@refinedev/core";
 import { ClientStatusTag } from "../../components/status/Tags";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 import type { Client } from "../../api/types";
 
