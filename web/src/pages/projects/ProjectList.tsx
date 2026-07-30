@@ -18,7 +18,7 @@ import {
 } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
 import { ProjectStatusTag } from "../../components/status/Tags";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 import { request } from "../../api/client";
 

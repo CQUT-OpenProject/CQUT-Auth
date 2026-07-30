@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router";
 import { DashboardLayout } from "../components/layout/DashboardLayout";
 import { Login } from "../pages/auth/Login";
 import { ProjectList } from "../pages/projects/ProjectList";

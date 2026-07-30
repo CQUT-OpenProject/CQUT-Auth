@@ -21,7 +21,7 @@ import {
   DeleteOutlined,
 } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { request } from "../../api/client";
 import { OneTimeSecretModal } from "../../components/secret/OneTimeSecretModal";
 

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from "react";
 import type { Project } from "../api/types";
 import { request } from "../api/client";
 import { setActiveProjectForAccessControl } from "../app/providers/access-control-provider";
-import { useLocation } from "react-router-dom";
+import { useLocation } from "react-router";
 
 const SYSTEM_PROJECT_ID = "system";
 

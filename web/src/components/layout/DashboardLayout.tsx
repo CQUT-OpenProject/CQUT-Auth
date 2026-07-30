@@ -25,7 +25,7 @@ import {
   MoonOutlined,
 } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
-import { useNavigate, useLocation, useParams, Outlet } from "react-router-dom";
+import { useNavigate, useLocation, useParams, Outlet } from "react-router";
 import { useGetIdentity, useLogout } from "@refinedev/core";
 import { useThemeMode } from "../../contexts/theme-context";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
