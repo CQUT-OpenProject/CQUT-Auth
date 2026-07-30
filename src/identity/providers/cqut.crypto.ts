@@ -23,17 +23,8 @@ export function getSecretParam(password: string): string {
   }
 
   const segments: string[] = [];
-  let index = 0;
-
-  for (let i = 0; i < password.length + 1; i += 1) {
-    if ((i + 1) % 30 === 0) {
-      segments.push(encryptChunk(password.slice(index, i)));
-      index = i;
-    }
-  }
-
-  if (index !== password.length) {
-    segments.push(encryptChunk(password.slice(index)));
+  for (let i = 0; i < password.length; i += 30) {
+    segments.push(encryptChunk(password.slice(i, i + 30)));
   }
 
   return encodeURIComponent(JSON.stringify(segments));
