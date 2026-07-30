@@ -55,12 +55,6 @@ function setCsrfNonceCookie(
   });
 }
 
-function decodeBase64Url(value: string): Buffer {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
-  return Buffer.from(padded, "base64");
-}
-
 function secureStringEqual(left: string, right: string): boolean {
   const leftBuffer = Buffer.from(left, "utf8");
   const rightBuffer = Buffer.from(right, "utf8");
@@ -117,7 +111,7 @@ function parseAndValidateCsrfPayload(
   }
   try {
     const parsed = JSON.parse(
-      decodeBase64Url(payloadBase64Url).toString("utf8"),
+      Buffer.from(payloadBase64Url, "base64url").toString("utf8"),
     ) as Partial<CsrfTokenPayload>;
     if (
       typeof parsed.uid !== "string" ||
