@@ -44,12 +44,7 @@ export function assertProjectAccess(
   if (
     project.status === "archived" &&
     action !== "view" &&
-    !(
-      actor.isAdmin &&
-      ["revoke_authorizations", "revoke_secret", "disable_client"].includes(
-        action,
-      )
-    )
+    !(actor.isAdmin && isArchivedAdminAction(action))
   ) {
     throw new ClientManagementError(
       409,
@@ -109,12 +104,7 @@ export function can(
   if (
     project.status === "archived" &&
     action !== "view" &&
-    !(
-      actor.isAdmin &&
-      ["revoke_authorizations", "revoke_secret", "disable_client"].includes(
-        action,
-      )
-    )
+    !(actor.isAdmin && isArchivedAdminAction(action))
   ) {
     return false;
   }
@@ -132,6 +122,14 @@ function allowed(
   if (["manage_project", "manage_members"].includes(action))
     return role === "owner";
   return role === "owner" || role === "maintainer";
+}
+
+function isArchivedAdminAction(action: ProjectAction): boolean {
+  return (
+    action === "revoke_authorizations" ||
+    action === "revoke_secret" ||
+    action === "disable_client"
+  );
 }
 
 function notFound(): never {
