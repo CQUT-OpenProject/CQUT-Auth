@@ -101,7 +101,6 @@ export class PersistenceRuntimeImpl implements PersistenceRuntime {
       await this.pool.query("select 1");
       await this.ensureSchema();
       await ensureArtifactCleanupJob(this.pool, {
-        enabled: this.config.artifactCleanupEnabled,
         schedule: this.config.artifactCleanupCron,
         batchSize: this.config.artifactCleanupBatchSize,
       });

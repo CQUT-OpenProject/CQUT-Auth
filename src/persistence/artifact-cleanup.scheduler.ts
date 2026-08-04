@@ -4,7 +4,6 @@ import { buildArtifactCleanupSql } from "./contracts.js";
 export class ArtifactCleanupConfigurationError extends Error {}
 
 export type ArtifactCleanupOptions = {
-  enabled: boolean;
   schedule: string;
   batchSize: number;
   jobName?: string;
@@ -20,11 +19,6 @@ export async function ensureArtifactCleanupJob(
   pool: Pool,
   options: ArtifactCleanupOptions,
 ) {
-  if (!options.enabled) {
-    throw new ArtifactCleanupConfigurationError(
-      "OIDC_ARTIFACT_CLEANUP_ENABLED must be true",
-    );
-  }
   const jobName = options.jobName ?? "oidc_artifacts_expired_cleanup";
   if (!Number.isInteger(options.batchSize) || options.batchSize <= 0) {
     throw new ArtifactCleanupConfigurationError(
@@ -37,18 +31,22 @@ export async function ensureArtifactCleanupJob(
   try {
     await pool.query("create extension if not exists pg_cron");
   } catch (error) {
-    throw new ArtifactCleanupConfigurationError(
-      `failed to create pg_cron extension: ${error instanceof Error ? error.message : "unknown error"}`,
+    console.warn(
+      `pg_cron unavailable (${error instanceof Error ? error.message : "unknown error"}); ` +
+        "skipping scheduled artifact cleanup, opportunistic cleanup remains active",
     );
+    return;
   }
 
   const extension = await pool.query(
     "select extname from pg_extension where extname = 'pg_cron' limit 1",
   );
   if (extension.rowCount !== 1) {
-    throw new ArtifactCleanupConfigurationError(
-      "pg_cron extension is required but unavailable",
+    console.warn(
+      "pg_cron extension is unavailable; " +
+        "skipping scheduled artifact cleanup, opportunistic cleanup remains active",
     );
+    return;
   }
 
   const existing = await pool.query(

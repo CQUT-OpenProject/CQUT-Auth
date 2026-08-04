@@ -41,7 +41,6 @@ export type StaticConfig = {
   idTokenTtlSeconds: number;
   refreshTokenTtlSeconds: number;
   grantTtlSeconds: number;
-  artifactCleanupEnabled: boolean;
   artifactCleanupCron: string;
   artifactCleanupBatchSize: number;
   loginRateLimitMax: number;
@@ -247,14 +246,6 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
     parsedCookieKeys.length > 0 ? parsedCookieKeys : [keyEncryptionSecret];
   const oidcClientsConfigPath =
     env["OIDC_CLIENTS_CONFIG_PATH"]?.trim() || "/app/config/oidc-clients.json";
-  const artifactCleanupEnabledRaw = env["OIDC_ARTIFACT_CLEANUP_ENABLED"];
-  const artifactCleanupEnabled =
-    artifactCleanupEnabledRaw !== undefined
-      ? artifactCleanupEnabledRaw === "true"
-      : true;
-  if (!artifactCleanupEnabled) {
-    throw new Error("OIDC_ARTIFACT_CLEANUP_ENABLED must be true");
-  }
   const sessionTtlSeconds = 60 * 60 * 8;
   const sessionIdleTtlSeconds = 60 * 60 * 2;
   const interactionTtlSeconds = 60 * 15;
@@ -497,7 +488,6 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
     idTokenTtlSeconds: 60 * 5,
     refreshTokenTtlSeconds,
     grantTtlSeconds,
-    artifactCleanupEnabled,
     artifactCleanupCron,
     artifactCleanupBatchSize,
     loginRateLimitMax: 10,

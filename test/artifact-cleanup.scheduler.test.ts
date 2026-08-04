@@ -43,7 +43,6 @@ test("ensureArtifactCleanupJob creates cron job when missing", async () => {
   });
 
   await ensureArtifactCleanupJob(pool as unknown as Pool, {
-    enabled: true,
     schedule: "*/5 * * * *",
     batchSize: 5000,
   });
@@ -80,7 +79,6 @@ test("ensureArtifactCleanupJob is idempotent when schedule and command match", a
   });
 
   await ensureArtifactCleanupJob(pool as unknown as Pool, {
-    enabled: true,
     schedule: "*/5 * * * *",
     batchSize: 5000,
   });
@@ -95,7 +93,7 @@ test("ensureArtifactCleanupJob is idempotent when schedule and command match", a
   );
 });
 
-test("ensureArtifactCleanupJob fails when pg_cron extension is unavailable", async () => {
+test("ensureArtifactCleanupJob degrades when pg_cron extension is unavailable", async () => {
   const pool = new FakePool((sql) => {
     if (sql.includes("pg_extension")) {
       return { rowCount: 0, rows: [] };
@@ -103,14 +101,33 @@ test("ensureArtifactCleanupJob fails when pg_cron extension is unavailable", asy
     return { rowCount: 1, rows: [] };
   });
 
-  await assert.rejects(
-    () =>
-      ensureArtifactCleanupJob(pool as unknown as Pool, {
-        enabled: true,
-        schedule: "*/5 * * * *",
-        batchSize: 5000,
-      }),
-    ArtifactCleanupConfigurationError,
+  await ensureArtifactCleanupJob(pool as unknown as Pool, {
+    schedule: "*/5 * * * *",
+    batchSize: 5000,
+  });
+
+  assert.equal(
+    pool.calls.some((call) => call.sql.includes("cron.schedule")),
+    false,
+  );
+});
+
+test("ensureArtifactCleanupJob degrades when create extension fails", async () => {
+  const pool = new FakePool((sql) => {
+    if (sql.includes("create extension")) {
+      throw new Error("permission denied");
+    }
+    return { rowCount: 1, rows: [] };
+  });
+
+  await ensureArtifactCleanupJob(pool as unknown as Pool, {
+    schedule: "*/5 * * * *",
+    batchSize: 5000,
+  });
+
+  assert.equal(
+    pool.calls.some((call) => call.sql.includes("cron.schedule")),
+    false,
   );
 });
 
@@ -120,7 +137,6 @@ test("ensureArtifactCleanupJob rejects invalid batch size", async () => {
   await assert.rejects(
     () =>
       ensureArtifactCleanupJob(pool as unknown as Pool, {
-        enabled: true,
         schedule: "*/5 * * * *",
         batchSize: 0,
       }),
