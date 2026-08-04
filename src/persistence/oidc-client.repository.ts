@@ -1035,10 +1035,6 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
     return this.listManaged("c.project_id = $1", [projectId]);
   }
 
-  async listOidcClients() {
-    return this.listManaged("true", []);
-  }
-
   async listOidcClientAuditLogs(
     clientId?: string,
   ): Promise<OidcClientAuditRecord[]> {

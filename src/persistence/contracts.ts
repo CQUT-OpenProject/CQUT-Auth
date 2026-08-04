@@ -344,7 +344,6 @@ export interface OidcClientRepository {
   listOidcClientsByProject(
     projectId: string,
   ): Promise<ManagedOidcClientRecord[]>;
-  listOidcClients(): Promise<ManagedOidcClientRecord[]>;
   listOidcClientAuditLogs(clientId?: string): Promise<OidcClientAuditRecord[]>;
 }
 
