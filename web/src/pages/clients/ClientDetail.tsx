@@ -14,9 +14,7 @@ import {
   Row,
   Col,
   Alert,
-  Badge,
   Descriptions,
-  List,
   Tag,
   Spin,
   InputNumber,
@@ -38,6 +36,7 @@ import { useProject } from "../../contexts/project-context";
 import { useOne } from "@refinedev/core";
 import { ClientStatusTag, SecretStatusTag } from "../../components/status/Tags";
 import { request } from "../../api/client";
+import { auditDetails } from "../../api/audit-details";
 import { RevisionDiff } from "../../components/revision/RevisionDiff";
 import { ConfirmActionModal } from "../../components/confirmations/ConfirmActionModal";
 import { OneTimeSecretModal } from "../../components/secret/OneTimeSecretModal";
@@ -907,8 +906,8 @@ export const ClientDetail: React.FC = () => {
                     },
                     {
                       title: "操作人",
-                      dataIndex: "subjectId",
-                      key: "subjectId",
+                      dataIndex: "actorSubjectId",
+                      key: "actorSubjectId",
                       render: (text: string) => (
                         <Text code>{text || "系统"}</Text>
                       ),
@@ -920,15 +919,15 @@ export const ClientDetail: React.FC = () => {
                     },
                     {
                       title: "来源 IP",
-                      dataIndex: "details",
+                      dataIndex: "sourceIp",
                       key: "ip",
-                      render: (details: any) => details?.ip || "未知",
+                      render: (sourceIp: string | undefined) =>
+                        sourceIp || "未知",
                     },
                     {
                       title: "变更细节",
-                      dataIndex: "details",
                       key: "details",
-                      render: (details: any) => (
+                      render: (_: unknown, audit: AuditLog) => (
                         <pre
                           style={{
                             margin: 0,
@@ -937,7 +936,7 @@ export const ClientDetail: React.FC = () => {
                             wordBreak: "break-all",
                           }}
                         >
-                          {JSON.stringify(details, null, 2)}
+                          {JSON.stringify(auditDetails(audit), null, 2)}
                         </pre>
                       ),
                     },

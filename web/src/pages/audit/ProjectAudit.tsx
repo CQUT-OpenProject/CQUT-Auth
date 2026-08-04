@@ -2,25 +2,10 @@ import React, { useState, useEffect } from "react";
 import { Table, Button, Card, Typography, Space, Spin, message } from "antd";
 import { useProject } from "../../contexts/project-context";
 import { request } from "../../api/client";
+import { auditDetails } from "../../api/audit-details";
 import type { AuditLog } from "../../api/types";
 
 const { Text } = Typography;
-
-function auditDetails(audit: AuditLog) {
-  return Object.fromEntries(
-    Object.entries({
-      changedFields: audit.changedFields,
-      revisionId: audit.revisionId,
-      revisionNumber: audit.revisionNumber,
-      secretId: audit.secretId,
-      previousClientStatus: audit.previousClientStatus,
-      newClientStatus: audit.newClientStatus,
-      previousRevisionStatus: audit.previousRevisionStatus,
-      newRevisionStatus: audit.newRevisionStatus,
-      reason: audit.reason,
-    }).filter(([, value]) => value !== undefined),
-  );
-}
 
 export const ProjectAudit: React.FC = () => {
   const { activeProject } = useProject();

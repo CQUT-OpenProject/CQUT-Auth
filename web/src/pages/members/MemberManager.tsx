@@ -19,13 +19,14 @@ import {
 } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
 import { request } from "../../api/client";
-import type { ProjectMember } from "../../api/types";
-import { PermissionGuard } from "../../components/layout/PermissionGuard";
+import { useGetIdentity } from "@refinedev/core";
+import type { ProjectMember, User } from "../../api/types";
 
 const { Text } = Typography;
 
 export const MemberManager: React.FC = () => {
   const { activeProject, refreshProjects } = useProject();
+  const { data: identity } = useGetIdentity<User>();
   const [members, setMembers] = useState<ProjectMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [addForm] = Form.useForm();
@@ -136,10 +137,7 @@ export const MemberManager: React.FC = () => {
         {
           method: "POST",
           body: JSON.stringify({
-            fromSubjectId:
-              activeProject.role === "owner"
-                ? undefined
-                : activeProject.projectId, // from current owner, handled by server
+            fromSubjectId: identity?.subjectId,
             toSubjectId: selectedMember.subjectId,
             expectedProjectVersion: activeProject.version,
           }),
