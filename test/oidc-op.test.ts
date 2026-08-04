@@ -2773,19 +2773,18 @@ test("profile verify keeps pending login when oidc finish fails", async () => {
   const { app, state, emailSender } = await createTestApp();
   const agent = request.agent(app);
   const { profileLocation, interactionUid, code, sendCode } =
-    await startEmailVerification(
-      agent,
-      emailSender,
-      "profile-finish-failure",
-    );
+    await startEmailVerification(agent, emailSender, "profile-finish-failure");
   await state.persistence.artifacts.destroyArtifact(
     `Interaction:${interactionUid}`,
   );
-  const verify = await agent.post(profileLocation).type("form").send({
-    csrf: extractCsrf(sendCode.text),
-    action: "verify_code",
-    code,
-  });
+  const verify = await agent
+    .post(profileLocation)
+    .type("form")
+    .send({
+      csrf: extractCsrf(sendCode.text),
+      action: "verify_code",
+      code,
+    });
   assert.equal(verify.status, 400);
   assert.match(verify.text, /登录流程已过期/);
   assert.ok(
@@ -3385,42 +3384,23 @@ test("session ttl absolute window resets after re-login", () => {
   assert.equal(refreshedSessionTtl, 280);
 });
 
-test.skip("config rejects when session idle ttl exceeds absolute session ttl", () => {
-  assert.throws(
-    () =>
-      readConfig({
-        APP_ENV: "test",
-        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
-        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_SESSION_TTL_SECONDS: "60",
-        OIDC_SESSION_IDLE_TTL_SECONDS: "120",
-        OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
-      }),
-    /OIDC_SESSION_IDLE_TTL_SECONDS must be less than or equal to OIDC_SESSION_TTL_SECONDS/,
-  );
-});
-
-test.skip("config defaults grant ttl above refresh token ttl and enforces the floor", () => {
+test("config ignores migrated runtime-policy env variables", () => {
   const config = readConfig({
     APP_ENV: "test",
     OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
     OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
     OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
+    OIDC_SESSION_TTL_SECONDS: "60",
+    OIDC_SESSION_IDLE_TTL_SECONDS: "120",
+    OIDC_REFRESH_TTL_SECONDS: "1000",
+    OIDC_GRANT_TTL_SECONDS: "500",
+    OIDC_CSRF_TOKEN_TTL_SECONDS: "900",
   });
-  assert.ok(config.grantTtlSeconds >= config.refreshTokenTtlSeconds);
-
-  assert.throws(
-    () =>
-      readConfig({
-        APP_ENV: "test",
-        OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
-        OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-        OIDC_REFRESH_TTL_SECONDS: "1000",
-        OIDC_GRANT_TTL_SECONDS: "500",
-        OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
-      }),
-    /OIDC_GRANT_TTL_SECONDS must be greater than or equal to OIDC_REFRESH_TTL_SECONDS/,
-  );
+  assert.equal(config.sessionTtlSeconds, 60 * 60 * 8);
+  assert.equal(config.sessionIdleTtlSeconds, 60 * 60 * 2);
+  assert.equal(config.refreshTokenTtlSeconds, 60 * 60 * 24 * 30);
+  assert.equal(config.grantTtlSeconds, 60 * 60 * 24 * 90);
+  assert.equal(config.csrfTokenTtlSeconds, 600);
 });
 
 test("config ignores deprecated OIDC_DEMO_* variables", () => {
@@ -3686,18 +3666,6 @@ test("config rejects cookie key reused as csrf signing secret in production", ()
       ),
     /OIDC_COOKIE_KEYS entries must be different from OIDC_CSRF_SIGNING_SECRET/,
   );
-});
-
-test.skip("config caps csrf token ttl to interaction ttl", () => {
-  const config = readConfig({
-    APP_ENV: "test",
-    OIDC_KEY_ENCRYPTION_SECRET: "test-oidc-key-secret",
-    OIDC_ARTIFACT_ENCRYPTION_SECRET: "test-oidc-artifact-secret",
-    OIDC_INTERACTION_TTL_SECONDS: "120",
-    OIDC_CSRF_TOKEN_TTL_SECONDS: "900",
-    OIDC_ARTIFACT_CLEANUP_ENABLED: "true",
-  });
-  assert.equal(config.csrfTokenTtlSeconds, 120);
 });
 
 test("config rejects non-https issuer outside test", () => {

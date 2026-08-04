@@ -188,39 +188,17 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
       "OIDC_EMAIL_VERIFICATION_ENABLED must remain enabled when APP_ENV=production",
     );
   }
-  const emailVerifyCodeTtlSeconds = Number(
-    env["OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS"] ?? 600,
-  );
-  const emailVerifyResendCooldownSeconds = Number(
-    env["OIDC_EMAIL_VERIFY_RESEND_COOLDOWN_SECONDS"] ?? 60,
-  );
-  const emailVerifyMaxAttempts = Number(
-    env["OIDC_EMAIL_VERIFY_MAX_ATTEMPTS"] ?? 5,
-  );
-  const emailVerifyRateLimitSubjectMax = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX"] ?? 4,
-  );
-  const emailVerifyRateLimitSubjectWindowSeconds = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_WINDOW_SECONDS"] ?? 600,
-  );
-  const emailVerifyRateLimitEmailMax = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX"] ?? 2,
-  );
-  const emailVerifyRateLimitEmailWindowSeconds = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_WINDOW_SECONDS"] ?? 600,
-  );
-  const emailVerifyRateLimitDomainMax = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX"] ?? 12,
-  );
-  const emailVerifyRateLimitDomainWindowSeconds = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_WINDOW_SECONDS"] ?? 600,
-  );
-  const emailVerifyRateLimitIpMax = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX"] ?? 12,
-  );
-  const emailVerifyRateLimitIpWindowSeconds = Number(
-    env["OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_WINDOW_SECONDS"] ?? 600,
-  );
+  const emailVerifyCodeTtlSeconds = 600;
+  const emailVerifyResendCooldownSeconds = 60;
+  const emailVerifyMaxAttempts = 5;
+  const emailVerifyRateLimitSubjectMax = 4;
+  const emailVerifyRateLimitSubjectWindowSeconds = 600;
+  const emailVerifyRateLimitEmailMax = 2;
+  const emailVerifyRateLimitEmailWindowSeconds = 600;
+  const emailVerifyRateLimitDomainMax = 12;
+  const emailVerifyRateLimitDomainWindowSeconds = 600;
+  const emailVerifyRateLimitIpMax = 12;
+  const emailVerifyRateLimitIpWindowSeconds = 600;
   const keyEncryptionSecret = requireSecret(
     env,
     "OIDC_KEY_ENCRYPTION_SECRET",
@@ -277,125 +255,12 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
   if (!artifactCleanupEnabled) {
     throw new Error("OIDC_ARTIFACT_CLEANUP_ENABLED must be true");
   }
-  const sessionTtlSeconds = Number(
-    env["OIDC_SESSION_TTL_SECONDS"] ?? 60 * 60 * 8,
-  );
-  const sessionIdleTtlSeconds = Number(
-    env["OIDC_SESSION_IDLE_TTL_SECONDS"] ?? 60 * 60 * 2,
-  );
-  const interactionTtlSeconds = Number(
-    env["OIDC_INTERACTION_TTL_SECONDS"] ?? 60 * 15,
-  );
+  const sessionTtlSeconds = 60 * 60 * 8;
+  const sessionIdleTtlSeconds = 60 * 60 * 2;
+  const interactionTtlSeconds = 60 * 15;
   const csrfSigningSecretRaw = env["OIDC_CSRF_SIGNING_SECRET"]?.trim();
   const csrfSigningSecret = csrfSigningSecretRaw || keyEncryptionSecret;
-  const csrfTokenTtlRaw = Number(env["OIDC_CSRF_TOKEN_TTL_SECONDS"] ?? 600);
-  if (!Number.isFinite(sessionTtlSeconds) || sessionTtlSeconds <= 0) {
-    throw new Error("OIDC_SESSION_TTL_SECONDS must be a positive number");
-  }
-  if (!Number.isFinite(sessionIdleTtlSeconds) || sessionIdleTtlSeconds <= 0) {
-    throw new Error("OIDC_SESSION_IDLE_TTL_SECONDS must be a positive number");
-  }
-  if (!Number.isInteger(interactionTtlSeconds) || interactionTtlSeconds <= 0) {
-    throw new Error("OIDC_INTERACTION_TTL_SECONDS must be a positive integer");
-  }
-  if (sessionIdleTtlSeconds > sessionTtlSeconds) {
-    throw new Error(
-      "OIDC_SESSION_IDLE_TTL_SECONDS must be less than or equal to OIDC_SESSION_TTL_SECONDS",
-    );
-  }
-  if (!Number.isInteger(csrfTokenTtlRaw) || csrfTokenTtlRaw <= 0) {
-    throw new Error("OIDC_CSRF_TOKEN_TTL_SECONDS must be a positive integer");
-  }
-  if (
-    !Number.isInteger(emailVerifyCodeTtlSeconds) ||
-    emailVerifyCodeTtlSeconds <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyResendCooldownSeconds) ||
-    emailVerifyResendCooldownSeconds <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RESEND_COOLDOWN_SECONDS must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyMaxAttempts) ||
-    emailVerifyMaxAttempts <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_MAX_ATTEMPTS must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitSubjectMax) ||
-    emailVerifyRateLimitSubjectMax <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_MAX must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitSubjectWindowSeconds) ||
-    emailVerifyRateLimitSubjectWindowSeconds <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_SUBJECT_WINDOW_SECONDS must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitEmailMax) ||
-    emailVerifyRateLimitEmailMax <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_MAX must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitEmailWindowSeconds) ||
-    emailVerifyRateLimitEmailWindowSeconds <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_EMAIL_WINDOW_SECONDS must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitDomainMax) ||
-    emailVerifyRateLimitDomainMax <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_MAX must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitDomainWindowSeconds) ||
-    emailVerifyRateLimitDomainWindowSeconds <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_DOMAIN_WINDOW_SECONDS must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitIpMax) ||
-    emailVerifyRateLimitIpMax <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_MAX must be a positive integer",
-    );
-  }
-  if (
-    !Number.isInteger(emailVerifyRateLimitIpWindowSeconds) ||
-    emailVerifyRateLimitIpWindowSeconds <= 0
-  ) {
-    throw new Error(
-      "OIDC_EMAIL_VERIFY_RATE_LIMIT_IP_WINDOW_SECONDS must be a positive integer",
-    );
-  }
-  const csrfTokenTtlSeconds = Math.min(csrfTokenTtlRaw, interactionTtlSeconds);
-
+  const csrfTokenTtlSeconds = 600;
   const rateLimitFailClosed =
     env["OIDC_RATE_LIMIT_FAIL_CLOSED"] !== undefined
       ? env["OIDC_RATE_LIMIT_FAIL_CLOSED"] === "true"
@@ -422,125 +287,22 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
       "OIDC_RATE_LIMIT_MEMORY_CLEANUP_INTERVAL_SECONDS must be a positive integer",
     );
   }
-  const managementClientMaxPerProject = Number(
-    env["OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT"] ?? 10,
-  );
-  const managementClientMaxPerSubject = Number(
-    env["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT"] ?? 30,
-  );
-  const managementProjectMaxActivePerSubject = Number(
-    env["OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT"] ?? 5,
-  );
-  const managementProjectCreateRateLimitSubjectMax = Number(
-    env["OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX"] ?? 3,
-  );
-  const managementProjectCreateRateLimitIpMax = Number(
-    env["OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX"] ?? 10,
-  );
-  const managementProjectCreateRateLimitWindowSeconds = Number(
-    env["OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_WINDOW_SECONDS"] ?? 3600,
-  );
-  const managementClientCreateRateLimitSubjectMax = Number(
-    env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX"] ?? 5,
-  );
-  const managementClientCreateRateLimitIpMax = Number(
-    env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX"] ?? 20,
-  );
-  const managementClientCreateRateLimitWindowSeconds = Number(
-    env["OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS"] ?? 3600,
-  );
-  const clientSecretDefaultGraceSeconds = Number(
-    env["OIDC_CLIENT_SECRET_DEFAULT_GRACE_SECONDS"] ?? 86_400,
-  );
-  const clientSecretMaxGraceSeconds = Number(
-    env["OIDC_CLIENT_SECRET_MAX_GRACE_SECONDS"] ?? 604_800,
-  );
-  const clientSecretRotateRateLimitSubjectMax = Number(
-    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX"] ?? 10,
-  );
-  const clientSecretRotateRateLimitClientMax = Number(
-    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX"] ?? 5,
-  );
-  const clientSecretRotateRateLimitIpMax = Number(
-    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_IP_MAX"] ?? 20,
-  );
-  const clientSecretRotateRateLimitWindowSeconds = Number(
-    env["OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_WINDOW_SECONDS"] ?? 3600,
-  );
-  const clientSecretRotateMinimumIntervalSeconds = Number(
-    env["OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS"] ?? 60,
-  );
-  if (
-    !Number.isInteger(clientSecretDefaultGraceSeconds) ||
-    !Number.isInteger(clientSecretMaxGraceSeconds) ||
-    clientSecretDefaultGraceSeconds < 0 ||
-    clientSecretMaxGraceSeconds < 0 ||
-    clientSecretDefaultGraceSeconds > clientSecretMaxGraceSeconds
-  ) {
-    throw new Error(
-      "OIDC client secret grace values must be non-negative integers and default must not exceed max",
-    );
-  }
-  for (const [key, value] of [
-    ["OIDC_MANAGEMENT_CLIENT_MAX_PER_PROJECT", managementClientMaxPerProject],
-    ["OIDC_MANAGEMENT_CLIENT_MAX_PER_SUBJECT", managementClientMaxPerSubject],
-    [
-      "OIDC_MANAGEMENT_PROJECT_MAX_ACTIVE_PER_SUBJECT",
-      managementProjectMaxActivePerSubject,
-    ],
-    [
-      "OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_SUBJECT_MAX",
-      managementProjectCreateRateLimitSubjectMax,
-    ],
-    [
-      "OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_IP_MAX",
-      managementProjectCreateRateLimitIpMax,
-    ],
-    [
-      "OIDC_MANAGEMENT_PROJECT_CREATE_RATE_LIMIT_WINDOW_SECONDS",
-      managementProjectCreateRateLimitWindowSeconds,
-    ],
-    [
-      "OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_SUBJECT_MAX",
-      managementClientCreateRateLimitSubjectMax,
-    ],
-    [
-      "OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_IP_MAX",
-      managementClientCreateRateLimitIpMax,
-    ],
-    [
-      "OIDC_MANAGEMENT_CLIENT_CREATE_RATE_LIMIT_WINDOW_SECONDS",
-      managementClientCreateRateLimitWindowSeconds,
-    ],
-    [
-      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_SUBJECT_MAX",
-      clientSecretRotateRateLimitSubjectMax,
-    ],
-    [
-      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_CLIENT_MAX",
-      clientSecretRotateRateLimitClientMax,
-    ],
-    [
-      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_IP_MAX",
-      clientSecretRotateRateLimitIpMax,
-    ],
-    [
-      "OIDC_CLIENT_SECRET_ROTATE_RATE_LIMIT_WINDOW_SECONDS",
-      clientSecretRotateRateLimitWindowSeconds,
-    ],
-  ] as const) {
-    if (!Number.isInteger(value) || value <= 0) {
-      throw new Error(`${key} must be a positive integer`);
-    }
-  }
-  if (
-    !Number.isInteger(clientSecretRotateMinimumIntervalSeconds) ||
-    clientSecretRotateMinimumIntervalSeconds < 0
-  ) {
-    throw new Error(
-      "OIDC_CLIENT_SECRET_ROTATE_MINIMUM_INTERVAL_SECONDS must be a non-negative integer",
-    );
-  }
+  const managementClientMaxPerProject = 10;
+  const managementClientMaxPerSubject = 30;
+  const managementProjectMaxActivePerSubject = 5;
+  const managementProjectCreateRateLimitSubjectMax = 3;
+  const managementProjectCreateRateLimitIpMax = 10;
+  const managementProjectCreateRateLimitWindowSeconds = 3600;
+  const managementClientCreateRateLimitSubjectMax = 5;
+  const managementClientCreateRateLimitIpMax = 20;
+  const managementClientCreateRateLimitWindowSeconds = 3600;
+  const clientSecretDefaultGraceSeconds = 86_400;
+  const clientSecretMaxGraceSeconds = 604_800;
+  const clientSecretRotateRateLimitSubjectMax = 10;
+  const clientSecretRotateRateLimitClientMax = 5;
+  const clientSecretRotateRateLimitIpMax = 20;
+  const clientSecretRotateRateLimitWindowSeconds = 3600;
+  const clientSecretRotateMinimumIntervalSeconds = 60;
   if (!Number.isInteger(trustProxyHops) || trustProxyHops < 0) {
     throw new Error("TRUST_PROXY_HOPS must be a non-negative integer");
   }
@@ -674,29 +436,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
       );
     }
   }
-  const refreshTokenTtlSeconds = Number(
-    env["OIDC_REFRESH_TTL_SECONDS"] ?? 60 * 60 * 24 * 30,
-  );
-  if (
-    !Number.isInteger(refreshTokenTtlSeconds) ||
-    refreshTokenTtlSeconds <= 0
-  ) {
-    throw new Error("OIDC_REFRESH_TTL_SECONDS must be a positive integer");
-  }
   // The Grant anchors consent and outlives individual refresh tokens; under
   // refresh-token rotation the grant must not expire before a still-valid
   // rotated refresh token, so it defaults to (and is enforced ≥) the refresh TTL.
-  const grantTtlSeconds = Number(
-    env["OIDC_GRANT_TTL_SECONDS"] ?? 60 * 60 * 24 * 90,
-  );
-  if (!Number.isInteger(grantTtlSeconds) || grantTtlSeconds <= 0) {
-    throw new Error("OIDC_GRANT_TTL_SECONDS must be a positive integer");
-  }
-  if (grantTtlSeconds < refreshTokenTtlSeconds) {
-    throw new Error(
-      "OIDC_GRANT_TTL_SECONDS must be greater than or equal to OIDC_REFRESH_TTL_SECONDS",
-    );
-  }
+  const refreshTokenTtlSeconds = 60 * 60 * 24 * 30;
+  const grantTtlSeconds = 60 * 60 * 24 * 90;
   const agentApiEnabledRaw = env["OIDC_AGENT_API_ENABLED"];
   const agentApiEnabled =
     agentApiEnabledRaw === undefined
@@ -748,43 +492,31 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
     sessionTtlSeconds,
     sessionIdleTtlSeconds,
     interactionTtlSeconds,
-    authorizationCodeTtlSeconds: Number(
-      env["OIDC_AUTHORIZATION_CODE_TTL_SECONDS"] ?? 60,
-    ),
-    accessTokenTtlSeconds: Number(
-      env["OIDC_ACCESS_TOKEN_TTL_SECONDS"] ?? 60 * 5,
-    ),
-    idTokenTtlSeconds: Number(env["OIDC_ID_TOKEN_TTL_SECONDS"] ?? 60 * 5),
+    authorizationCodeTtlSeconds: 60,
+    accessTokenTtlSeconds: 60 * 5,
+    idTokenTtlSeconds: 60 * 5,
     refreshTokenTtlSeconds,
     grantTtlSeconds,
     artifactCleanupEnabled,
     artifactCleanupCron,
     artifactCleanupBatchSize,
-    loginRateLimitMax: Number(env["OIDC_LOGIN_RATE_LIMIT_MAX"] ?? 10),
-    loginRateLimitWindowSeconds: Number(
-      env["OIDC_LOGIN_RATE_LIMIT_WINDOW_SECONDS"] ?? 60,
-    ),
-    loginFailureLimit: Number(env["OIDC_LOGIN_FAILURE_LIMIT"] ?? 5),
-    loginFailureWindowSeconds: Number(
-      env["OIDC_LOGIN_FAILURE_WINDOW_SECONDS"] ?? 60 * 5,
-    ),
-    tokenRateLimitMax: Number(env["OIDC_TOKEN_RATE_LIMIT_MAX"] ?? 20),
-    tokenRateLimitWindowSeconds: Number(
-      env["OIDC_TOKEN_RATE_LIMIT_WINDOW_SECONDS"] ?? 60,
-    ),
+    loginRateLimitMax: 10,
+    loginRateLimitWindowSeconds: 60,
+    loginFailureLimit: 5,
+    loginFailureWindowSeconds: 60 * 5,
+    tokenRateLimitMax: 20,
+    tokenRateLimitWindowSeconds: 60,
     managementProjectMaxActivePerSubject,
     managementProjectCreateRateLimitSubjectMax,
     managementProjectCreateRateLimitIpMax,
     managementProjectCreateRateLimitWindowSeconds,
-    managementProjectQuotaAdminExempt:
-      env["OIDC_MANAGEMENT_PROJECT_QUOTA_ADMIN_EXEMPT"] !== "false",
+    managementProjectQuotaAdminExempt: true,
     managementClientMaxPerProject,
     managementClientMaxPerSubject,
     managementClientCreateRateLimitSubjectMax,
     managementClientCreateRateLimitIpMax,
     managementClientCreateRateLimitWindowSeconds,
-    managementClientQuotaAdminExempt:
-      env["OIDC_MANAGEMENT_CLIENT_QUOTA_ADMIN_EXEMPT"] !== "false",
+    managementClientQuotaAdminExempt: true,
     clientSecretDefaultGraceSeconds,
     clientSecretMaxGraceSeconds,
     clientSecretRotateRateLimitSubjectMax,
