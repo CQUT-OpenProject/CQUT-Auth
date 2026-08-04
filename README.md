@@ -8,21 +8,20 @@
 </div>
 
 > [!NOTE]
-> CQUT Auth 是为受控客户端提供登录服务的 OpenID Connect Provider。它通过重庆理工大学 UIS / CAS 验证学校账号，将验证结果关联到本地 Subject，再通过 Authorization Code + PKCE 向已审核的客户端签发令牌。
+> CQUT-Auth 是为受控客户端提供登录服务的 OpenID Connect Provider，通过重庆理工大学 UIS / CAS 验证学校账号并将验证结果关联到本地 Subject，再通过 Authorization Code + PKCE 向已审核的客户端签发令牌。
 >
-> 项目还提供客户端管理后台，可管理项目成员和 OIDC 客户端，配置 Redirect URI、Scope 与 Client Secret，并处理审核和运行策略。
->
-> **完整文档**：[GitHub Pages 文档站](https://cqut-openproject.github.io/CQUT-Auth/)
+> **完整文档**：[CQUT-Auth 文档站](https://cqut-openproject.github.io/CQUT-Auth/)
 
 > [!CAUTION]
-> 本项目会在登录期间接收学校账号和密码，并将其用于请求 UIS；凭据不会写入数据库。部署者仍需自行完成安全评审、日志审计、网络隔离、密钥管理和隐私合规。请勿将未经审计的实例直接用于生产环境。
+> 程序会在登录期间接收学校账号和密码，并将其用于请求 UIS。
+>
+> 凭据不会写入数据库，但仍需自行完成安全评审、日志审计、网络隔离、密钥管理和隐私合规等审计工作。请勿将未经审计的实例直接用于生产环境。忽略此警告而造成的任何后果与本项目无关。
 
-## 能力与边界
+## 主要能力
 
-- OIDC Authorization Code + 强制 PKCE；支持 Web 与 SPA 客户端
-- Scope：`openid`、`profile`、`email`、`student`、`offline_access`
-- UIS / CAS 登录与学校身份关联；PostgreSQL 持久化；Redis 限流（生产 fail-closed）
-- 客户端 Revision 审核、项目成员权限、Secret 轮换、邮箱验证与运行策略
+- **「统一接入」**：基于标准 OIDC 协议，接入方一次对接即可获得完整登录能力，无需处理 UIS / CAS 等繁琐流程
+- **「身份可信」**：复用学校 UIS / CAS 系统校验票据并关联在校身份，确保账号为真实在校学生
+- **「管理便捷」**：提供客户端管理后台，可管理项目成员与客户端，配置 Redirect URI、Scope 与 Client Secret，并处理审核、邮箱验证与运行策略
 
 ## 使用 AI 创建与管理客户端
 
@@ -31,6 +30,8 @@
 ```text
 我需要为项目对接 OAuth 平台，访问 https://your-domain.com/api/agent 并按照其指示协助我完成客户端创建工作。
 ```
+
+更多步骤与说明见[《Agent API》](https://cqut-openproject.github.io/CQUT-Auth/guide/agent-api)
 
 ## 快速体验
 
@@ -43,7 +44,9 @@ pnpm docker:up
 ```
 
 管理后台：`http://127.0.0.1:3003/manage`  
-更多步骤与说明见 [本地启动](https://cqut-openproject.github.io/CQUT-Auth/guide/getting-started)。
+停止服务：`pnpm docker:down`
+
+更多步骤与说明见[《本地启动》](https://cqut-openproject.github.io/CQUT-Auth/guide/getting-started)
 
 ## 文档
 
