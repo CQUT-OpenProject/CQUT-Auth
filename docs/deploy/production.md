@@ -7,6 +7,10 @@ pnpm install --frozen-lockfile
 pnpm init-env --profile production --issuer https://auth.example.com
 ```
 
+`init-env` 默认拒绝覆盖已存在的 `deploy/.env`；重新生成生产配置时需加 `--force`（会将整个 `.env` 覆盖为生产模板，注意保存旧值）。
+
+生产 Compose 会强制注入 `APP_ENV=production`，即使 `deploy/.env` 仍是 test/development 模板，应用也会以生产模式启动并执行全部安全校验，不会静默降级。
+
 检查 `deploy/.env`，至少确认：
 
 - `OIDC_ISSUER` 与外部 HTTPS 地址完全一致；
@@ -71,6 +75,26 @@ docker pull ghcr.io/cqut-openproject/cqut-auth:latest
 例如 `v1.2.3` 会生成 `latest`、`v1.2.3`、`1.2.3`、`1.2`、`1` 和 `sha-<commit>` 标签。如果镜像包未设置为公开，拉取前需要先使用具有 `read:packages` 权限的 GitHub Token 登录 `ghcr.io`。
 
 确认 `/health/live` 和 Discovery 正常后，将 `OIDC_AUTO_SEED_SIGNING_KEY` 改回 `false` 并重启。后续签名密钥由数据库管理，不需要每次启动重新生成。此时 `/health/ready` 仍可能因为邮件尚未配置而返回 `503`。
+
+### 签名密钥轮换与退役
+
+`pnpm seed:key` 仅在**不存在任何 active 密钥**时创建新密钥；已存在时会提示并跳过，不会无限累加密钥。需要轮换或退役密钥时：
+
+1. 手动插入新密钥并把旧密钥标记为 `retiring`（新密钥签发、旧密钥继续校验，客户端平滑过渡）：
+
+   ```sql
+   -- 将当前 active 密钥降为 retiring（在 JWKS 中保留，仅停止签发）
+   update oidc_signing_keys set status = 'retiring', retired_at = null where status = 'active';
+   ```
+
+2. 设置 `OIDC_AUTO_SEED_SIGNING_KEY=true` 并重启（或手动 `pnpm seed:key`），生成新的 active 密钥。
+3. 观察一段时间，确认没有客户端仍在使用旧密钥后退役并清理：
+
+   ```sql
+   update oidc_signing_keys set status = 'retired', retired_at = now() where status = 'retiring';
+   ```
+
+4. JWKS 端点只发布 `active` 与 `retiring` 密钥的公钥，`retired` 密钥不再出现在任何签名或校验集合中。
 
 ## 3. 配置反向代理
 
