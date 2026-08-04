@@ -210,7 +210,6 @@ async function getCasLoginWithRetry(
     maxRedirects?: number;
   },
 ): Promise<AxiosResponse> {
-  let lastError: unknown;
   const params: Record<string, string> = { service: options.service };
   if (options.applicationCode) {
     params["applicationCode"] = options.applicationCode;
@@ -228,11 +227,7 @@ async function getCasLoginWithRetry(
       if (response.status < 500 || attempt === 2) {
         return response;
       }
-      lastError = new RetryableProviderError(
-        "campus cas login returned retryable status",
-      );
     } catch (error) {
-      lastError = error;
       if (attempt === 2 || !isRetryableAxiosNetworkError(error)) {
         throw error;
       }
@@ -240,9 +235,9 @@ async function getCasLoginWithRetry(
     await sleep(250);
   }
 
-  throw lastError instanceof Error
-    ? lastError
-    : new RetryableProviderError("campus cas login failed");
+  // Unreachable: the second attempt always returns or throws. Kept so
+  // TypeScript narrows the return type to AxiosResponse.
+  throw new RetryableProviderError("campus cas login failed");
 }
 
 async function validateCasServiceTicket(

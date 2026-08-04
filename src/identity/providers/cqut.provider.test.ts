@@ -242,6 +242,37 @@ test("CqutCampusVerifierProvider normalizes the CAS user before deriving the ide
   }
 });
 
+test("CqutCampusVerifierProvider does not retry past two CAS login attempts", async () => {
+  const upstream = await startCasServer({ loginPageFailures: 2 });
+  const provider = createProvider(upstream.baseUrl);
+
+  try {
+    await assert.rejects(
+      provider.verifyCredentials({
+        account: TEST_ACCOUNT,
+        password: TEST_PASSWORD,
+      }),
+      (error: unknown) => {
+        assert.ok(error instanceof RetryableProviderError);
+        return true;
+      },
+    );
+  } finally {
+    await upstream.close();
+  }
+
+  const casLoginRequests = upstream.requests.filter((item) =>
+    item.pathWithQuery.startsWith(`/center-auth-server/${APP_CODE}/cas/login`),
+  );
+  assert.equal(casLoginRequests.length, 2);
+  assert.ok(casLoginRequests.every((item) => item.method === "GET"));
+  assert.ok(
+    !upstream.requests.some((item) =>
+      item.pathWithQuery.startsWith("/center-auth-server/sso/doLogin"),
+    ),
+  );
+});
+
 test("CqutCampusVerifierProvider retries transient CAS login GET failures", async () => {
   const upstream = await startCasServer({ loginPageFailures: 1 });
   const provider = createProvider(upstream.baseUrl);
