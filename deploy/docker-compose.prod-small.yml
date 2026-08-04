@@ -8,6 +8,7 @@ services:
     env_file:
       - ./.env
     environment:
+      APP_ENV: production
       PORT: 3003
       DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
       OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required}
@@ -16,7 +17,6 @@ services:
       TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-127.0.0.1/32,::1/128,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7}
       OIDC_CLIENTS_CONFIG_PATH: ${OIDC_CLIENTS_CONFIG_PATH:-/app/config/oidc-clients.json}
       OIDC_ADMIN_SUBJECT_IDS: ${OIDC_ADMIN_SUBJECT_IDS:-}
-      OIDC_ARTIFACT_CLEANUP_ENABLED: ${OIDC_ARTIFACT_CLEANUP_ENABLED:-true}
       OIDC_ARTIFACT_CLEANUP_CRON: "${OIDC_ARTIFACT_CLEANUP_CRON:-*/5 * * * *}"
     ports:
       - "127.0.0.1:${OIDC_APP_PORT:-3003}:3003"
