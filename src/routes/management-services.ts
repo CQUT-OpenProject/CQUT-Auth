@@ -8,7 +8,7 @@ export function createManagementDomainServices(
   config: StaticConfig,
   persistence: Pick<
     PersistenceModules,
-    "identity" | "projects" | "clients" | "sessions"
+    "identity" | "projects" | "clients" | "sessions" | "runtime"
   >,
 ) {
   const sessions = new ManagementSessionService(
@@ -22,7 +22,11 @@ export function createManagementDomainServices(
       maxActiveProjects: config.managementProjectMaxActivePerSubject,
       adminQuotaExempt: config.managementProjectQuotaAdminExempt,
     },
-    clientAudits: persistence.clients,
+    // Postgres writes client audits into project_audit_logs, so the project
+    // audit view already includes them; the memory client repo keeps its own.
+    ...(persistence.runtime.hasDatabase()
+      ? {}
+      : { clientAudits: persistence.clients }),
   });
   const clients = new ClientManagementService(
     persistence.clients,

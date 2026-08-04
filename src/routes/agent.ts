@@ -41,7 +41,7 @@ export function createAgentRouter(
   services: AgentRouterServices,
   persistence: Pick<
     PersistenceModules,
-    "identity" | "projects" | "clients" | "sessions"
+    "identity" | "projects" | "clients" | "sessions" | "runtime"
   >,
   rateLimitService: RateLimitService,
   onClientsChanged: () => void,
