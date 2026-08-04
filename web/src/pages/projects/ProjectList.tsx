@@ -10,19 +10,12 @@ import {
   Typography,
   message,
 } from "antd";
-import {
-  PlusOutlined,
-  LoginOutlined,
-  EditOutlined,
-  FolderAddOutlined,
-} from "@ant-design/icons";
+import { PlusOutlined, LoginOutlined, EditOutlined } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
 import { ProjectStatusTag } from "../../components/status/Tags";
 import { useNavigate } from "react-router";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 import { request } from "../../api/client";
-
-const { Paragraph } = Typography;
 
 export const ProjectList: React.FC = () => {
   const { projects, loading, refreshProjects, selectProject } = useProject();

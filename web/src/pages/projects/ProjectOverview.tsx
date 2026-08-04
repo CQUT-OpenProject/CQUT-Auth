@@ -18,7 +18,6 @@ import {
 import { useProject } from "../../contexts/project-context";
 import { ProjectStatusTag } from "../../components/status/Tags";
 import { request } from "../../api/client";
-import { PermissionGuard } from "../../components/layout/PermissionGuard";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 
 const { Text, Paragraph } = Typography;

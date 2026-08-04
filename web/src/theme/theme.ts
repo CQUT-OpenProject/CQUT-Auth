@@ -28,6 +28,3 @@ export const getThemeConfig = (isDark: boolean): ThemeConfig => {
     },
   };
 };
-
-// Default static config for backwards compatibility
-export const themeConfig = getThemeConfig(false);

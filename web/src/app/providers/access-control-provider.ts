@@ -10,10 +10,6 @@ export function setActiveProjectForAccessControl(project: Project | null) {
   activeProject = project;
 }
 
-export function setCurrentUserForAccessControl(user: any) {
-  currentUser = user;
-}
-
 export const accessControlProvider: AccessControlProvider = {
   can: async ({ resource, action, params }) => {
     // If user is not logged in, deny all
@@ -32,11 +28,7 @@ export const accessControlProvider: AccessControlProvider = {
     }
 
     // Global admin views
-    if (
-      resource === "adminReviews" ||
-      resource === "adminProjects" ||
-      resource === "systemSettings"
-    ) {
+    if (resource === "systemSettings") {
       return { can: !!currentUser?.isAdmin };
     }
 

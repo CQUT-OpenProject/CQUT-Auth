@@ -64,34 +64,6 @@ export const ClientStatusTag: React.FC<{
   return <Tag color={color}>{text}</Tag>;
 };
 
-export const RevisionStatusTag: React.FC<{
-  status: ClientRevision["status"];
-}> = ({ status }) => {
-  let color = "default";
-  let text = "";
-
-  switch (status) {
-    case "draft":
-      color = "warning";
-      text = "草稿";
-      break;
-    case "pending":
-      color = "processing";
-      text = "待审核";
-      break;
-    case "approved":
-      color = "success";
-      text = "已批准";
-      break;
-    case "rejected":
-      color = "error";
-      text = "已拒绝";
-      break;
-  }
-
-  return <Tag color={color}>{text}</Tag>;
-};
-
 export const SecretStatusTag: React.FC<{ secret: ClientSecret }> = ({
   secret,
 }) => {
