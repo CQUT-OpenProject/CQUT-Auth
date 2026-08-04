@@ -5,7 +5,10 @@ import type {
   OidcArtifactRepository,
   PendingInteractionLogin,
 } from "./contracts.js";
-import { buildArtifactCleanupSql } from "./contracts.js";
+import {
+  buildArtifactCleanupSql,
+  revocableClientArtifactKinds,
+} from "./contracts.js";
 
 type EncryptedArtifactPayloadEnvelope = {
   version: 1;
@@ -31,12 +34,7 @@ type ClientAuthorizationState = {
   authorizationGeneration: number;
 };
 
-const revocableKinds = new Set([
-  "AuthorizationCode",
-  "AccessToken",
-  "RefreshToken",
-  "Grant",
-]);
+const revocableKinds = new Set<string>(revocableClientArtifactKinds);
 const internalGenerationKey = "__cqutAuthorizationGeneration";
 const internalClientIdKey = "__cqutAuthorizationClientId";
 
@@ -629,8 +627,7 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
   }
 
   private maybeCleanupExpiredArtifacts() {
-    const pool = this.poolProvider();
-    if (!pool || !this.cleanupOptions.enabled) {
+    if (!this.cleanupOptions.enabled) {
       return;
     }
     if (this.cleanupInFlight) {
@@ -647,6 +644,18 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
       return;
     }
     this.lastCleanupAt = now;
+    const pool = this.poolProvider();
+    if (!pool) {
+      for (const [id, artifact] of this.artifacts) {
+        if (
+          artifact.expiresAt &&
+          new Date(artifact.expiresAt).getTime() <= now
+        ) {
+          this.artifacts.delete(id);
+        }
+      }
+      return;
+    }
     this.cleanupInFlight = pool
       .query(buildArtifactCleanupSql("$1"), [this.cleanupOptions.batchSize])
       .then(() => undefined)

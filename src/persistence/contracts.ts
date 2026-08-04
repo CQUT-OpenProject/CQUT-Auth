@@ -521,6 +521,13 @@ export interface PersistenceRuntime {
   checkReadiness(): Promise<boolean>;
 }
 
+export const revocableClientArtifactKinds = [
+  "AuthorizationCode",
+  "AccessToken",
+  "RefreshToken",
+  "Grant",
+] as const;
+
 export function buildArtifactCleanupSql(limit: string | number): string {
   return `
 with doomed as (

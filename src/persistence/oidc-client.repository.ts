@@ -13,6 +13,7 @@ import type {
   ProjectRecord,
   RevisionMutationResult,
 } from "./contracts.js";
+import { revocableClientArtifactKinds } from "./contracts.js";
 import {
   assertProjectAccess,
   type ProjectWriteAuthorization,
@@ -1477,10 +1478,7 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
       `delete from oidc_artifacts
        where client_id_hash = $1
          and kind = any($2::text[])`,
-      [
-        this.clientIdHasher(clientId),
-        ["AuthorizationCode", "AccessToken", "RefreshToken", "Grant"],
-      ],
+      [this.clientIdHasher(clientId), [...revocableClientArtifactKinds]],
     );
   }
 
