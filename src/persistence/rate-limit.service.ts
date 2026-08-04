@@ -1,5 +1,6 @@
 import Redis from "ioredis";
 import type { StaticConfig } from "../config.js";
+import { sha256 } from "../utils.js";
 
 type MemoryCounter = {
   count: number;
@@ -16,6 +17,56 @@ type RateLimitMode = "redis" | "memory" | "fail-closed";
 export class RateLimitUnavailableError extends Error {
   constructor(message = "rate limit backend unavailable") {
     super(message);
+  }
+}
+
+// Shared key space between the OIDC interaction login and the
+// management/agent login surfaces so both benefit from one counter set.
+export function loginRateLimitKeys(
+  stage: "attempt" | "failure",
+  account: string,
+  ip: string,
+) {
+  const prefix = `oidc:login:${stage}`;
+  const accountHash = sha256(account);
+  return [
+    `${prefix}:account:${accountHash}`,
+    `${prefix}:ip:${ip}`,
+    `${prefix}:account-ip:${accountHash}:${ip}`,
+  ];
+}
+
+export async function consumeRateLimitChecks(
+  rateLimitService: RateLimitService,
+  checks: Array<{ key: string; max: number; windowSeconds: number }>,
+): Promise<{
+  decision: RateLimitDecision | undefined;
+  consumedKeys: string[];
+}> {
+  const consumedKeys: string[] = [];
+  try {
+    for (const check of checks) {
+      const decision = await rateLimitService.consume(
+        check.key,
+        check.max,
+        check.windowSeconds,
+      );
+      consumedKeys.push(check.key);
+      if (!decision.allowed) {
+        await resetRateLimitKeys(rateLimitService, consumedKeys.slice(0, -1));
+        return { decision, consumedKeys: [] };
+      }
+    }
+    return { decision: undefined, consumedKeys };
+  } catch (error) {
+    await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
+      (resetError) => {
+        if (!(resetError instanceof RateLimitUnavailableError)) {
+          throw resetError;
+        }
+      },
+    );
+    throw error;
   }
 }
 

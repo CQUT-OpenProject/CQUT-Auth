@@ -1,58 +1,20 @@
 import {
   RateLimitService,
   RateLimitUnavailableError,
+  consumeRateLimitChecks,
+  loginRateLimitKeys,
   resetRateLimitKeys,
-  type RateLimitDecision,
 } from "../persistence/rate-limit.service.js";
-import { sha256 } from "../utils.js";
-
-export function managementLoginRateLimitKeys(
-  stage: "attempt" | "failure",
-  account: string,
-  ip: string,
-) {
-  const prefix = `oidc:login:${stage}`;
-  const accountHash = sha256(account);
-  return [
-    `${prefix}:account:${accountHash}`,
-    `${prefix}:ip:${ip}`,
-    `${prefix}:account-ip:${accountHash}:${ip}`,
-  ];
-}
 
 export async function enforceRateLimits(
   rateLimitService: RateLimitService,
   limits: Array<{ key: string; max: number }>,
   windowSeconds: number,
-): Promise<{
-  decision?: RateLimitDecision;
-  consumedKeys: string[];
-}> {
-  const consumedKeys: string[] = [];
-  try {
-    for (const limit of limits) {
-      const decision = await rateLimitService.consume(
-        limit.key,
-        limit.max,
-        windowSeconds,
-      );
-      consumedKeys.push(limit.key);
-      if (!decision.allowed) {
-        await resetRateLimitKeys(rateLimitService, consumedKeys.slice(0, -1));
-        return { decision, consumedKeys: [] };
-      }
-    }
-    return { consumedKeys };
-  } catch (error) {
-    await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-      (resetError) => {
-        if (!(resetError instanceof RateLimitUnavailableError)) {
-          throw resetError;
-        }
-      },
-    );
-    throw error;
-  }
+) {
+  return consumeRateLimitChecks(
+    rateLimitService,
+    limits.map((limit) => ({ ...limit, windowSeconds })),
+  );
 }
 
 export async function consumeManagementLoginRateLimit(
@@ -63,13 +25,13 @@ export async function consumeManagementLoginRateLimit(
   max: number,
   windowSeconds: number,
 ) {
-  return enforceRateLimits(
+  return consumeRateLimitChecks(
     rateLimitService,
-    managementLoginRateLimitKeys(stage, account, ip).map((key) => ({
+    loginRateLimitKeys(stage, account, ip).map((key) => ({
       key,
       max,
+      windowSeconds,
     })),
-    windowSeconds,
   ).then(({ decision }) => decision);
 }
 
@@ -81,6 +43,6 @@ export async function resetManagementLoginRateLimit(
 ) {
   await resetRateLimitKeys(
     rateLimitService,
-    managementLoginRateLimitKeys(stage, account, ip),
+    loginRateLimitKeys(stage, account, ip),
   );
 }

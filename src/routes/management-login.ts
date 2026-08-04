@@ -9,11 +9,11 @@ import { hasSafeCredentialLengths } from "../identity/types.js";
 import {
   RateLimitService,
   RateLimitUnavailableError,
+  loginRateLimitKeys,
 } from "../persistence/rate-limit.service.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 import {
   consumeManagementLoginRateLimit,
-  managementLoginRateLimitKeys,
   resetManagementLoginRateLimit,
 } from "./management-rate-limit.js";
 
@@ -30,8 +30,14 @@ export async function performInteractiveLogin(
   deps: InteractiveLoginDeps,
   onSuccess: (principal: AuthenticatedPrincipal) => Promise<void>,
 ): Promise<void> {
-  const { config, rateLimitService, interactiveAuthenticator, request, response, logLabel } =
-    deps;
+  const {
+    config,
+    rateLimitService,
+    interactiveAuthenticator,
+    request,
+    response,
+    logLabel,
+  } = deps;
   const account =
     typeof request.body?.account === "string"
       ? request.body.account.trim().toLowerCase()
@@ -73,7 +79,7 @@ export async function performInteractiveLogin(
         : {}),
     });
     await Promise.all(
-      managementLoginRateLimitKeys("failure", account, ip)
+      loginRateLimitKeys("failure", account, ip)
         .filter((key) => !key.includes(":ip:"))
         .map((key) => rateLimitService.reset(key)),
     ).catch(() => undefined);
@@ -82,7 +88,9 @@ export async function performInteractiveLogin(
     if (error instanceof RetryableProviderError) {
       console.error(
         `[oidc-op] ${logLabel} sign-in upstream unavailable`,
-        error instanceof Error ? `${error.name}: ${error.message}` : "unknown error",
+        error instanceof Error
+          ? `${error.name}: ${error.message}`
+          : "unknown error",
       );
       await resetManagementLoginRateLimit(
         rateLimitService,
@@ -134,7 +142,9 @@ export async function performInteractiveLogin(
     }
     console.error(
       `[oidc-op] ${logLabel} sign-in failed`,
-      error instanceof Error ? `${error.name}: ${error.message}` : "unknown error",
+      error instanceof Error
+        ? `${error.name}: ${error.message}`
+        : "unknown error",
     );
     response.status(401).json({
       error: "access_denied",

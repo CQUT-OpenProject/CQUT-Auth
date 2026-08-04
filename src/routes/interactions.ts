@@ -8,7 +8,8 @@ import express, { type Request, type Response } from "express";
 import type { StaticConfig } from "../config.js";
 import {
   RateLimitUnavailableError,
-  resetRateLimitKeys,
+  consumeRateLimitChecks,
+  loginRateLimitKeys,
   type RateLimitDecision,
   type RateLimitService,
 } from "../persistence/rate-limit.service.js";
@@ -829,64 +830,6 @@ function handleInteractionRouteError(
   next(error);
 }
 
-function loginAttemptKey(ip: string, account: string) {
-  return `oidc:login:attempt:account-ip:${sha256(account)}:${ip}`;
-}
-
-function loginFailureKey(ip: string, account: string) {
-  return `oidc:login:failure:account-ip:${sha256(account)}:${ip}`;
-}
-
-function loginAttemptAccountKey(account: string) {
-  return `oidc:login:attempt:account:${sha256(account)}`;
-}
-
-function loginAttemptIpKey(ip: string) {
-  return `oidc:login:attempt:ip:${ip}`;
-}
-
-function loginFailureAccountKey(account: string) {
-  return `oidc:login:failure:account:${sha256(account)}`;
-}
-
-function loginFailureIpKey(ip: string) {
-  return `oidc:login:failure:ip:${ip}`;
-}
-
-async function consumeRateLimitChecks(
-  rateLimitService: RateLimitService,
-  checks: Array<{ key: string; max: number; windowSeconds: number }>,
-): Promise<RateLimitDecision | undefined> {
-  const consumedKeys: string[] = [];
-  try {
-    for (const check of checks) {
-      const decision = await rateLimitService.consume(
-        check.key,
-        check.max,
-        check.windowSeconds,
-      );
-      consumedKeys.push(check.key);
-      if (!decision.allowed) {
-        await resetRateLimitKeys(
-          rateLimitService,
-          consumedKeys.slice(0, -1),
-        );
-        return decision;
-      }
-    }
-    return undefined;
-  } catch (error) {
-    await resetRateLimitKeys(rateLimitService, consumedKeys).catch(
-      (resetError) => {
-        if (!(resetError instanceof RateLimitUnavailableError)) {
-          throw resetError;
-        }
-      },
-    );
-    throw error;
-  }
-}
-
 async function consumeLoginRateLimit(
   config: StaticConfig,
   rateLimitService: RateLimitService,
@@ -896,43 +839,21 @@ async function consumeLoginRateLimit(
   },
   stage: "attempt" | "failure",
 ): Promise<RateLimitDecision | undefined> {
-  const checks =
+  const max =
+    stage === "attempt" ? config.loginRateLimitMax : config.loginFailureLimit;
+  const windowSeconds =
     stage === "attempt"
-      ? [
-          {
-            key: loginAttemptAccountKey(identity.account),
-            max: config.loginRateLimitMax,
-            windowSeconds: config.loginRateLimitWindowSeconds,
-          },
-          {
-            key: loginAttemptIpKey(identity.ip),
-            max: config.loginRateLimitMax,
-            windowSeconds: config.loginRateLimitWindowSeconds,
-          },
-          {
-            key: loginAttemptKey(identity.ip, identity.account),
-            max: config.loginRateLimitMax,
-            windowSeconds: config.loginRateLimitWindowSeconds,
-          },
-        ]
-      : [
-          {
-            key: loginFailureAccountKey(identity.account),
-            max: config.loginFailureLimit,
-            windowSeconds: config.loginFailureWindowSeconds,
-          },
-          {
-            key: loginFailureIpKey(identity.ip),
-            max: config.loginFailureLimit,
-            windowSeconds: config.loginFailureWindowSeconds,
-          },
-          {
-            key: loginFailureKey(identity.ip, identity.account),
-            max: config.loginFailureLimit,
-            windowSeconds: config.loginFailureWindowSeconds,
-          },
-        ];
-  return consumeRateLimitChecks(rateLimitService, checks);
+      ? config.loginRateLimitWindowSeconds
+      : config.loginFailureWindowSeconds;
+  const { decision } = await consumeRateLimitChecks(
+    rateLimitService,
+    loginRateLimitKeys(stage, identity.account, identity.ip).map((key) => ({
+      key,
+      max,
+      windowSeconds,
+    })),
+  );
+  return decision;
 }
 
 async function resetLoginFailureRateLimit(
@@ -942,10 +863,11 @@ async function resetLoginFailureRateLimit(
     account: string;
   },
 ) {
-  await Promise.all([
-    rateLimitService.reset(loginFailureAccountKey(identity.account)),
-    rateLimitService.reset(loginFailureKey(identity.ip, identity.account)),
-  ]);
+  await Promise.all(
+    loginRateLimitKeys("failure", identity.account, identity.ip)
+      .filter((key) => !key.includes(":ip:"))
+      .map((key) => rateLimitService.reset(key)),
+  );
 }
 
 async function resetLoginAttemptRateLimit(
@@ -955,11 +877,11 @@ async function resetLoginAttemptRateLimit(
     account: string;
   },
 ) {
-  await Promise.all([
-    rateLimitService.reset(loginAttemptAccountKey(identity.account)),
-    rateLimitService.reset(loginAttemptIpKey(identity.ip)),
-    rateLimitService.reset(loginAttemptKey(identity.ip, identity.account)),
-  ]);
+  await Promise.all(
+    loginRateLimitKeys("attempt", identity.account, identity.ip).map((key) =>
+      rateLimitService.reset(key),
+    ),
+  );
 }
 
 function emailVerifySubjectRateLimitKey(subjectId: string) {
@@ -993,7 +915,7 @@ async function consumeEmailVerifyRateLimit(
     ip: string;
   },
 ): Promise<RateLimitDecision | undefined> {
-  return consumeRateLimitChecks(rateLimitService, [
+  const { decision } = await consumeRateLimitChecks(rateLimitService, [
     {
       key: emailVerifySubjectRateLimitKey(identity.subjectId),
       max: config.emailVerifyRateLimitSubjectMax,
@@ -1015,6 +937,7 @@ async function consumeEmailVerifyRateLimit(
       windowSeconds: config.emailVerifyRateLimitIpWindowSeconds,
     },
   ]);
+  return decision;
 }
 
 async function resetEmailVerifyRateLimit(
