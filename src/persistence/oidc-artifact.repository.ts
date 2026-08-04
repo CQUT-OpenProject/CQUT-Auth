@@ -385,6 +385,62 @@ export class OidcArtifactRepositoryImpl implements OidcArtifactRepository {
     await this.destroyArtifact(`interaction_login:${uid}`);
   }
 
+  async tryAcquireLoginGate(uid: string, ttlSeconds: number): Promise<boolean> {
+    const id = `interaction_login_gate:${uid}`;
+    const pool = this.poolProvider();
+    if (!pool) {
+      const existing = this.artifacts.get(id);
+      if (existing && !this.isExpired(existing)) {
+        return false;
+      }
+      this.artifacts.set(id, {
+        id,
+        kind: "InteractionLoginGate",
+        payload: {},
+        expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+        consumedAt: undefined,
+        grantIdHash: undefined,
+        clientIdHash: undefined,
+        authorizationGeneration: undefined,
+        uidHash: undefined,
+        userCodeHash: undefined,
+        createdAt: new Date().toISOString(),
+      });
+      return true;
+    }
+    const connection = await pool.connect();
+    try {
+      await connection.query("begin");
+      const selected = await connection.query(
+        `select id from oidc_artifacts
+         where id = $1
+           and (expires_at is null or expires_at > now())
+         for update`,
+        [id],
+      );
+      if (selected.rows[0]) {
+        await connection.query("commit");
+        return false;
+      }
+      await connection.query(
+        `insert into oidc_artifacts (id, kind, payload, expires_at)
+         values ($1, 'InteractionLoginGate', '{}'::jsonb, now() + make_interval(secs => $2))`,
+        [id, ttlSeconds],
+      );
+      await connection.query("commit");
+      return true;
+    } catch (error) {
+      await connection.query("rollback").catch(() => undefined);
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async releaseLoginGate(uid: string): Promise<void> {
+    await this.destroyArtifact(`interaction_login_gate:${uid}`);
+  }
+
   private isExpired(record: ArtifactRecord): boolean {
     if (
       record.expiresAt &&

@@ -35,6 +35,8 @@ function setNoStore(response: Response) {
 type CsrfFlow = "login" | "profile" | "consent";
 export const CSRF_NONCE_COOKIE_NAME = "op_csrf_nonce";
 
+const LOGIN_GATE_TTL_SECONDS = 30;
+
 type CsrfTokenPayload = {
   uid: string;
   flow: CsrfFlow;
@@ -998,8 +1000,11 @@ export function createInteractionRouter(
   router.get("/:uid", async (request, response, next) => {
     try {
       setNoStore(response);
-      const uid = request.params["uid"] ?? "";
       const details = await interactions.details(request, response);
+      const uid =
+        typeof details?.uid === "string" && details.uid.length > 0
+          ? details.uid
+          : (request.params["uid"] ?? "");
       const { pending, autoConsent } = await loadInteractionContext(
         uid,
         details,
@@ -1024,7 +1029,7 @@ export function createInteractionRouter(
       if (pending) {
         response.redirect(
           302,
-          `/interaction/${encodeURIComponent(request.params["uid"] ?? "")}/profile`,
+          `/interaction/${encodeURIComponent(uid)}/profile`,
         );
         return;
       }
@@ -1120,124 +1125,119 @@ export function createInteractionRouter(
           );
         return;
       }
-      const account =
-        typeof request.body?.account === "string"
-          ? request.body.account.trim().toLowerCase()
-          : "";
-      const password =
-        typeof request.body?.password === "string" ? request.body.password : "";
-      if (!hasSafeCredentialLengths(account, password)) {
-        const csrf = issueCsrfToken(response, config, uid, "login");
+      const gateAcquired = await persistence.artifacts.tryAcquireLoginGate(
+        uid,
+        LOGIN_GATE_TTL_SECONDS,
+      );
+      if (!gateAcquired) {
         response
           .status(400)
-          .send(loginView(response, uid, csrf, "账号或密码长度无效。"));
-        return;
-      }
-      const loginRateLimitIdentity = {
-        ip: resolveTrustedExpressRequestIp(config, request),
-        account: account || "unknown",
-      };
-      let precheck;
-      try {
-        precheck = await consumeLoginRateLimit(
-          config,
-          rateLimitService,
-          loginRateLimitIdentity,
-          "attempt",
-        );
-      } catch (error) {
-        if (error instanceof RateLimitUnavailableError) {
-          response
-            .status(503)
-            .setHeader("Retry-After", "60")
-            .send(serviceUnavailableView());
-          return;
-        }
-        throw error;
-      }
-      if (precheck) {
-        response
-          .status(429)
           .send(
             renderPage(
-              "尝试过于频繁",
-              `<p class="error">${precheck.retryAfterSeconds} 秒后再试。</p>`,
+              "正在处理登录",
+              '<p class="error">当前登录请求正在处理中，请稍候重试。</p>',
             ),
           );
         return;
       }
-
       try {
-        const principal = await services.interactiveAuthenticator.authenticate({
-          provider: config.authProvider,
-          account,
-          password,
-          ip: loginRateLimitIdentity.ip,
-          ...(request.get("user-agent")
-            ? { userAgent: request.get("user-agent") as string }
-            : {}),
-        });
-        await resetLoginFailureRateLimit(
-          rateLimitService,
-          loginRateLimitIdentity,
-        ).catch((error) => {
-          if (!(error instanceof RateLimitUnavailableError)) {
-            throw error;
-          }
-        });
-        const requestedScopes =
-          typeof loginDetails.params?.scope === "string"
-            ? new Set(loginDetails.params.scope.split(/\s+/).filter(Boolean))
-            : new Set<string>();
-        if (
-          requestedScopes.has("email") &&
-          (!principal.email ||
-            (config.emailVerificationEnabled && !principal.emailVerified))
-        ) {
-          await persistence.artifacts.saveInteractionLogin(uid, {
-            principal,
-            authTime: Math.floor(Date.now() / 1000),
-          });
-          response.redirect(
-            302,
-            `/interaction/${encodeURIComponent(uid)}/profile`,
-          );
-          return;
-        }
-        await finishInteractionLogin(interactions, request, response, {
-          principal,
-          authTime: Math.floor(Date.now() / 1000),
-        });
-      } catch (error) {
-        if (error instanceof RetryableProviderError) {
-          console.error(
-            "[oidc-op] interactive sign-in upstream unavailable",
-            error,
-          );
-          await resetLoginAttemptRateLimit(
-            rateLimitService,
-            loginRateLimitIdentity,
-          ).catch((resetError) => {
-            if (!(resetError instanceof RateLimitUnavailableError)) {
-              throw resetError;
-            }
-          });
+        const account =
+          typeof request.body?.account === "string"
+            ? request.body.account.trim().toLowerCase()
+            : "";
+        const password =
+          typeof request.body?.password === "string"
+            ? request.body.password
+            : "";
+        if (!hasSafeCredentialLengths(account, password)) {
+          const csrf = issueCsrfToken(response, config, uid, "login");
           response
-            .status(503)
-            .setHeader("Retry-After", "60")
-            .send(serviceUnavailableView());
+            .status(400)
+            .send(loginView(response, uid, csrf, "账号或密码长度无效。"));
           return;
         }
-        let failure;
+        const loginRateLimitIdentity = {
+          ip: resolveTrustedExpressRequestIp(config, request),
+          account: account || "unknown",
+        };
+        let precheck;
         try {
-          failure = await consumeLoginRateLimit(
+          precheck = await consumeLoginRateLimit(
             config,
             rateLimitService,
             loginRateLimitIdentity,
-            "failure",
+            "attempt",
           );
-        } catch (consumeError) {
-          if (consumeError instanceof RateLimitUnavailableError) {
+        } catch (error) {
+          if (error instanceof RateLimitUnavailableError) {
+            response
+              .status(503)
+              .setHeader("Retry-After", "60")
+              .send(serviceUnavailableView());
+            return;
+          }
+          throw error;
+        }
+        if (precheck) {
+          response
+            .status(429)
+            .send(
+              renderPage(
+                "尝试过于频繁",
+                `<p class="error">${precheck.retryAfterSeconds} 秒后再试。</p>`,
+              ),
+            );
+          return;
+        }
+
+        try {
+          const principal =
+            await services.interactiveAuthenticator.authenticate({
+              provider: config.authProvider,
+              account,
+              password,
+              ip: loginRateLimitIdentity.ip,
+              ...(request.get("user-agent")
+                ? { userAgent: request.get("user-agent") as string }
+                : {}),
+            });
+          await resetLoginFailureRateLimit(
+            rateLimitService,
+            loginRateLimitIdentity,
+          ).catch((error) => {
+            if (!(error instanceof RateLimitUnavailableError)) {
+              throw error;
+            }
+          });
+          const requestedScopes =
+            typeof loginDetails.params?.scope === "string"
+              ? new Set(loginDetails.params.scope.split(/\s+/).filter(Boolean))
+              : new Set<string>();
+          if (
+            requestedScopes.has("email") &&
+            (!principal.email ||
+              (config.emailVerificationEnabled && !principal.emailVerified))
+          ) {
+            await persistence.artifacts.saveInteractionLogin(uid, {
+              principal,
+              authTime: Math.floor(Date.now() / 1000),
+            });
+            response.redirect(
+              302,
+              `/interaction/${encodeURIComponent(uid)}/profile`,
+            );
+            return;
+          }
+          await finishInteractionLogin(interactions, request, response, {
+            principal,
+            authTime: Math.floor(Date.now() / 1000),
+          });
+        } catch (error) {
+          if (error instanceof RetryableProviderError) {
+            console.error(
+              "[oidc-op] interactive sign-in upstream unavailable",
+              error,
+            );
             await resetLoginAttemptRateLimit(
               rateLimitService,
               loginRateLimitIdentity,
@@ -1252,27 +1252,56 @@ export function createInteractionRouter(
               .send(serviceUnavailableView());
             return;
           }
-          throw consumeError;
-        }
-        if (failure) {
-          response
-            .status(429)
-            .send(
-              renderPage(
-                "失败次数过多",
-                `<p class="error">失败次数过多，请在 ${failure.retryAfterSeconds} 秒后重试。</p>`,
-              ),
+          let failure;
+          try {
+            failure = await consumeLoginRateLimit(
+              config,
+              rateLimitService,
+              loginRateLimitIdentity,
+              "failure",
             );
-          return;
+          } catch (consumeError) {
+            if (consumeError instanceof RateLimitUnavailableError) {
+              await resetLoginAttemptRateLimit(
+                rateLimitService,
+                loginRateLimitIdentity,
+              ).catch((resetError) => {
+                if (!(resetError instanceof RateLimitUnavailableError)) {
+                  throw resetError;
+                }
+              });
+              response
+                .status(503)
+                .setHeader("Retry-After", "60")
+                .send(serviceUnavailableView());
+              return;
+            }
+            throw consumeError;
+          }
+          if (failure) {
+            response
+              .status(429)
+              .send(
+                renderPage(
+                  "失败次数过多",
+                  `<p class="error">失败次数过多，请在 ${failure.retryAfterSeconds} 秒后重试。</p>`,
+                ),
+              );
+            return;
+          }
+          const message = "登录失败，请检查账号或密码后重试。";
+          if (error instanceof IdentityCoreError || error instanceof Error) {
+            console.error("[oidc-op] interactive sign-in failed", error);
+          } else {
+            console.error("[oidc-op] interactive sign-in failed", { error });
+          }
+          const csrf = issueCsrfToken(response, config, uid, "login");
+          response.status(401).send(loginView(response, uid, csrf, message));
         }
-        const message = "登录失败，请检查账号或密码后重试。";
-        if (error instanceof IdentityCoreError || error instanceof Error) {
-          console.error("[oidc-op] interactive sign-in failed", error);
-        } else {
-          console.error("[oidc-op] interactive sign-in failed", { error });
-        }
-        const csrf = issueCsrfToken(response, config, uid, "login");
-        response.status(401).send(loginView(response, uid, csrf, message));
+      } finally {
+        await persistence.artifacts
+          .releaseLoginGate(uid)
+          .catch(() => undefined);
       }
     } catch (error) {
       handleInteractionRouteError(error, response, next);

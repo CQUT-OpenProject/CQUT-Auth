@@ -34,6 +34,20 @@ class FakePool {
       rowCount: result.rowCount ?? (result.rows ? result.rows.length : 0),
     };
   }
+
+  async connect() {
+    return {
+      query: async (sql: string, values?: unknown[]) => {
+        this.calls.push({ sql, values });
+        const result = this.responder(sql, values);
+        return {
+          rows: result.rows ?? [],
+          rowCount: result.rowCount ?? (result.rows ? result.rows.length : 0),
+        };
+      },
+      release: () => undefined,
+    };
+  }
 }
 
 function createRepository(pool: FakePool) {
@@ -67,7 +81,19 @@ function createInMemoryRepository() {
 }
 
 test("upsertArtifact stores encrypted envelope instead of plaintext payload", async () => {
-  const pool = new FakePool(() => ({ rowCount: 1 }));
+  const pool = new FakePool((sql) => {
+    if (sql.includes("select lifecycle_status")) {
+      return {
+        rows: [
+          {
+            lifecycle_status: "active",
+            authorization_generation: 1,
+          },
+        ],
+      };
+    }
+    return { rowCount: 1 };
+  });
   const repository = createRepository(pool);
 
   await repository.upsertArtifact(
@@ -443,5 +469,66 @@ test("upsertArtifact preserves consumed_at on re-upsert", async () => {
     repository.consumeArtifact("AuthorizationCode:replay"),
     (error: unknown) =>
       error instanceof Error && error.message === "invalid_grant",
+  );
+});
+
+test("login gate admits exactly one concurrent holder in memory mode", async () => {
+  const repository = createInMemoryRepository();
+
+  const attempts = await Promise.all(
+    Array.from({ length: 20 }, () =>
+      repository.tryAcquireLoginGate("interaction-gate-1", 30),
+    ),
+  );
+
+  assert.equal(
+    attempts.filter((acquired) => acquired).length,
+    1,
+    "exactly one concurrent request should hold the gate",
+  );
+  await repository.releaseLoginGate("interaction-gate-1");
+  assert.equal(
+    await repository.tryAcquireLoginGate("interaction-gate-1", 30),
+    true,
+  );
+});
+
+test("login gate is exclusive and releasable in database mode", async () => {
+  const gateHeld = new Map<string, boolean>();
+  const pool = new FakePool((sql) => {
+    if (sql.includes("begin") || sql.includes("commit")) {
+      return {};
+    }
+    if (sql.includes("for update")) {
+      return {
+        rows: gateHeld.get("interaction-gate-2")
+          ? [{ id: "interaction_login_gate:interaction-gate-2" }]
+          : [],
+      };
+    }
+    if (sql.includes("insert into oidc_artifacts")) {
+      gateHeld.set("interaction-gate-2", true);
+      return { rowCount: 1 };
+    }
+    if (sql.includes("delete from oidc_artifacts")) {
+      gateHeld.set("interaction-gate-2", false);
+      return { rowCount: 1 };
+    }
+    return {};
+  });
+  const repository = createRepository(pool);
+
+  assert.equal(
+    await repository.tryAcquireLoginGate("interaction-gate-2", 30),
+    true,
+  );
+  assert.equal(
+    await repository.tryAcquireLoginGate("interaction-gate-2", 30),
+    false,
+  );
+  await repository.releaseLoginGate("interaction-gate-2");
+  assert.equal(
+    await repository.tryAcquireLoginGate("interaction-gate-2", 30),
+    true,
   );
 });

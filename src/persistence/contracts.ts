@@ -452,6 +452,8 @@ export interface OidcArtifactRepository {
     maxAttempts: number,
   ): Promise<InteractionEmailVerificationResult>;
   deleteInteractionLogin(uid: string): Promise<void>;
+  tryAcquireLoginGate(uid: string, ttlSeconds: number): Promise<boolean>;
+  releaseLoginGate(uid: string): Promise<void>;
 }
 
 export interface SigningKeyRepository {
