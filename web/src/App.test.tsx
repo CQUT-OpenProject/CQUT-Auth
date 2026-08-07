@@ -322,8 +322,8 @@ test("shows audit actor and source IP from the management API contract", async (
   render(<App />);
 
   expect(await screen.findByText("subj_owner")).toBeTruthy();
-  expect(screen.getByText("127.0.0.1")).toBeTruthy();
-  expect(screen.getByText(/displayName/)).toBeTruthy();
+  expect(await screen.findByText("127.0.0.1")).toBeTruthy();
+  expect(await screen.findByText(/displayName/)).toBeTruthy();
 });
 
 test("keeps the client danger zone open", async () => {

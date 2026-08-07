@@ -1,4 +1,4 @@
-![仓库封面](./.github/assets/repository-cover.svg)
+![仓库封面](.github/assets/repository-cover.svg)
 
 <div align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat" alt="License: MIT"></a>
