@@ -386,6 +386,35 @@ function sameEmailConfig(a: EmailSettings, b: EmailSettings) {
   );
 }
 
+function isDangerousMetadataOrInvalidSmtpHost(host: string): boolean {
+  const trimmed = host.trim().toLowerCase();
+  if (
+    trimmed === "169.254.169.254" ||
+    trimmed === "0.0.0.0" ||
+    trimmed === "255.255.255.255" ||
+    trimmed === "metadata.google.internal" ||
+    trimmed === "instance-data" ||
+    trimmed === "::" ||
+    trimmed === "[::]" ||
+    trimmed === "fd00:ec2::254" ||
+    trimmed === "[fd00:ec2::254]"
+  ) {
+    return true;
+  }
+  if (
+    trimmed.includes("://") ||
+    trimmed.includes("/") ||
+    trimmed.includes("\\") ||
+    trimmed.includes("@") ||
+    trimmed.includes("?") ||
+    trimmed.includes("#") ||
+    /\s/.test(trimmed)
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function validateEmail(email: EmailSettings) {
   if (
     email.provider === "resend" &&
@@ -399,6 +428,8 @@ function validateEmail(email: EmailSettings) {
     invalid("SMTP host, port and sender are required", "email.smtp");
   if (email.smtp.port && email.smtp.port > 65535)
     invalid("SMTP port must not exceed 65535", "email.smtp.port");
+  if (email.smtp.host && isDangerousMetadataOrInvalidSmtpHost(email.smtp.host))
+    invalid("SMTP host is invalid or not permitted", "email.smtp.host");
 }
 
 function emailView(

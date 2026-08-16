@@ -277,3 +277,66 @@ test("listAuditLogs returns app setting audit logs", async () => {
   assert.equal(logs[0]?.action, "runtime_policy.updated");
 });
 
+test("runtime policy validates SMTP host safety and rejects metadata addresses or malformed hosts", async () => {
+  const store = new AppSettingsRepositoryImpl(() => undefined);
+  const defaults = defaultRuntimePolicy(config());
+  const service = new RuntimePolicyModule(store, secret, defaults);
+  await service.initialize();
+
+  const dangerousHosts = [
+    "169.254.169.254",
+    "0.0.0.0",
+    "255.255.255.255",
+    "metadata.google.internal",
+    "instance-data",
+    "::",
+    "[::]",
+    "fd00:ec2::254",
+    "[fd00:ec2::254]",
+    "http://smtp.example.com",
+    "smtp.example.com/path",
+    "user@smtp.example.com",
+  ];
+
+  for (const host of dangerousHosts) {
+    await assert.rejects(
+      service.update(
+        {
+          expectedVersion: 0,
+          policy: defaults.policy,
+          email: {
+            provider: "smtp",
+            smtp: {
+              host,
+              port: 587,
+              from: "noreply@example.com",
+            },
+          },
+        },
+        { subjectId: "admin" },
+      ),
+      /SMTP host is invalid or not permitted/,
+      `Expected host "${host}" to be rejected`,
+    );
+  }
+
+  // Valid SMTP host should succeed
+  const saved = await service.update(
+    {
+      expectedVersion: 0,
+      policy: defaults.policy,
+      email: {
+        provider: "smtp",
+        smtp: {
+          host: "smtp.cqut.edu.cn",
+          port: 465,
+          secure: true,
+          from: "CQUT Auth <auth@cqut.edu.cn>",
+        },
+      },
+    },
+    { subjectId: "admin" },
+  );
+  assert.equal(saved.email.provider, "smtp");
+  assert.equal(saved.email.smtp.host, "smtp.cqut.edu.cn");
+});
