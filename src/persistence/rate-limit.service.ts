@@ -270,7 +270,27 @@ export class RateLimitService {
     if (overflow <= 0) {
       return;
     }
-    let remaining = overflow;
+    const now = Date.now();
+    for (const [key, counter] of this.memory.entries()) {
+      if (counter.expiresAt <= now) {
+        this.memory.delete(key);
+      }
+    }
+    const currentOverflow =
+      this.memory.size - this.config.rateLimitMemoryMaxKeys;
+    if (currentOverflow <= 0) {
+      return;
+    }
+    let remaining = currentOverflow;
+    for (const [key, counter] of this.memory.entries()) {
+      if (counter.count <= 1) {
+        this.memory.delete(key);
+        remaining -= 1;
+        if (remaining <= 0) {
+          return;
+        }
+      }
+    }
     for (const key of this.memory.keys()) {
       this.memory.delete(key);
       remaining -= 1;

@@ -34,21 +34,28 @@ test("memory fallback evicts oldest key when capacity is exceeded on new insert"
   }
 });
 
-test("memory fallback keeps FIFO order even when an old key is hit again", async () => {
+test("memory fallback preserves accumulated counters over single-hit probes during eviction", async () => {
   const service = new RateLimitService(
     createConfig({ rateLimitMemoryMaxKeys: 2 }),
   );
   await service.init();
 
   try {
+    // key-1 accumulates failures/attempts (count reaches 2)
     await service.consume("key-1", 10, 60);
+    await service.consume("key-1", 10, 60);
+    // key-2 is a single-hit probe (count = 1)
     await service.consume("key-2", 10, 60);
-    await service.consume("key-1", 10, 60);
+    // key-3 is another single-hit probe causing capacity overflow (max 2 keys)
     await service.consume("key-3", 10, 60);
 
-    const key1 = await service.consume("key-1", 1, 60);
+    // key-1 (accumulated count) was NOT evicted; its counter is preserved
+    const key1 = await service.consume("key-1", 2, 60);
+    assert.equal(key1.allowed, false); // count is now 3, exceeding max 2
 
-    assert.equal(key1.allowed, true);
+    // key-2 (single probe) was evicted to protect key-1
+    const key2 = await service.consume("key-2", 1, 60);
+    assert.equal(key2.allowed, true); // key-2 starts fresh with count 1
   } finally {
     await service.close();
   }
@@ -97,4 +104,3 @@ test("fail-closed mode throws RateLimitUnavailableError when redis is unavailabl
     await service.close();
   }
 });
-
