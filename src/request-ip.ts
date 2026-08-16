@@ -128,7 +128,10 @@ function ipInCidr(ip: ParsedIpAddress, cidr: ParsedCidr): boolean {
     return (ip.value & mask) === (cidr.value & mask);
   }
   const shift = BigInt(128 - cidr.prefixLength);
-  return (ip.value as bigint) >> shift === ((cidr as ParsedCidr & { family: 6 }).value) >> shift;
+  return (
+    (ip.value as bigint) >> shift ===
+    (cidr as ParsedCidr & { family: 6 }).value >> shift
+  );
 }
 
 function formatIpAddress(parsed: ParsedIpAddress): string {

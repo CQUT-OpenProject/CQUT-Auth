@@ -119,7 +119,13 @@
     "schemas": {
       "AgentInstructions": {
         "type": "object",
-        "required": ["version", "baseUrl", "openapiUrl", "contentType", "prompt"],
+        "required": [
+          "version",
+          "baseUrl",
+          "openapiUrl",
+          "contentType",
+          "prompt"
+        ],
         "properties": {
           "version": { "type": "string" },
           "baseUrl": { "type": "string", "format": "uri" },

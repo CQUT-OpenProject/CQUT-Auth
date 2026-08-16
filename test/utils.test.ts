@@ -14,7 +14,10 @@ test("parseCookies parses key-value pairs safely and prevents prototype pollutio
 
   assert.equal(parsed["sid"], "abc123");
   assert.equal(parsed["theme"], "dark");
-  assert.equal(Object.prototype.hasOwnProperty.call(Object.prototype, "polluted"), false);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(Object.prototype, "polluted"),
+    false,
+  );
   assert.equal(({} as Record<string, string>)["polluted"], undefined);
 });
 

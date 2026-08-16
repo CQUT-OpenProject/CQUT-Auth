@@ -120,5 +120,7 @@ export class SigningKeyRepositoryImpl implements SigningKeyRepository {
 
 function toIsoString(value: unknown): string | undefined {
   if (!value) return undefined;
-  return (value instanceof Date ? value : new Date(String(value))).toISOString();
+  return (
+    value instanceof Date ? value : new Date(String(value))
+  ).toISOString();
 }

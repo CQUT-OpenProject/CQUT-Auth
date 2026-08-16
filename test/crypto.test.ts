@@ -50,7 +50,15 @@ test("decryptJson rejects malformed or invalid ciphertext formats", async () => 
 });
 
 test("verifyClientSecretDigest handles invalid or malformed digests gracefully", async () => {
-  assert.equal(await verifyClientSecretDigest("secret", "invalid-digest"), false);
-  assert.equal(await verifyClientSecretDigest("secret", "scrypt$invalid_params$salt$digest"), false);
+  assert.equal(
+    await verifyClientSecretDigest("secret", "invalid-digest"),
+    false,
+  );
+  assert.equal(
+    await verifyClientSecretDigest(
+      "secret",
+      "scrypt$invalid_params$salt$digest",
+    ),
+    false,
+  );
 });
-

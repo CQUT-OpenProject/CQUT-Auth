@@ -14,7 +14,12 @@ const defaultClientsOutputPath = resolve(
   projectRoot,
   "deploy/oidc-clients.json",
 );
-const allowedProfiles = new Set(["production", "production-small", "local", "test"]);
+const allowedProfiles = new Set([
+  "production",
+  "production-small",
+  "local",
+  "test",
+]);
 
 const args = process.argv.slice(2);
 const outputPath = getArgValue("--write");

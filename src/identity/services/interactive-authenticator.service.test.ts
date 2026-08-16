@@ -11,7 +11,9 @@ class MemoryIdentityStore implements Partial<IdentityStore> {
     return this.profiles.get(subjectId) ?? null;
   }
 
-  async upsertProfile(profile: SubjectProfileRecord): Promise<SubjectProfileRecord> {
+  async upsertProfile(
+    profile: SubjectProfileRecord,
+  ): Promise<SubjectProfileRecord> {
     this.profiles.set(profile.subjectId, profile);
     return profile;
   }

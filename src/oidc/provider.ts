@@ -292,10 +292,7 @@ async function evaluateTokenRateLimit(
       appliedKeys.add(key);
       consumedKeys.push(key);
       if (!decision.allowed) {
-        await resetRateLimitKeys(
-          rateLimitService,
-          consumedKeys.slice(0, -1),
-        );
+        await resetRateLimitKeys(rateLimitService, consumedKeys.slice(0, -1));
         for (const rolledBackKey of consumedKeys.slice(0, -1)) {
           appliedKeys.delete(rolledBackKey);
         }

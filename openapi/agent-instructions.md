@@ -60,12 +60,12 @@ Authorization: Bearer <accessToken>
 
 `POST /projects/:projectId/clients` 必填：
 
-| 字段 | 值 |
-| --- | --- |
-| `clientType` | `web`（机密）或 `spa`（公开） |
-| `displayName` | 显示名称 |
-| `redirectUris` | 至少一个 |
-| `scopeWhitelist` | 须含 `openid` |
+| 字段             | 值                            |
+| ---------------- | ----------------------------- |
+| `clientType`     | `web`（机密）或 `spa`（公开） |
+| `displayName`    | 显示名称                      |
+| `redirectUris`   | 至少一个                      |
+| `scopeWhitelist` | 须含 `openid`                 |
 
 Scope：`openid`、`profile`、`email`、`student`、`offline_access`
 
@@ -96,19 +96,23 @@ Scope：`openid`、`profile`、`email`、`student`、`offline_access`
 **客户端**：[displayName] (`[clientId]`)（如适用）
 
 **配置摘要**
+
 - 类型：[web / spa]
 - Redirect URI：[…]
 - Scope：[…]
 
 **Client Secret**（如有，仅显示一次）
 ```
+
 <secret>
 ```
 
 请立即保存，之后无法再次获取。
 
 **后续步骤**
+
 1. …
+
 ```
 
 ---
@@ -124,3 +128,4 @@ Scope：`openid`、`profile`、`email`、`student`、`offline_access`
 | 轮换 secret | `GET client` → `POST .../secrets/rotate` |
 
 权限继承项目角色：owner / maintainer / viewer。
+```
