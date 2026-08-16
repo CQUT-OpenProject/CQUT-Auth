@@ -216,7 +216,40 @@ test("project owner protection, optimistic concurrency, and transfer are atomic"
           entry.newRole === "owner",
       ),
     );
-    assert.ok(project.version > initial.version);
+    // Add viewer as a member first
+    project = await projects.addMember(maintainer, initial.projectId, {
+      subjectId: viewer.subjectId,
+      role: "viewer",
+      expectedProjectVersion: project.version,
+    });
+
+    // Test: Non-admin owner cannot transfer another owner's ownership
+    await assert.rejects(
+      () =>
+        projects.transfer(maintainer, initial.projectId, {
+          fromSubjectId: owner.subjectId, // maintainer is now owner, but specifies owner's subjectId
+          toSubjectId: viewer.subjectId,
+          expectedProjectVersion: project.version,
+        }),
+      (error: unknown) =>
+        error instanceof ClientManagementError &&
+        error.status === 403 &&
+        error.code === "access_denied" &&
+        error.message ===
+          "project owners can only transfer their own ownership",
+    );
+
+    // Test: Owner can transfer their own ownership to viewer
+    const transferredAgain = await projects.transfer(
+      maintainer,
+      initial.projectId,
+      {
+        fromSubjectId: maintainer.subjectId,
+        toSubjectId: viewer.subjectId,
+        expectedProjectVersion: project.version,
+      },
+    );
+    assert.ok(transferredAgain.version > project.version);
   } finally {
     await store.runtime.close();
   }

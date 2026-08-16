@@ -306,6 +306,13 @@ export class ProjectManagementService {
     );
     const toSubjectId = this.text(body["toSubjectId"], "toSubjectId", 1, 200);
     if (fromSubjectId === toSubjectId) this.invalid("toSubjectId");
+    if (!actor.isAdmin && fromSubjectId !== actor.subjectId) {
+      throw new ClientManagementError(
+        403,
+        "access_denied",
+        "project owners can only transfer their own ownership",
+      );
+    }
     const timestamp = this.now().toISOString();
     const members = await this.repository.listProjectMembers(projectId);
     const source = members.find(
