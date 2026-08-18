@@ -58,7 +58,7 @@
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
     "@ant-design/v5-patch-for-react-19": "^1.0.3",
-    "@cqut-openproject/cas-sdk": "github:CQUT-OpenProject/CAS-SDK#release",
+    "@cqut-openproject/cas-sdk": "github:CQUT-OpenProject/CAS-SDK#1.0.0",
     "@refinedev/antd": "^6.0.3",
     "@refinedev/core": "^5.0.12",
     "@refinedev/react-router": "^2.0.4",
