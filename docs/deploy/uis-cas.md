@@ -16,6 +16,15 @@ UIS 实测还会返回 `user_name`、`user_user_type`、`universityId` 和 `auth
 
 单一学生样本中 `user_user_type=3` 与办事大厅的 `STUDENT` 类型对应，但该结果不足以证明完整类型映射。
 
+## CAS SDK
+
+CQUT CAS 的认证流转、密码 RSA 分块加密与带命名空间的 XML 票据解析由独立 SDK 提供：
+
+- 仓库：[`CQUT-OpenProject/CAS-SDK`](https://github.com/CQUT-OpenProject/CAS-SDK)
+- 依赖包：`@cqut-openproject/cas-sdk`
+
+服务端认证 Provider 直接基于该 SDK 构建。
+
 ## 注意事项
 
 `serviceValidate?format=JSON` 实测只改变响应头，响应体仍为 XML；接入实现不能依赖该参数进行 JSON 解析。

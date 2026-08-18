@@ -6,6 +6,7 @@
 - 不要把 `deploy/.env`、明文 Client Secret 或私钥提交到仓库。
 - 管理 API 使用独立 HttpOnly 会话和 CSRF Token；反向代理不应缓存相关响应。
 - Client Secret 明文只出现一次；轮换前应确认使用方已经准备切换。
+- 邮件配置严格校验 SMTP 服务端主机名，生产环境阻断云厂商元数据地址（`169.254.169.254` 等）与内网回环以防范 SSRF。
 - 定期备份 PostgreSQL，并验证签名密钥和加密密钥能够恢复。
 
 ::: warning
