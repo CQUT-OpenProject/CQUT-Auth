@@ -1,9 +1,9 @@
 ---
 name: 功能请求
 about: 为 CQUT-Auth 提出新功能、新 Provider 或优化建议
-title: '[Feature] '
-labels: 'enhancement'
-assignees: ''
+title: "[Feature] "
+labels: "enhancement"
+assignees: ""
 ---
 
 ## 需求背景 / 问题描述

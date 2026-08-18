@@ -5,7 +5,7 @@ FROM public.ecr.aws/docker/library/node:24-alpine AS dev
 WORKDIR /app
 ENV NODE_ENV=development
 RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile --prod=false
 EXPOSE 3003
 CMD ["pnpm", "dev"]
@@ -13,20 +13,21 @@ CMD ["pnpm", "dev"]
 FROM public.ecr.aws/docker/library/node:24-alpine AS builder
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml tsconfig.json tsconfig.build.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.json tsconfig.build.json ./
 COPY src ./src
 COPY web ./web
 COPY scripts ./scripts
 
 RUN corepack enable && pnpm install --frozen-lockfile
 RUN pnpm build
-RUN pnpm prune --prod
+RUN CI=true pnpm prune --prod
 
 FROM public.ecr.aws/docker/library/node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-workspace.yaml ./pnpm-workspace.yaml
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY openapi ./openapi
