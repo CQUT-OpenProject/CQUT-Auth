@@ -16,4 +16,44 @@ minimumReleaseAgeExclude:
   - focus-trap
   - mark.js
   - "@iconify-json/*"
+  - vite-plus
+  - "@voidzero-dev/*"
+  - oxlint
+  - "@oxlint/*"
+  - oxlint-tsgolint
+  - "@oxlint-tsgolint/*"
+  - oxfmt
+  - "@oxfmt/*"
+  - vitest
+  - "@vitest/*"
 trustPolicy: no-downgrade
+onlyBuiltDependencies:
+  - esbuild
+overrides:
+  lodash: ^4.18.0
+  path-to-regexp: ^8.4.0
+  chokidar: ^3.6.0
+  vite@*: "catalog:"
+  vitest@*: "catalog:"
+supportedArchitectures:
+  os:
+    - current
+    - linux
+  cpu:
+    - current
+    - arm64
+    - x64
+  libc:
+    - current
+    - musl
+catalog:
+  vite: npm:@voidzero-dev/vite-plus-core@0.3.3
+  vitest: 4.1.11
+  vite-plus: 0.3.3
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: "*"
+    vitest: "*"
