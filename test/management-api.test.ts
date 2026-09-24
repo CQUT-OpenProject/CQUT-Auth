@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import request from "supertest";
 import { createOidcApp } from "../src/app.js";
 import { createClientSecretDigest } from "../src/crypto.js";

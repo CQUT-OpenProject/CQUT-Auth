@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createServer } from "node:http";
-import test from "node:test";
+import { describe, test } from "vite-plus/test";
 import { IdentityCoreError, RetryableProviderError } from "../errors.js";
 import { CqutCampusVerifierProvider } from "./cqut.provider.js";
 
@@ -302,7 +302,7 @@ test("CqutCampusVerifierProvider retries transient CAS login GET failures", asyn
   );
 });
 
-test("CqutCampusVerifierProvider rejects untrusted CAS ticket results without leaking secrets", async (context) => {
+describe("CqutCampusVerifierProvider rejects untrusted CAS ticket results without leaking secrets", () => {
   const cases: Array<{
     name: string;
     account?: string;
@@ -387,7 +387,7 @@ test("CqutCampusVerifierProvider rejects untrusted CAS ticket results without le
   ];
 
   for (const testCase of cases) {
-    await context.test(testCase.name, async () => {
+    test(testCase.name, async () => {
       const upstream = await startCasServer(testCase.options);
       const provider = createProvider(upstream.baseUrl);
       try {

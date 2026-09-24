@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { ClientManagementError } from "../src/management/management-error.js";
 import { readConfig } from "../src/config.js";
@@ -475,7 +475,10 @@ test("web clients can disable PKCE on creation and toggle it via update", async 
       owner,
       SYSTEM_PROJECT_ID,
       created.client.clientId,
-      { clientVersion: created.client.clientVersion, requirePkce: true },
+      {
+        clientVersion: created.client.clientVersion,
+        requirePkce: true,
+      },
     );
     assert.equal(updated.requirePkce, true);
     assert.ok(

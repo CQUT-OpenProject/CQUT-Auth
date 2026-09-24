@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import type { Pool } from "pg";
 import { ArtifactPayloadCipherServiceImpl } from "../src/persistence/artifact-payload-cipher.service.js";
 import { OidcArtifactRepositoryImpl } from "../src/persistence/oidc-artifact.repository.js";

@@ -1,4 +1,4 @@
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, test, vi } from "vite-plus/test";
 import { getCsrfToken, request, setCsrfToken } from "./client";
 
 function jsonResponse(body: unknown, status = 200) {
@@ -31,7 +31,7 @@ test("refreshes a missing CSRF token before a mutation", async () => {
   expect(fetchMock).toHaveBeenCalledTimes(2);
   expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/management/auth/context");
   const mutationHeaders = new Headers(
-    (fetchMock.mock.calls[1]?.[1] as RequestInit).headers,
+    (fetchMock.mock.calls[1]![1] as RequestInit).headers,
   );
   expect(mutationHeaders.get("X-CSRF-Token")).toBe("fresh-token");
 });
@@ -79,7 +79,7 @@ test("refreshes and retries once after an explicit CSRF rejection", async () => 
   expect(fetchMock).toHaveBeenCalledTimes(3);
   expect(fetchMock.mock.calls[2]?.[1]).toMatchObject({ body: options.body });
   const retryHeaders = new Headers(
-    (fetchMock.mock.calls[2]?.[1] as RequestInit).headers,
+    (fetchMock.mock.calls[2]![1] as RequestInit).headers,
   );
   expect(retryHeaders.get("X-CSRF-Token")).toBe("replacement-token");
 });

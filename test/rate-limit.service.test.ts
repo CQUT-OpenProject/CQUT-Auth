@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import type { StaticConfig } from "../src/config.js";
 import { RateLimitService } from "../src/persistence/rate-limit.service.js";
 

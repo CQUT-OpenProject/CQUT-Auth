@@ -5,7 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vite-plus/test";
 import React from "react";
 import { App } from "./app/App";
 
@@ -384,7 +384,9 @@ test("creates the selected web client type", async () => {
 
   fireEvent.change(
     await screen.findByPlaceholderText("https://example.com/callback"),
-    { target: { value: "https://client.example.com/callback" } },
+    {
+      target: { value: "https://client.example.com/callback" },
+    },
   );
   fireEvent.click(screen.getByRole("button", { name: "下一步" }));
   fireEvent.click(await screen.findByRole("button", { name: "下一步" }));

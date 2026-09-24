@@ -3,7 +3,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import request from "supertest";
 import { Pool } from "pg";
 import { ClientManagementService } from "../src/clients/client-management.service.js";

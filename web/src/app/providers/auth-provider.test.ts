@@ -1,4 +1,4 @@
-import { expect, test, vi } from "vitest";
+import { expect, test, vi } from "vite-plus/test";
 
 vi.mock("../../api/client", () => ({
   request: vi.fn(),

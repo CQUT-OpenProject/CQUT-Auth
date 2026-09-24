@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { ClientManagementError } from "../src/management/management-error.js";
 import { readConfig } from "../src/config.js";

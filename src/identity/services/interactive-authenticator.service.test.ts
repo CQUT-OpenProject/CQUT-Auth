@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import { InteractiveAuthenticatorService } from "./interactive-authenticator.service.js";
 import type { IdentityStore } from "../store.js";
 import type { SubjectProfileRecord } from "../types.js";

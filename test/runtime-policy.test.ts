@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import { readConfig } from "../src/config.js";
 import { encryptJson } from "../src/crypto.js";
 import { emptyEmailSettings } from "../src/email/email-settings.js";

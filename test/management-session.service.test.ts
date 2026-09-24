@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vite-plus/test";
 import { readConfig } from "../src/config.js";
 import { ManagementSessionService } from "../src/management/management-session.service.js";
 import { createPersistence } from "../src/persistence/persistence.js";
