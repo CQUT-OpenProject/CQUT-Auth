@@ -51,7 +51,7 @@ export const MemberManager: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchMembers();
+    void fetchMembers();
   }, [activeProject]);
 
   if (!activeProject) {
@@ -295,7 +295,8 @@ export const MemberManager: React.FC = () => {
                   {selectedMember?.subjectId}
                 </Text>{" "}
                 吗？转移后，您的角色将立即自动降级为{" "}
-                <Text strong>maintainer</Text>，并失去成员管理和所有权转移权限。
+                <Text strong>maintainer</Text>
+                ，并失去成员管理和所有权转移权限。
               </>
             }
             type="warning"

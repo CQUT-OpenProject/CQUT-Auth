@@ -25,7 +25,7 @@ import { useNavigate } from "react-router";
 import { request } from "../../api/client";
 import { OneTimeSecretModal } from "../../components/secret/OneTimeSecretModal";
 
-const { Text, Paragraph, Title } = Typography;
+const { Text, Title } = Typography;
 
 const clientScopes = [
   { label: "openid (必选)", value: "openid", disabled: true },
@@ -135,7 +135,7 @@ export const ClientCreate: React.FC = () => {
         setSecretVal(res.clientSecret);
       } else {
         // Direct redirect for SPA
-        navigate(
+        void navigate(
           `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(res.client.clientId)}/overview`,
         );
       }
@@ -148,7 +148,7 @@ export const ClientCreate: React.FC = () => {
 
   const handleCloseSecretModal = () => {
     setSecretVal(null);
-    navigate(
+    void navigate(
       `/projects/${encodeURIComponent(activeProject.projectId)}/clients/${encodeURIComponent(createdClientId!)}/overview`,
     );
   };
@@ -162,7 +162,7 @@ export const ClientCreate: React.FC = () => {
           <Button
             aria-label="返回客户端列表"
             icon={<ArrowLeftOutlined />}
-            onClick={() => navigate(-1)}
+            onClick={() => void navigate(-1)}
           />
           <Title level={4} style={{ margin: 0 }}>
             创建客户端

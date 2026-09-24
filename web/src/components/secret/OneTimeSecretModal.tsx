@@ -30,7 +30,7 @@ export const OneTimeSecretModal: React.FC<OneTimeSecretModalProps> = ({
 
   const handleCopy = () => {
     if (localSecret) {
-      navigator.clipboard.writeText(localSecret);
+      void navigator.clipboard.writeText(localSecret);
       message.success("Secret 已复制到剪贴板！");
     }
   };

@@ -8,7 +8,6 @@ import {
   Drawer,
   Typography,
   Breadcrumb,
-  Divider,
   theme,
   Badge,
 } from "antd";
@@ -25,7 +24,7 @@ import {
   MoonOutlined,
 } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
-import { useNavigate, useLocation, useParams, Outlet } from "react-router";
+import { useNavigate, useLocation, Outlet } from "react-router";
 import { useGetIdentity, useLogout } from "@refinedev/core";
 import { useThemeMode } from "../../contexts/theme-context";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
@@ -39,7 +38,6 @@ export const DashboardLayout: React.FC = () => {
   const { projects, activeProject, selectProject } = useProject();
   const navigate = useNavigate();
   const location = useLocation();
-  const { projectId } = useParams<{ projectId: string }>();
   const { data: identity } = useGetIdentity<any>();
   const { mutate: logout } = useLogout();
   const { themeMode, toggleTheme } = useThemeMode();
@@ -55,21 +53,25 @@ export const DashboardLayout: React.FC = () => {
 
   const handleProjectSelect = (value: string) => {
     selectProject(value);
-    navigate(`/projects/${encodeURIComponent(value)}/overview`);
+    void navigate(`/projects/${encodeURIComponent(value)}/overview`);
     setMobileDrawerVisible(false);
   };
 
   const getBreadcrumbs = () => {
     const paths = location.pathname.split("/").filter(Boolean);
     const breadcrumbItems = [
-      { title: "管理台", key: "manage", onClick: () => navigate("/projects") },
+      {
+        title: "管理台",
+        key: "manage",
+        onClick: () => void navigate("/projects"),
+      },
     ];
 
     if (paths.includes("projects")) {
       breadcrumbItems.push({
         title: "我的项目",
         key: "projects",
-        onClick: () => navigate("/projects"),
+        onClick: () => void navigate("/projects"),
       });
       if (activeProject) {
         const isSystemProject = activeProject.projectId === "system";
@@ -77,7 +79,7 @@ export const DashboardLayout: React.FC = () => {
           title: isSystemProject ? "系统客户端" : activeProject.name,
           key: activeProject.projectId,
           onClick: () =>
-            navigate(
+            void navigate(
               isSystemProject
                 ? "/projects/system/clients"
                 : `/projects/${encodeURIComponent(activeProject.projectId)}/overview`,
@@ -90,7 +92,7 @@ export const DashboardLayout: React.FC = () => {
       breadcrumbItems.push({
         title: "管理员面板",
         key: "admin",
-        onClick: () => navigate("/admin/settings/system"),
+        onClick: () => void navigate("/admin/settings/system"),
       });
     }
 
@@ -103,7 +105,7 @@ export const DashboardLayout: React.FC = () => {
         key: "projects-list",
         icon: <ProjectOutlined />,
         label: "我的项目",
-        onClick: () => navigate("/projects"),
+        onClick: () => void navigate("/projects"),
       },
     ];
 
@@ -118,13 +120,13 @@ export const DashboardLayout: React.FC = () => {
               key: "current-system-overview",
               icon: <DesktopOutlined />,
               label: "项目概览",
-              onClick: () => navigate("/projects/system/overview"),
+              onClick: () => void navigate("/projects/system/overview"),
             },
             {
               key: "current-system-audit",
               icon: <AuditOutlined />,
               label: "审计日志",
-              onClick: () => navigate("/projects/system/audit"),
+              onClick: () => void navigate("/projects/system/audit"),
             },
           ]
         : activeProject
@@ -134,7 +136,7 @@ export const DashboardLayout: React.FC = () => {
                 icon: <DesktopOutlined />,
                 label: "项目概览",
                 onClick: () =>
-                  navigate(
+                  void navigate(
                     `/projects/${encodeURIComponent(activeProject.projectId)}/overview`,
                   ),
               },
@@ -143,7 +145,7 @@ export const DashboardLayout: React.FC = () => {
                 icon: <DesktopOutlined />,
                 label: "OIDC 客户端",
                 onClick: () =>
-                  navigate(
+                  void navigate(
                     `/projects/${encodeURIComponent(activeProject.projectId)}/clients`,
                   ),
               },
@@ -152,7 +154,7 @@ export const DashboardLayout: React.FC = () => {
                 icon: <TeamOutlined />,
                 label: "成员管理",
                 onClick: () =>
-                  navigate(
+                  void navigate(
                     `/projects/${encodeURIComponent(activeProject.projectId)}/members`,
                   ),
               },
@@ -161,7 +163,7 @@ export const DashboardLayout: React.FC = () => {
                 icon: <AuditOutlined />,
                 label: "审计日志",
                 onClick: () =>
-                  navigate(
+                  void navigate(
                     `/projects/${encodeURIComponent(activeProject.projectId)}/audit`,
                   ),
               },
@@ -181,14 +183,14 @@ export const DashboardLayout: React.FC = () => {
             label: "系统客户端",
             onClick: () => {
               selectProject("system");
-              navigate("/projects/system/clients");
+              void navigate("/projects/system/clients");
             },
           },
           {
             key: "system-settings",
             icon: <SettingOutlined />,
             label: "系统设置",
-            onClick: () => navigate("/admin/settings/system"),
+            onClick: () => void navigate("/admin/settings/system"),
           },
         ],
       });
@@ -396,7 +398,15 @@ export const DashboardLayout: React.FC = () => {
             >
               <Breadcrumb
                 items={getBreadcrumbs().map((b) => ({
-                  title: <a onClick={b.onClick}>{b.title}</a>,
+                  title: (
+                    <Button
+                      type="link"
+                      onClick={b.onClick}
+                      style={{ height: "auto", padding: 0 }}
+                    >
+                      {b.title}
+                    </Button>
+                  ),
                 }))}
               />
             </div>

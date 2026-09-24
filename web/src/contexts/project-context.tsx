@@ -63,7 +63,7 @@ export const ProjectProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   useEffect(() => {
-    refreshProjects();
+    void refreshProjects();
   }, []);
 
   useEffect(() => {

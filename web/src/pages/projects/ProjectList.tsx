@@ -10,7 +10,7 @@ import {
   Typography,
   message,
 } from "antd";
-import { PlusOutlined, LoginOutlined, EditOutlined } from "@ant-design/icons";
+import { PlusOutlined, LoginOutlined } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
 import { ProjectStatusTag } from "../../components/status/Tags";
 import { useNavigate } from "react-router";
@@ -47,7 +47,7 @@ export const ProjectList: React.FC = () => {
 
   const handleEnter = (projectId: string) => {
     selectProject(projectId);
-    navigate(`/projects/${encodeURIComponent(projectId)}/overview`);
+    void navigate(`/projects/${encodeURIComponent(projectId)}/overview`);
   };
 
   const columns = [

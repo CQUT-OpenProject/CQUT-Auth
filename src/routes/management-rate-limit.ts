@@ -1,6 +1,5 @@
 import {
   RateLimitService,
-  RateLimitUnavailableError,
   consumeRateLimitChecks,
   loginRateLimitKeys,
   resetRateLimitKeys,

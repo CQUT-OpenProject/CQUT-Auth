@@ -28,7 +28,6 @@ import {
   SaveOutlined,
   RetweetOutlined,
   PoweroffOutlined,
-  CopyOutlined,
   DeleteOutlined,
   PlusOutlined,
 } from "@ant-design/icons";
@@ -41,7 +40,7 @@ import { RevisionDiff } from "../../components/revision/RevisionDiff";
 import { ConfirmActionModal } from "../../components/confirmations/ConfirmActionModal";
 import { OneTimeSecretModal } from "../../components/secret/OneTimeSecretModal";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
-import type { Client, ClientRevision, AuditLog } from "../../api/types";
+import type { Client, AuditLog } from "../../api/types";
 
 const { Text, Title, Paragraph } = Typography;
 
@@ -74,7 +73,7 @@ export const ClientDetail: React.FC = () => {
   };
 
   const handleTabChange = (key: string) => {
-    navigate(
+    void navigate(
       `/projects/${encodeURIComponent(projectId!)}/clients/${encodeURIComponent(clientId!)}/${key}`,
     );
   };
@@ -173,7 +172,7 @@ export const ClientDetail: React.FC = () => {
     if (getActiveTab() === "audit") {
       setBeforeId(undefined);
       setHasMoreAudits(true);
-      loadAudits(false);
+      void loadAudits(false);
     }
   }, [getActiveTab(), clientId]);
 
@@ -210,7 +209,7 @@ export const ClientDetail: React.FC = () => {
         },
       );
       message.success("基本信息更新成功！");
-      refetch();
+      void refetch();
     } catch (error: any) {
       message.error(error.message || "更新基本信息失败");
     }
@@ -239,7 +238,7 @@ export const ClientDetail: React.FC = () => {
 
       message.success("OIDC 配置已生效！");
       setIsEditingConfig(false);
-      refetch();
+      void refetch();
     } catch (error: any) {
       message.error(error.message || "保存配置失败");
     }
@@ -260,7 +259,7 @@ export const ClientDetail: React.FC = () => {
       );
       setOneTimeSecret(res.secret.value);
       message.success("Secret 轮换完成，新凭据已生成。");
-      refetch();
+      void refetch();
     } catch (error: any) {
       message.error(error.message || "Secret 轮换失败");
     }
@@ -288,7 +287,7 @@ export const ClientDetail: React.FC = () => {
             },
           );
           message.success("Secret 撤销成功。");
-          refetch();
+          void refetch();
         } catch (error: any) {
           message.error(error.message || "撤销 Secret 失败");
         }
@@ -310,7 +309,7 @@ export const ClientDetail: React.FC = () => {
       );
       message.success("该客户端的所有已签发授权 (Tokens) 已成功撤销。");
       setConfirmRevokeAuthsVisible(false);
-      refetch();
+      void refetch();
     } catch (error: any) {
       message.error(error.message || "撤销全部授权失败");
     }
@@ -330,15 +329,11 @@ export const ClientDetail: React.FC = () => {
       );
       message.success("该客户端已被紧急永久停用，所有凭据和会话已撤销。");
       setConfirmDisableVisible(false);
-      refetch();
+      void refetch();
     } catch (error: any) {
       message.error(error.message || "紧急停用失败");
     }
   };
-
-  // Client scopes whitelist display values
-  const currentProposedOrActive =
-    client.proposedRevision ?? client.activeRevision;
 
   return (
     <Card
@@ -348,7 +343,9 @@ export const ClientDetail: React.FC = () => {
             <Button
               icon={<ArrowLeftOutlined />}
               onClick={() =>
-                navigate(`/projects/${encodeURIComponent(projectId!)}/clients`)
+                void navigate(
+                  `/projects/${encodeURIComponent(projectId!)}/clients`,
+                )
               }
               size="small"
               aria-label="返回客户端列表"
@@ -365,7 +362,9 @@ export const ClientDetail: React.FC = () => {
             <Button
               icon={<ArrowLeftOutlined />}
               onClick={() =>
-                navigate(`/projects/${encodeURIComponent(projectId!)}/clients`)
+                void navigate(
+                  `/projects/${encodeURIComponent(projectId!)}/clients`,
+                )
               }
               aria-label="返回客户端列表"
             />

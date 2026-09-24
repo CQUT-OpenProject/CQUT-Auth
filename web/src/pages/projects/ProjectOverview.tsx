@@ -20,7 +20,7 @@ import { ProjectStatusTag } from "../../components/status/Tags";
 import { request } from "../../api/client";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 
-const { Text, Paragraph } = Typography;
+const { Text } = Typography;
 
 export const ProjectOverview: React.FC = () => {
   const { activeProject, refreshProjects } = useProject();

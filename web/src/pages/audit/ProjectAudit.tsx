@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Table, Button, Card, Typography, Space, Spin, message } from "antd";
+import { Table, Button, Card, Typography, Space, message } from "antd";
 import { useProject } from "../../contexts/project-context";
 import { request } from "../../api/client";
 import { auditDetails } from "../../api/audit-details";
@@ -49,7 +49,7 @@ export const ProjectAudit: React.FC = () => {
   useEffect(() => {
     setBeforeId(undefined);
     setHasMore(true);
-    loadAudits(false);
+    void loadAudits(false);
   }, [activeProject]);
 
   if (!activeProject) {

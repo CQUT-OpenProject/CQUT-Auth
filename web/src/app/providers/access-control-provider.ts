@@ -11,7 +11,7 @@ export function setActiveProjectForAccessControl(project: Project | null) {
 }
 
 export const accessControlProvider: AccessControlProvider = {
-  can: async ({ resource, action, params }) => {
+  can: async ({ resource, action }) => {
     // If user is not logged in, deny all
     if (!currentUser) {
       try {

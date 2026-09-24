@@ -2,7 +2,7 @@ import type { DataProvider } from "@refinedev/core";
 import { request } from "../../api/client";
 
 export const dataProvider: DataProvider = {
-  getList: async ({ resource, meta, filters, pagination }) => {
+  getList: async ({ resource, meta, pagination }) => {
     const projectId = meta?.projectId;
 
     if (resource === "projects") {
