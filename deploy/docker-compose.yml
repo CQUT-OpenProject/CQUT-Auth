@@ -27,7 +27,7 @@ services:
       # being shadowed by the host bind mount (host is Windows, container is alpine).
       - /app/node_modules
       - ./oidc-clients.json:${OIDC_CLIENTS_CONFIG_PATH:-/app/config/oidc-clients.json}:ro
-    command: sh -c "corepack enable && pnpm dev"
+    command: vp run dev
     depends_on:
       redis:
         condition: service_healthy
@@ -37,7 +37,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -qO- http://127.0.0.1:3003/health/ready >/dev/null || exit 1",
+          'node -e "fetch(''http://127.0.0.1:3003/health/ready'').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"',
         ]
       interval: 10s
       timeout: 5s
