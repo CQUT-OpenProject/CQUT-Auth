@@ -20,8 +20,8 @@ importers:
         specifier: ^1.0.3
         version: 1.0.3(antd@5.29.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       '@cqut-openproject/cas-sdk':
-        specifier: github:CQUT-OpenProject/CAS-SDK#1.0.0
-        version: https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/43588415d8add8a9b7398de38123b78487e9473f
+        specifier: github:CQUT-OpenProject/CAS-SDK#v2.0.0
+        version: https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/165182d73c8421b5b38c9c5ded2df4916ba7bc4d
       '@refinedev/antd':
         specifier: ^6.0.3
         version: 6.0.3(@refinedev/core@5.0.12(@tanstack/react-query@5.101.2(react@19.2.7))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(antd@5.29.3(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(dayjs@1.11.21)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -40,9 +40,6 @@ importers:
       axios:
         specifier: ^1.18.1
         version: 1.18.1
-      axios-cookiejar-support:
-        specifier: ^6.0.4
-        version: 6.0.5(axios@1.18.1)(tough-cookie@5.1.2)
       dayjs:
         specifier: ^1.11.21
         version: 1.11.21
@@ -76,9 +73,6 @@ importers:
       resend:
         specifier: ^6.10.0
         version: 6.12.2
-      tough-cookie:
-        specifier: ^5.1.2
-        version: 5.1.2
     devDependencies:
       '@testing-library/react':
         specifier: ^16.3.0
@@ -237,10 +231,10 @@ packages:
     resolution: {integrity: sha512-4zBIxpPzowiZpusoFkyGVwakdRJUyuH5PxQ/PrqghfdFWWasvnCdPfQXHrenDai+gyLARulZjZowCOj6fjT4pA==}
     engines: {node: '>=6.9.0'}
 
-  '@cqut-openproject/cas-sdk@https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/43588415d8add8a9b7398de38123b78487e9473f':
-    resolution: {tarball: https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/43588415d8add8a9b7398de38123b78487e9473f}
-    version: 1.0.0
-    engines: {node: '>=18.0.0'}
+  '@cqut-openproject/cas-sdk@https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/165182d73c8421b5b38c9c5ded2df4916ba7bc4d':
+    resolution: {tarball: https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/165182d73c8421b5b38c9c5ded2df4916ba7bc4d}
+    version: 2.0.0
+    engines: {node: '>=22.0.0'}
 
   '@csstools/color-helpers@6.1.0':
     resolution: {integrity: sha512-064IFJdjTfUqnjpCVpMOdbr8FLQBhinbZj6yRv2An2E41O/pLEXqfFRWqGq/SxlE5PEUYTlvWsG2r8MswAVvkg==}
@@ -1486,13 +1480,6 @@ packages:
   asynckit@0.4.0:
     resolution: {integrity: sha512-Oei9OH4tRh0YqU3GxhX79dM/mwVgvbZJaSNaRk+bshkj0S5cfHcgYakreBjrHwatXKbz+IoIdYLxrKim2MjW0Q==}
 
-  axios-cookiejar-support@6.0.5:
-    resolution: {integrity: sha512-ldPOQCJWB0ipugkTNVB8QRl/5L2UgfmVNVQtS9en1JQJ1wW588PqAmymnwmmgc12HLDzDtsJ28xE2ppj4rD4ng==}
-    engines: {node: '>=20.0.0'}
-    peerDependencies:
-      axios: '>=0.20.0'
-      tough-cookie: '>=4.0.0'
-
   axios@1.18.1:
     resolution: {integrity: sha512-3nTvFlvpn9Zu/RkHUqtc7/+al4UpRW5az71ap5zccp6e8RAYEzhMTecX8Dz1wWDYrPpUoB1HAQEGEAEvUr7S9g==}
 
@@ -1910,16 +1897,6 @@ packages:
   http-assert@1.5.0:
     resolution: {integrity: sha512-uPpH7OKX4H25hBmU6G1jWNaqJGpTXxey+YOUizJUAgu0AjLUeC8D73hTrhvDS5D+GJN1DN1+hhc/eF/wpxtp0w==}
     engines: {node: '>= 0.8'}
-
-  http-cookie-agent@7.0.3:
-    resolution: {integrity: sha512-EeZo7CGhfqPW6R006rJa4QtZZUpBygDa2HZH3DJqsTzTjyRE6foDBVQIv/pjVsxHC8z2GIdbB1Hvn9SRorP3WQ==}
-    engines: {node: '>=20.0.0'}
-    peerDependencies:
-      tough-cookie: ^4.0.0 || ^5.0.0 || ^6.0.0
-      undici: ^7.0.0
-    peerDependenciesMeta:
-      undici:
-        optional: true
 
   http-errors@1.8.1:
     resolution: {integrity: sha512-Kpk9Sm7NmI+RHhnj6OIWDI1d6fIoFAtFt9RLaTMRlg/8w49juAStsrBgp0Dp4OdxdVbRIeKhtCUvoi/RuAhO4g==}
@@ -2959,15 +2936,8 @@ packages:
     resolution: {integrity: sha512-azl+t0z7pw/z958Gy9svOTuzqIk6xq+NSheJzn5MMWtWTFywIacg2wUlzKFGtt3cthx0r2SxMK0yzJOR0IES7Q==}
     engines: {node: '>=14.0.0'}
 
-  tldts-core@6.1.86:
-    resolution: {integrity: sha512-Je6p7pkk+KMzMv2XXKmAE3McmolOQFdxkKw0R8EYNr7sELW46JqnNeTX8ybPiQgvg1ymCoF8LXs5fzFaZvJPTA==}
-
   tldts-core@7.4.8:
     resolution: {integrity: sha512-c1P7u0EhACHj7lPy4MJm8iTFEU8+nB0LCtddH0fhP7noaVoXAqafMtOOeX+ulpuPBqnrRgRhw494RICT3mbhnw==}
-
-  tldts@6.1.86:
-    resolution: {integrity: sha512-WMi/OQ2axVTf/ykqCQgXiIct+mSQDFdH2fkwhPwgEwvJ1kSzZRiinb0zF2Xb8u4+OqPChmyI6MEu4EezNJz+FQ==}
-    hasBin: true
 
   tldts@7.4.8:
     resolution: {integrity: sha512-htwgN/8KRB3z3vnC0BOETVh2m499g5GmyTK9Wq5JBLX3FNz6tSBveAd+fQhzy9hkjif8vy2jwDMR1sGhLtZl2A==}
@@ -2979,10 +2949,6 @@ packages:
   toidentifier@1.0.1:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
-
-  tough-cookie@5.1.2:
-    resolution: {integrity: sha512-FVDYdxtnj0G6Qm/DhNPSb8Ju59ULcup3tuJxkFb5K8Bv2pUXILbf0xZWU8PX8Ov19OXljbUyveOFwRMwkXzO+A==}
-    engines: {node: '>=16'}
 
   tough-cookie@6.0.2:
     resolution: {integrity: sha512-exgYmnmL/sJpR3upZfXG5PoatXQii55xAiXGXzY+sROLZ/Y+SLcp9PgJNI9Vz37HpQ74WvDcLT8eqm+kV3FzrA==}
@@ -3457,7 +3423,7 @@ snapshots:
       '@babel/helper-string-parser': 7.29.7
       '@babel/helper-validator-identifier': 7.29.7
 
-  '@cqut-openproject/cas-sdk@https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/43588415d8add8a9b7398de38123b78487e9473f': {}
+  '@cqut-openproject/cas-sdk@https://codeload.github.com/CQUT-OpenProject/CAS-SDK/tar.gz/165182d73c8421b5b38c9c5ded2df4916ba7bc4d': {}
 
   '@csstools/color-helpers@6.1.0': {}
 
@@ -4472,14 +4438,6 @@ snapshots:
 
   asynckit@0.4.0: {}
 
-  axios-cookiejar-support@6.0.5(axios@1.18.1)(tough-cookie@5.1.2):
-    dependencies:
-      axios: 1.18.1
-      http-cookie-agent: 7.0.3(tough-cookie@5.1.2)
-      tough-cookie: 5.1.2
-    transitivePeerDependencies:
-      - undici
-
   axios@1.18.1:
     dependencies:
       follow-redirects: 1.16.0
@@ -4941,11 +4899,6 @@ snapshots:
     dependencies:
       deep-equal: 1.0.1
       http-errors: 1.8.1
-
-  http-cookie-agent@7.0.3(tough-cookie@5.1.2):
-    dependencies:
-      agent-base: 7.1.4
-      tough-cookie: 5.1.2
 
   http-errors@1.8.1:
     dependencies:
@@ -6206,13 +6159,7 @@ snapshots:
 
   tinyspy@4.0.4: {}
 
-  tldts-core@6.1.86: {}
-
   tldts-core@7.4.8: {}
-
-  tldts@6.1.86:
-    dependencies:
-      tldts-core: 6.1.86
 
   tldts@7.4.8:
     dependencies:
@@ -6221,10 +6168,6 @@ snapshots:
   toggle-selection@1.0.6: {}
 
   toidentifier@1.0.1: {}
-
-  tough-cookie@5.1.2:
-    dependencies:
-      tldts: 6.1.86
 
   tough-cookie@6.0.2:
     dependencies:

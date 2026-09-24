@@ -1,6 +1,5 @@
 import axios, { type AxiosRequestConfig } from "axios";
-import { wrapper } from "axios-cookiejar-support";
-import { CookieJar } from "tough-cookie";
+import { Readable } from "node:stream";
 import {
   CasClient,
   CasError,
@@ -43,16 +42,11 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
 
     try {
       const normalizedAccount = input.account.trim().toLowerCase();
-      const jar = new CookieJar();
-      const client = wrapper(
-        axios.create({
-          jar,
-          signal: abortController.signal,
-          withCredentials: true,
-          timeout: this.options.providerTimeoutMs,
-          validateStatus: () => true,
-        }),
-      );
+      const client = axios.create({
+        signal: abortController.signal,
+        timeout: this.options.providerTimeoutMs,
+        validateStatus: () => true,
+      });
 
       const fetcher: Fetcher = async (
         req: HttpRequest,
@@ -61,9 +55,9 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
           const config: AxiosRequestConfig = {
             url: req.url,
             method: req.method ?? "GET",
-            maxRedirects: req.redirect === "manual" ? 0 : 10,
+            maxRedirects: 0,
             validateStatus: () => true,
-            responseType: "text",
+            responseType: "stream",
           };
           if (req.headers !== undefined) {
             config.headers = req.headers;
@@ -79,15 +73,13 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
 
           return {
             status: res.status,
-            statusText: res.statusText,
             headers: res.headers as Record<string, string | string[]>,
             url: resUrl,
-            text: async () =>
-              typeof res.data === "string"
-                ? res.data
-                : JSON.stringify(res.data),
-            json: async () =>
-              typeof res.data === "string" ? JSON.parse(res.data) : res.data,
+            body: res.data
+              ? (Readable.toWeb(
+                  res.data as Readable,
+                ) as ReadableStream<Uint8Array>)
+              : null,
           };
         } catch (error: unknown) {
           if (axios.isAxiosError(error)) {
@@ -117,58 +109,34 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         fetcher,
       });
 
-      // 1 & 2 & 3: Login and obtain ticket
+      // Login, obtain a ticket, and validate it within the SDK-owned session.
       const loginResult = await casClient.login({
         account: input.account,
         password: input.password,
         serviceUrl: this.options.casServiceUrl,
         signal: abortController.signal,
+        validate: true,
       });
 
-      // 4: Validate ticket
-      let casUser: string;
       try {
-        const validation = await casClient.validateServiceTicket(
-          loginResult.ticket,
-          loginResult.serviceWithClientId,
-          { signal: abortController.signal },
-        );
-        casUser = validation.user;
-      } catch (err: unknown) {
-        if (err instanceof CasError && err.kind === "UPSTREAM_ERROR") {
-          throw new RetryableProviderError(
-            "campus cas service ticket validation failed",
+        const casUser = loginResult.validation.user;
+
+        if (casUser !== normalizedAccount) {
+          throw new IdentityCoreError(
+            "verification_failed",
+            "campus identity does not match requested account",
           );
         }
-        if (err instanceof CasError && err.kind === "VALIDATION_FAILED") {
-          if (
-            err.message.includes("conflicting") ||
-            err.message.includes("empty identifier")
-          ) {
-            throw new RetryableProviderError(
-              "campus cas service ticket validation returned an invalid response",
-            );
-          }
-          throw new RetryableProviderError(
-            "campus cas service ticket validation failed",
-          );
-        }
-        throw err;
-      }
 
-      if (casUser !== normalizedAccount) {
-        throw new IdentityCoreError(
-          "verification_failed",
-          "campus identity does not match requested account",
-        );
+        return {
+          schoolUid: casUser,
+          studentStatus: "active",
+          school: this.options.schoolCode,
+          identityHash: `cqut:${casUser}`,
+        };
+      } finally {
+        loginResult.dispose();
       }
-
-      return {
-        schoolUid: casUser,
-        studentStatus: "active",
-        school: this.options.schoolCode,
-        identityHash: `cqut:${casUser}`,
-      };
     } catch (error) {
       if (
         error instanceof RetryableProviderError ||
@@ -190,6 +158,14 @@ export class CqutCampusVerifierProvider implements CampusVerifierProvider {
         }
         if (error.kind === "UPSTREAM_ERROR") {
           throw new RetryableProviderError("campus cas service is unavailable");
+        }
+        if (
+          error.kind === "NETWORK_ERROR" ||
+          error.kind === "TIMEOUT" ||
+          error.kind === "ABORTED" ||
+          error.kind === "VALIDATION_FAILED"
+        ) {
+          throw new RetryableProviderError("campus cas verification failed");
         }
       }
       if (axios.isAxiosError(error)) {

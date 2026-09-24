@@ -58,14 +58,13 @@
   "dependencies": {
     "@ant-design/icons": "^5.6.1",
     "@ant-design/v5-patch-for-react-19": "^1.0.3",
-    "@cqut-openproject/cas-sdk": "github:CQUT-OpenProject/CAS-SDK#1.0.0",
+    "@cqut-openproject/cas-sdk": "github:CQUT-OpenProject/CAS-SDK#v2.0.0",
     "@refinedev/antd": "^6.0.3",
     "@refinedev/core": "^5.0.12",
     "@refinedev/react-router": "^2.0.4",
     "@tanstack/react-query": "^5.101.2",
     "antd": "^5.29.3",
     "axios": "^1.18.1",
-    "axios-cookiejar-support": "^6.0.4",
     "dayjs": "^1.11.21",
     "express": "^5.1.0",
     "ioredis": "^5.8.1",
@@ -76,8 +75,7 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-router": "^8.3.0",
-    "resend": "^6.10.0",
-    "tough-cookie": "^5.1.2"
+    "resend": "^6.10.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
