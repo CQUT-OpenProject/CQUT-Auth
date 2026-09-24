@@ -14,15 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.32.1
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.19.0
         with:
           node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
+          cache: true
+          run-install: false
+      - run: vp install --frozen-lockfile
+      - run: vp run check
 
   server-tests:
     runs-on: ubuntu-latest
@@ -50,15 +48,13 @@ jobs:
           done
           docker logs cqut-auth-postgres-ci
           exit 1
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.32.1
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.19.0
         with:
           node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test:server
+          cache: true
+          run-install: false
+      - run: vp install --frozen-lockfile
+      - run: vp test --project server
       - name: Stop PostgreSQL
         if: always()
         run: docker rm --force cqut-auth-postgres-ci || true
@@ -67,29 +63,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.32.1
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.19.0
         with:
           node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm test:ui
+          cache: true
+          run-install: false
+      - run: vp install --frozen-lockfile
+      - run: vp test --project web
 
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.32.1
-      - uses: actions/setup-node@v4
+      - uses: voidzero-dev/setup-vp@v1.19.0
         with:
           node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
+          cache: true
+          run-install: false
+      - run: vp install --frozen-lockfile
+      - run: vp run build
 
   docker-build:
     if: github.event_name == 'pull_request'
