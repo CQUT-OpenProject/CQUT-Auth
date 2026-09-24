@@ -14,9 +14,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: voidzero-dev/setup-vp@v1.19.0
+      - uses: voidzero-dev/setup-vp@v1.21.1
         with:
-          node-version: 24
+          node-version-file: ".node-version"
           cache: true
           run-install: false
       - run: vp install --frozen-lockfile
@@ -48,9 +48,9 @@ jobs:
           done
           docker logs cqut-auth-postgres-ci
           exit 1
-      - uses: voidzero-dev/setup-vp@v1.19.0
+      - uses: voidzero-dev/setup-vp@v1.21.1
         with:
-          node-version: 24
+          node-version-file: ".node-version"
           cache: true
           run-install: false
       - run: vp install --frozen-lockfile
@@ -63,9 +63,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: voidzero-dev/setup-vp@v1.19.0
+      - uses: voidzero-dev/setup-vp@v1.21.1
         with:
-          node-version: 24
+          node-version-file: ".node-version"
           cache: true
           run-install: false
       - run: vp install --frozen-lockfile
@@ -75,9 +75,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: voidzero-dev/setup-vp@v1.19.0
+      - uses: voidzero-dev/setup-vp@v1.21.1
         with:
-          node-version: 24
+          node-version-file: ".node-version"
           cache: true
           run-install: false
       - run: vp install --frozen-lockfile
