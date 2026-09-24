@@ -1,41 +1,33 @@
-## Quick Overview
+# CQUT-Auth 协作说明
 
-CQUT-Auth is an OpenID Connect (OIDC) Identity Provider bridging CQUT UIS/CAS authentication with client applications, featuring an admin console and Agent API.
+CQUT-Auth 是 CQUT UIS / CAS 的 OpenID Connect 身份提供方，包含管理后台与 Agent API。服务端使用 Express 5、`oidc-provider`、PostgreSQL 及 Redis / 内存存储；管理界面位于 `web/`，VitePress 文档位于 `docs/`。
 
-- **Stack**: Node.js 24+, TypeScript (ESM, strict), Express 5, `oidc-provider`, PostgreSQL, Redis / In-memory, Jose
-- **Frontend & Docs**: React 19 + Refine + Ant Design 5 + Vite 7 (`web/`), VitePress (`docs/`)
-- **Package Manager & Runtime**: `pnpm` (10+) with Docker Compose
-- **Structure**:
-  - `src/`: Backend server (`main.ts`, `app.ts`), OIDC provider (`oidc/`), API routes (`routes/`), CAS identity (`identity/`), persistence & crypto (`persistence/`)
-  - `web/`: Admin dashboard SPA
-  - `docs/`: VitePress documentation site
-  - `test/`: Integration & service tests; modular unit tests located near source (`*.test.ts`)
-  - `deploy/` & `scripts/`: Deployment configurations (`docker-compose.yml`, `.env`) and maintenance scripts
+## 开发环境与命令
 
-## Commands & Workflow
+- 使用 Node.js 24+、pnpm 10+。本地服务依赖和环境配置按任务需要启用。
+- `pnpm install` 安装依赖；`pnpm dev` 启动服务端与管理界面开发流程。
+- `pnpm lint` 检查环境变量读取边界并执行 TypeScript 类型检查。
+- `pnpm test` 运行服务端与 UI 测试；可分别运行 `pnpm test:server` 或 `pnpm test:ui`。
+- `pnpm build` 构建管理界面和服务端；`pnpm docs:build` 构建文档。
+- 仅在初始化测试环境时运行 `pnpm init-env --profile test`。它会创建 `deploy/.env` 和 `deploy/oidc-clients.json`，并输出 demo client secret；如需覆盖现有文件，再明确加 `--force`。`pnpm docker:up` / `pnpm docker:down` 管理本地 Docker Compose 服务。
 
-- `pnpm install`: Install dependencies
-- `pnpm dev`: Start both server and UI in dev mode (`dev:server`, `dev:ui`)
-- `pnpm test`: Run all tests (`test:server` via Node test runner + `test:ui` via Vitest); run a single test: `npx tsx --test <path-to-test.ts>`
-- `pnpm lint`: Run env source check (`scripts/check-single-env-source.mjs`) and TypeScript type check
-- `pnpm build`: Build UI bundle and compile server TypeScript (`dist/`)
-- `pnpm format`: Format codebase with Prettier
-- `pnpm init-env --force --profile test`: Initialize local test environment configuration
-- `pnpm docker:up` / `pnpm docker:down`: Start / stop local service stack with Docker Compose
+## 按任务查阅
 
-## Write Code
+- OIDC 与授权端点：`src/oidc/`、`src/routes/`；CAS 身份接入：`src/identity/`；持久化：`src/persistence/`；Agent API：`src/agent/`；管理界面：`web/`；用户文档：`docs/`。
+- 服务端配置入口为 `src/config.ts`。改动配置时查看该文件和 `scripts/check-single-env-source.mjs`；不要在其他服务端模块直接读取环境变量。
+- 修改认证、授权、持久化、安全或配置行为时，先查看对应实现及相邻测试，并补充覆盖新行为的回归测试。
+- 涉及部署时再查看 `deploy/` 与 `scripts/`；普通代码改动不需要通读这些目录。
 
-- Plan first; do NOT rush to code.
-- Strict TypeScript & ES Modules with 2-space indentation.
-- Keep domain logic isolated in its corresponding module (`oidc/`, `identity/`, `persistence/`, `routes/`, `web/`).
-- Read environment variables only through `src/config.ts` (enforced by `pnpm lint`).
-- Never commit build artifacts (`dist/`, `docs/.vitepress/dist/`).
-- Add regression tests for changes touching auth, persistence, security, or config. All tests must pass locally before completing tasks.
+## 实现约束
 
-## Response Format
+- 使用严格 TypeScript 与 ESM，缩进两个空格；保持身份认证、OIDC、路由和持久化职责分别落在对应模块。
+- 不提交 `dist/` 或 `docs/.vitepress/dist/` 构建产物。
+- 不将真实凭据、令牌、Cookie 或用户数据写入源码、测试 fixture 或日志；测试使用合成数据。
 
-Be concise. Do not write unsolicited "WHY" explanations.
+## 验证
 
-## Commit Convention
+根据改动选择验证：通常运行 `pnpm lint` 与相关测试；构建或文档变更时，再运行对应的 `pnpm build` 或 `pnpm docs:build`。报告实际运行的命令及未运行的检查。涉及环境变量配置时，确认 `pnpm lint` 中的环境来源检查通过。
 
-Use Gitmoji format: `<emoji> <concise Chinese>` (no `feat:`/`fix:` prefix). e.g., `✨ 新增客户端审核功能` or `🐛 修复 CAS 票据验证异常`.
+## 提交信息
+
+使用 Gitmoji 加简洁中文描述，例如：`✨ 新增客户端审核功能`、`🐛 修复 CAS 票据验证异常`。
