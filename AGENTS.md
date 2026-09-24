@@ -4,12 +4,13 @@ CQUT-Auth 是 CQUT UIS / CAS 的 OpenID Connect 身份提供方，包含管理�
 
 ## 开发环境与命令
 
-- 使用 Node.js 24+、pnpm 10+。本地服务依赖和环境配置按任务需要启用。
-- `pnpm install` 安装依赖；`pnpm dev` 启动服务端与管理界面开发流程。
-- `pnpm lint` 检查环境变量读取边界并执行 TypeScript 类型检查。
-- `pnpm test` 运行服务端与 UI 测试；可分别运行 `pnpm test:server` 或 `pnpm test:ui`。
-- `pnpm build` 构建管理界面和服务端；`pnpm docs:build` 构建文档。
-- 仅在初始化测试环境时运行 `pnpm init-env --profile test`。它会创建 `deploy/.env` 和 `deploy/oidc-clients.json`，并输出 demo client secret；如需覆盖现有文件，再明确加 `--force`。`pnpm docker:up` / `pnpm docker:down` 管理本地 Docker Compose 服务。
+- 本项目使用 [Vite+](https://viteplus.dev) 统一管理开发工具链，请勿使用其它工具进行管理。
+- 使用 `.node-version` 固定的 Node.js 24.21.0、Vite+（`vp`）与项目锁定的 pnpm 10；用 `vp env current` 检查实际解析结果。本地服务依赖和环境配置按任务需要启用。
+- `vp install` 安装依赖；`vp run dev` 启动服务端与管理界面开发流程。
+- `vp check` 统一执行 Oxfmt、Oxlint、TypeScript 类型检查与环境变量读取边界检查。
+- `vp test` 运行服务端与 UI 测试；可用 `vp test --project server` 或 `vp test --project web` 分别运行。
+- `vp run build` 构建管理界面和服务端；`vp run docs:build` 构建文档。
+- 仅在初始化测试环境时运行 `vp run init-env -- --profile test`。它会创建 `deploy/.env` 和 `deploy/oidc-clients.json`，并输出 demo client secret；如需覆盖现有文件，再明确加 `--force`。`vp run docker:up` / `vp run docker:down` 管理本地 Docker Compose 服务。
 
 ## 按任务查阅
 
@@ -26,7 +27,7 @@ CQUT-Auth 是 CQUT UIS / CAS 的 OpenID Connect 身份提供方，包含管理�
 
 ## 验证
 
-根据改动选择验证：通常运行 `pnpm lint` 与相关测试；构建或文档变更时，再运行对应的 `pnpm build` 或 `pnpm docs:build`。报告实际运行的命令及未运行的检查。涉及环境变量配置时，确认 `pnpm lint` 中的环境来源检查通过。
+根据改动选择验证：通常运行 `vp check` 与相关测试；构建或文档变更时，再运行对应的 `vp run build` 或 `vp run docs:build`。报告实际运行的命令及未运行的检查。涉及环境变量配置时，确认 `vp run check:env-source` 通过。
 
 ## 提交信息
 

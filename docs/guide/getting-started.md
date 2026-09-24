@@ -3,9 +3,9 @@
 以下配置用于本地功能测试，不应作为生产配置：
 
 ```bash
-pnpm install
-pnpm init-env --profile test
-pnpm docker:up
+vp install
+vp run init-env -- --profile test
+vp run docker:up
 ```
 
 `init-env` 会生成：
@@ -29,7 +29,7 @@ pnpm docker:up
 ## 停止服务
 
 ```bash
-pnpm docker:down
+vp run docker:down
 ```
 
 如果目标文件已存在，`init-env` 会拒绝覆盖。只有明确需要重新生成密钥和演示客户端时才使用 `--force`；覆盖后，旧数据中的密文和 Cookie 可能无法继续使用。

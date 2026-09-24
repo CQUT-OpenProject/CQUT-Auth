@@ -3,8 +3,8 @@
 ## 1. 生成部署配置
 
 ```bash
-pnpm install --frozen-lockfile
-pnpm init-env --profile production --issuer https://auth.example.com
+vp install --frozen-lockfile
+vp run init-env -- --profile production --issuer https://auth.example.com
 ```
 
 `init-env` 默认拒绝覆盖已存在的 `deploy/.env`；重新生成生产配置时需加 `--force`（会将整个 `.env` 覆盖为生产模板，注意保存旧值）。
@@ -29,7 +29,7 @@ pnpm init-env --profile production --issuer https://auth.example.com
 用户量级不大、仅运行**单个**应用实例时，可启用小部署模式，用进程内内存限流替代 Redis：
 
 ```bash
-pnpm init-env --profile production-small --issuer https://auth.example.com
+vp run init-env -- --profile production-small --issuer https://auth.example.com
 ```
 
 确认 `deploy/.env` 中：

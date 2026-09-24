@@ -3,7 +3,7 @@
 <div align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg?style=flat" alt="License: MIT"></a>
   <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-24+-green.svg?style=flat" alt="Node.js 24+"></a>
-  <a href="https://pnpm.io/"><img src="https://img.shields.io/badge/pnpm-10+-orange.svg?style=flat" alt="pnpm 10+"></a>
+  <a href="https://viteplus.dev/"><img src="https://img.shields.io/badge/Vite+-0.3-purple.svg?style=flat" alt="Vite+"></a>
   <a href="https://cqut-openproject.github.io/CQUT-Auth/"><img src="https://img.shields.io/badge/Docs-VitePress-646cff.svg?style=flat" alt="Docs"></a>
 </div>
 
@@ -35,16 +35,18 @@
 
 ## 快速体验
 
+本项目使用 [Vite+](https://viteplus.dev) 统一管理开发工具链，请勿使用其它工具进行管理。
+
 本地功能测试（非生产配置）：
 
 ```bash
-pnpm install
-pnpm init-env --profile test
-pnpm docker:up
+vp install
+vp run init-env -- --profile test
+vp run docker:up
 ```
 
 管理后台：`http://127.0.0.1:3003/manage`  
-停止服务：`pnpm docker:down`
+停止服务：`vp run docker:down`
 
 更多步骤与说明见[《本地启动》](https://cqut-openproject.github.io/CQUT-Auth/guide/getting-started)
 
