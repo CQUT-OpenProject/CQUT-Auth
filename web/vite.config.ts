@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vite-plus";
 import { resolve } from "node:path";
 
 export default defineConfig({
@@ -8,5 +8,8 @@ export default defineConfig({
   build: {
     outDir: resolve(import.meta.dirname, "../dist/management"),
     emptyOutDir: true,
+    rolldownOptions: {
+      checks: { moduleLevelDirective: false },
+    },
   },
 });
