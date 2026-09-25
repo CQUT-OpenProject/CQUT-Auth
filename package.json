@@ -46,7 +46,7 @@
     "@tanstack/react-query": "^5.101.2",
     "antd": "^5.29.3",
     "axios": "^1.18.1",
-    "dayjs": "^1.11.21",
+    "dayjs": "^1.11.23",
     "express": "^5.1.0",
     "ioredis": "^5.8.1",
     "jose": "^6.2.2",
