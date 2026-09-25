@@ -48,7 +48,7 @@
     "axios": "^1.18.1",
     "dayjs": "^1.11.23",
     "express": "^5.1.0",
-    "ioredis": "^5.8.1",
+    "ioredis": "^6.0.0",
     "jose": "^6.2.2",
     "nodemailer": "^9.0.3",
     "oidc-provider": "^9.7.1",
