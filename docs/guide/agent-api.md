@@ -1,6 +1,8 @@
 # Agent API（AI 接入）
 
-Agent API 为 AI 助手和自动化脚本提供 REST 入口，用于管理 OIDC 项目、客户端与成员。用户只需提供重庆理工大学账号密码，并与 AI 对齐需求，即可完成客户端注册与配置修改。
+Agent API 为 AI 助手和自动化脚本提供 REST 接口，用于管理 OIDC 项目、成员和客户端。调用前先读取服务端提供的操作说明和 OpenAPI 文档。
+
+登录需要重庆理工大学账号和密码。只有在可信环境中，才将凭据交给 AI 助手。
 
 ## 启用
 
@@ -31,9 +33,9 @@ AI 接入时建议按以下顺序自发现：
 }
 ```
 
-OpenAPI 的 `info.x-agent-instructions` 字段指向 `/instructions`。仓库内源文件见 [`openapi/agent-instructions.md`](https://github.com/CQUT-OpenProject/CQUT-Auth/blob/master/openapi/agent-instructions.md) 与 [`openapi/agent.json`](https://github.com/CQUT-OpenProject/CQUT-Auth/blob/master/openapi/agent.json)。
+OpenAPI 的 `info.x-agent-instructions` 字段指向 `/instructions`。仓库内源文件见 [`openapi/agent-instructions.md`](https://github.com/CQUT-OpenProject/CQUT-Auth/blob/master/openapi/agent-instructions.md) 和 [`openapi/agent.json`](https://github.com/CQUT-OpenProject/CQUT-Auth/blob/master/openapi/agent.json)。
 
-用户只需告诉 AI 服务地址（如 `https://auth.example.com/api/agent`），Agent 即可自行拉取提示词与规范。
+告诉 AI 服务地址（如 `https://auth.example.com/api/agent`）后，Agent 可以自行读取操作说明和接口规范。
 
 ## 认证流程
 
@@ -49,9 +51,10 @@ OpenAPI 的 `info.x-agent-instructions` 字段指向 `/instructions`。仓库内
 {
   "accessToken": "...",
   "tokenType": "Bearer",
-  "expiresIn": 86400,
+  "expiresIn": 28800,
   "user": {
     "subjectId": "subj_...",
+    "preferredUsername": "...",
     "displayName": "...",
     "isAdmin": false
   },
@@ -74,24 +77,24 @@ Agent API **不需要** CSRF Token，与管理后台 `/api/management` 的 Cooki
 
 ## 能力范围
 
-| 类别   | 操作                                         |
-| ------ | -------------------------------------------- |
-| 项目   | 列表、详情、创建、编辑（含归档）             |
-| 成员   | 列表、添加、修改角色、移除、转移所有权       |
-| 客户端 | 列表、详情、注册、修改元数据、修改 OIDC 配置 |
-| 凭据   | Web 客户端 Secret 轮换                       |
+| 类别   | 操作                                     |
+| ------ | ---------------------------------------- |
+| 项目   | 列表、详情、创建、编辑和归档             |
+| 成员   | 列表、添加、修改角色、移除和转移所有权   |
+| 客户端 | 列表、详情、注册、修改元数据和 OIDC 配置 |
+| 凭据   | 轮换 Web 客户端 Secret                   |
 
 权限与管理后台一致，继承当前用户在项目中的角色（owner / maintainer / viewer）。
 
 ## 典型对话 → API 映射
 
-| 用户说                                                                 | AI 应执行的调用                                                                             |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| 「帮我创建一个名叫 MyApp 的项目」                                      | `POST /projects` `{ "name": "MyApp" }`                                                      |
-| 「在这个项目里注册一个 SPA 客户端，回调地址是 https://app.example/cb」 | `POST /projects/:id/clients` 含 `clientType: "spa"`、`redirectUris`                         |
-| 「把 redirect URI 改成 https://new.example/cb」                        | `GET .../clients/:id` 取 `clientVersion` → `PUT .../revision`                               |
-| 「给张三加 maintainer 权限」                                           | `POST .../members` `{ "subjectId": "...", "role": "maintainer", "expectedProjectVersion" }` |
-| 「轮换这个客户端的 secret」                                            | `GET client` → `POST .../secrets/rotate` `{ "clientVersion" }`                              |
+| 用户请求                                   | API 调用                                                                    |
+| ------------------------------------------ | --------------------------------------------------------------------------- |
+| 创建名为 MyApp 的项目                      | `POST /projects`，请求体为 `{ "name": "MyApp" }`                            |
+| 注册有 `https://app.example/cb` 回调的 SPA | `POST /projects/:projectId/clients`，设置 `clientType` 和 `redirectUris`    |
+| 修改客户端 Redirect URI                    | `GET .../clients/:clientId` 读取 `clientVersion`，再调用 `PUT .../revision` |
+| 添加 maintainer 成员                       | `POST .../members`，提交 `subjectId`、`role` 和 `expectedProjectVersion`    |
+| 轮换客户端 Secret                          | `GET` 获取客户端版本，再调用 `POST .../secrets/rotate`                      |
 
 ## 客户端注册字段
 
@@ -116,7 +119,7 @@ Agent API **不需要** CSRF Token，与管理后台 `/api/management` 的 Cooki
 - 项目：`expectedProjectVersion`（来自 `project.version`）
 - 客户端：`clientVersion`（来自 `client.clientVersion`）
 
-若返回 `409 version_conflict`，先 `GET` 最新资源，更新版本号后重试。
+若返回 `409 version_conflict`，先 `GET` 最新资源，再根据最新版本重新提交变更。
 
 ## 一次性 Client Secret
 

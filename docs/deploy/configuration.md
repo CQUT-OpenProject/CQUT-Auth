@@ -1,27 +1,32 @@
 # 配置说明
 
-`deploy/.env.example` 是部署期配置模板。以下变量决定应用能否安全启动：
+`deploy/.env.example` 是部署期配置模板。下表列出部署时最常调整的变量；完整默认值和变量清单以该文件及 `src/config.ts` 为准。
 
-| 变量                              | 说明                                                      |
-| --------------------------------- | --------------------------------------------------------- |
-| `APP_ENV`                         | `production`、`development` 或 `test`                     |
-| `OIDC_ISSUER`                     | 对外 Issuer；非测试环境必须使用 HTTPS                     |
-| `DATABASE_URL`                    | 应用使用的 PostgreSQL URL，由 Compose 根据数据库变量组装  |
-| `REDIS_URL`                       | Redis URL；标准生产必需；小部署可留空                     |
-| `OIDC_SMALL_DEPLOYMENT`           | 单实例小部署；`true` 时允许生产环境无 Redis、使用内存限流 |
-| `OIDC_RATE_LIMIT_FAIL_CLOSED`     | 限流后端不可用时拒绝请求；无 Redis 的小部署必须为 `false` |
-| `OIDC_KEY_ENCRYPTION_SECRET`      | 数据库签名私钥加密密钥                                    |
-| `OIDC_ARTIFACT_ENCRYPTION_SECRET` | OIDC Artifact 载荷加密密钥，必须与前者不同                |
-| `OIDC_COOKIE_KEYS`                | Cookie 签名密钥列表，可按顺序轮换                         |
-| `OIDC_CSRF_SIGNING_SECRET`        | CSRF Token 签名密钥                                       |
-| `TRUST_PROXY_HOPS`                | 生产环境固定为一层可信代理                                |
-| `TRUSTED_PROXY_CIDRS`             | 允许提供转发 IP 的代理来源 CIDR                           |
-| `OIDC_ADMIN_SUBJECT_IDS`          | 管理员 Subject ID 白名单                                  |
-| `OIDC_AUTO_SEED_SIGNING_KEY`      | 是否在无签名密钥时自动初始化，生产常态应为 `false`        |
-| `OIDC_AGENT_API_ENABLED`          | 是否启用 `/api/agent` REST 入口；生产默认 `false`         |
-| `CQUT_UIS_BASE_URL`               | UIS 基础地址                                              |
-| `CQUT_CAS_APPLICATION_CODE`       | CAS 应用代码                                              |
-| `CQUT_CAS_SERVICE_URL`            | CAS Ticket 绑定的 Service URL                             |
+| 变量                               | 说明                                                      |
+| ---------------------------------- | --------------------------------------------------------- |
+| `APP_ENV`                          | `production`、`development` 或 `test`                     |
+| `OIDC_ISSUER`                      | 对外 Issuer；非测试环境必须使用 HTTPS                     |
+| `DATABASE_URL`                     | 应用使用的 PostgreSQL URL，由 Compose 根据数据库变量组装  |
+| `REDIS_URL`                        | Redis URL；标准生产必需；小部署可留空                     |
+| `OIDC_SMALL_DEPLOYMENT`            | 单实例小部署；`true` 时允许生产环境无 Redis、使用内存限流 |
+| `OIDC_RATE_LIMIT_FAIL_CLOSED`      | 限流后端不可用时拒绝请求；无 Redis 的小部署必须为 `false` |
+| `OIDC_KEY_ENCRYPTION_SECRET`       | 数据库签名私钥加密密钥                                    |
+| `OIDC_ARTIFACT_ENCRYPTION_SECRET`  | OIDC Artifact 载荷加密密钥，必须与前者不同                |
+| `OIDC_COOKIE_KEYS`                 | Cookie 签名密钥列表，可按顺序轮换                         |
+| `OIDC_CSRF_SIGNING_SECRET`         | CSRF Token 签名密钥                                       |
+| `TRUST_PROXY_HOPS`                 | 生产环境固定为一层可信代理                                |
+| `TRUSTED_PROXY_CIDRS`              | 允许提供转发 IP 的代理来源 CIDR                           |
+| `OIDC_ADMIN_SUBJECT_IDS`           | 管理员 Subject ID 白名单                                  |
+| `OIDC_AUTO_SEED_SIGNING_KEY`       | 是否在无签名密钥时自动初始化，生产常态应为 `false`        |
+| `OIDC_AGENT_API_ENABLED`           | 是否启用 `/api/agent` REST 入口；生产默认 `false`         |
+| `OIDC_EMAIL_VERIFICATION_ENABLED`  | 邮箱验证；生产环境必须保持启用                            |
+| `OIDC_ARTIFACT_CLEANUP_CRON`       | pg_cron 清理任务的执行计划；默认每 5 分钟                 |
+| `OIDC_ARTIFACT_CLEANUP_BATCH_SIZE` | 每次清理的最大记录数；默认 `5000`                         |
+| `CQUT_UIS_BASE_URL`                | UIS 基础地址                                              |
+| `CQUT_CAS_APPLICATION_CODE`        | CAS 应用代码                                              |
+| `CQUT_CAS_SERVICE_URL`             | CAS Ticket 绑定的 Service URL                             |
+
+`deploy/.env.example` 中的 `OIDC_ARTIFACT_CLEANUP_ENABLED` 是遗留变量，服务端不会读取它。Artifact 清理任务会在启动时尝试注册到 `pg_cron`；用 `OIDC_ARTIFACT_CLEANUP_CRON` 设置执行计划。
 
 ## 管理后台配置
 

@@ -28,10 +28,10 @@ vp run docs:dev          # 本地预览文档站
 vp run docs:build        # 构建文档站静态产物
 ```
 
-指定服务端测试：
+指定测试文件：
 
 ```bash
-vp test test/crypto.test.ts
+vp test src/identity/providers/cqut.provider.test.ts
 ```
 
 `vp run dev` 从 `deploy/.env` 读取配置。需要 PostgreSQL 和 Redis 时，可直接使用开发 Compose；容器会挂载当前工作区并运行监听构建。

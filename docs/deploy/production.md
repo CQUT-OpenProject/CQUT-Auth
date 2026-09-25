@@ -22,7 +22,7 @@ vp run init-env -- --profile production --issuer https://auth.example.com
 
 `init-env` 还会生成演示客户端。请在首次启动前检查 `deploy/oidc-clients.json` 的 Redirect URI 和 Scope；不需要引导客户端时，可以将 `clients` 改为空数组。
 
-在生产模式下，缺少 PostgreSQL、关闭邮箱验证或 Artifact 清理、使用内存存储，或代理配置不完整，都会导致应用拒绝启动。标准生产部署还需要 Redis 且 `OIDC_RATE_LIMIT_FAIL_CLOSED=true`；单实例小部署见下文。
+生产模式要求 PostgreSQL、邮箱验证、安全密钥和可信代理配置有效。应用会尝试用 PostgreSQL 的 `pg_cron` 扩展注册 Artifact 清理任务；扩展不可用时，应用会记录警告并继续启动。标准生产部署还需要 Redis 且 `OIDC_RATE_LIMIT_FAIL_CLOSED=true`；单实例小部署见下文。
 
 ## 小部署（无 Redis）
 
@@ -44,7 +44,7 @@ vp run init-env -- --profile production-small --issuer https://auth.example.com
 docker compose -f deploy/docker-compose.prod-small.yml up -d --build
 ```
 
-**取舍：**
+小部署使用进程内限流，适合单实例运行：
 
 - 限流计数保存在进程内存，**重启后清零**
 - **不支持**多实例水平扩展（各实例计数不共享）
@@ -66,7 +66,7 @@ OIDC_AUTO_SEED_SIGNING_KEY=true
 docker compose -f deploy/docker-compose.prod.yml up -d --build
 ```
 
-推送 `v*` 版本标签时，GitHub Actions 会构建 `linux/amd64`、`linux/arm64` 镜像并发布到 GitHub Container Registry（也可手动 `workflow_dispatch`）：
+推送 `v*` 版本标签时，GitHub Actions 会构建 `linux/amd64` 和 `linux/arm64` 镜像，并发布到 GitHub Container Registry。也可以手动运行 `workflow_dispatch`：
 
 ```bash
 docker pull ghcr.io/cqut-openproject/cqut-auth:latest
@@ -87,7 +87,7 @@ docker pull ghcr.io/cqut-openproject/cqut-auth:latest
    update oidc_signing_keys set status = 'retiring', retired_at = null where status = 'active';
    ```
 
-2. 设置 `OIDC_AUTO_SEED_SIGNING_KEY=true` 并重启（或手动 `pnpm seed:key`），生成新的 active 密钥。
+2. 设置 `OIDC_AUTO_SEED_SIGNING_KEY=true` 并重启（或运行 `vp run seed:key`），生成新的 active 密钥。
 3. 观察一段时间，确认没有客户端仍在使用旧密钥后退役并清理：
 
    ```sql

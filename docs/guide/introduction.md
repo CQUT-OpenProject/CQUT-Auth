@@ -27,7 +27,7 @@ CQUT Auth 是为受控客户端提供登录服务的 OpenID Connect Provider。�
 ## 环境要求
 
 - Node.js 24 或更高版本
-- pnpm 10 或更高版本
+- pnpm 10
 - Docker Engine 与 Docker Compose v2
 - 可访问 `uis.cqut.edu.cn`
 - 生产环境需要可用的 HTTPS 域名和反向代理

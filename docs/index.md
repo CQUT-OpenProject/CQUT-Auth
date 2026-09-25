@@ -23,6 +23,6 @@ features:
     details: 服务端完成 UIS / CAS 校验，将学校身份关联到本地 Subject。
   - title: 客户端管理后台
     details: 项目成员、Revision 审核、Secret 轮换、运行策略与邮件通道均可在 /manage 配置。
-  - title: 生产就绪基线
-    details: PostgreSQL 持久化、Redis 限流 fail-closed、签名密钥加密存储与审计记录。
+  - title: 生产部署要求
+    details: 使用 PostgreSQL 持久化，配置 Redis 限流和加密签名密钥，并保留审计记录。
 ---
