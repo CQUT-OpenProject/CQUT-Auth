@@ -1,7 +1,6 @@
 ---
 name: 缺陷报告
 about: 提交 CQUT-Auth 运行异常、安全隐患或逻辑缺陷
-title: "[Bug] "
 labels: "bug"
 assignees: ""
 ---
