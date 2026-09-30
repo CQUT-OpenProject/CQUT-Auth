@@ -64,7 +64,7 @@ vp run docker:up
 
 ## 切换到旧版
 
-旧版系统位于 `legacy` 分支，不包含客户端管理功能，目前已停止维护。
+旧版系统已归档至 [legacy-archive-2026-05-19 Release](https://github.com/CQUT-OpenProject/CQUT-Auth/releases/tag/legacy-archive-2026-05-19)，可在页面下载 GitHub 自动生成的源码 ZIP 或 tarball。旧版不包含客户端管理功能，目前已停止维护。
 
 ## 许可证
 
