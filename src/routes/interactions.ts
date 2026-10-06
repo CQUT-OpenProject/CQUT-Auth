@@ -714,12 +714,14 @@ function consentView(
   csrf: string,
   details: any,
   error?: string,
+  clientDisplayName?: string,
 ) {
   const scriptNonce = getScriptNonce(response);
   const clientId =
     typeof details?.params?.client_id === "string"
       ? details.params.client_id
       : "未知客户端";
+  const clientName = clientDisplayName?.trim() || clientId;
   const requestedScope =
     typeof details?.params?.scope === "string" ? details.params.scope : "";
   const missingScopes = asStringArray(
@@ -766,7 +768,7 @@ function consentView(
     "确认授权请求",
     `
     <h1>确认授权请求</h1>
-    <p class="hint">客户端 <strong>${escapeHtml(clientId)}</strong> 正在请求访问权限。</p>
+    <p class="hint">客户端 <strong>${escapeHtml(clientName)}</strong> 正在请求访问权限。</p>
     ${requestedScope ? `<p class="hint"><strong>请求范围：</strong>${escapeHtml(formatScopeList(requestedScope))}</p>` : ""}
     ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
     ${sections.join("")}
@@ -1015,6 +1017,7 @@ export function createInteractionRouter(
     return {
       pending: await persistence.artifacts.getInteractionLogin(uid),
       autoConsent: Boolean(client?.autoConsent),
+      displayName: client?.displayName,
     };
   }
 
@@ -1026,17 +1029,19 @@ export function createInteractionRouter(
         typeof details?.uid === "string" && details.uid.length > 0
           ? details.uid
           : (request.params["uid"] ?? "");
-      const { pending, autoConsent } = await loadInteractionContext(
-        uid,
-        details,
-      );
+      const { pending, autoConsent, displayName } =
+        await loadInteractionContext(uid, details);
       if (details.prompt.name === "consent") {
         if (autoConsent) {
           await interactions.finishConsent(request, response, details);
           return;
         }
         const csrf = issueCsrfToken(response, config, uid, "consent");
-        response.status(200).send(consentView(response, uid, csrf, details));
+        response
+          .status(200)
+          .send(
+            consentView(response, uid, csrf, details, undefined, displayName),
+          );
         return;
       }
       if (details.prompt.name !== "login") {
@@ -1094,6 +1099,7 @@ export function createInteractionRouter(
           );
         return;
       }
+      const { displayName } = await loadInteractionContext(uid, details);
       const action =
         typeof request.body?.action === "string" ? request.body.action : "";
       if (action === "approve") {
@@ -1107,7 +1113,16 @@ export function createInteractionRouter(
       const csrf = issueCsrfToken(response, config, uid, "consent");
       response
         .status(400)
-        .send(consentView(response, uid, csrf, details, "请选择允许或拒绝。"));
+        .send(
+          consentView(
+            response,
+            uid,
+            csrf,
+            details,
+            "请选择允许或拒绝。",
+            displayName,
+          ),
+        );
     } catch (error) {
       handleInteractionRouteError(error, response, next);
     }
