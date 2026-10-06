@@ -308,6 +308,24 @@ test("shows project list and handles switching", async () => {
   expect(await screen.findByText("Project Two")).toBeTruthy();
 });
 
+test("does not send Refine telemetry from the management app", async () => {
+  const imageSources: string[] = [];
+  vi.stubGlobal(
+    "Image",
+    class {
+      set src(value: string) {
+        imageSources.push(value);
+      }
+    },
+  );
+  mockApi();
+  window.history.pushState({}, "", "/manage/projects");
+  render(<App />);
+
+  await screen.findByText("当前项目【Project One】");
+  expect(imageSources).toEqual([]);
+});
+
 test("shows clients returned by the current project list", async () => {
   mockApi();
   window.history.pushState({}, "", "/manage/projects/project_one/clients");

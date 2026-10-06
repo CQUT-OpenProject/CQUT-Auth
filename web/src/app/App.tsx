@@ -30,6 +30,7 @@ export const AppContent: React.FC = () => {
           options={{
             syncWithLocation: true,
             warnWhenUnsavedChanges: false,
+            disableTelemetry: true,
           }}
         >
           <AppRouter />
