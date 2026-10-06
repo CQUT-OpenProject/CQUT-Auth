@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "vite-plus/test";
+import { afterEach, test, vi } from "vite-plus/test";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { ClientManagementError } from "../src/management/management-error.js";
 import { readConfig } from "../src/config.js";
@@ -92,6 +92,7 @@ test("client creation activates immediately and never exposes secrets in audit",
 });
 
 test("secret rotation enforces grace, expiry, revocation, and optimistic concurrency", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
   const modules = await createPersistence(config());
   const store = modules.clients;
   const projects = modules.projects;
@@ -156,7 +157,7 @@ test("secret rotation enforces grace, expiry, revocation, and optimistic concurr
         error.code === "secret_limit_exceeded",
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 1_100));
+    vi.setSystemTime(Date.now() + 1100);
     const afterExpiry = await store.findOidcClient(created.client.clientId);
     assert.equal(afterExpiry?.clientSecretDigests.length, 1);
     assert.equal(
@@ -532,3 +533,5 @@ test("SPA clients cannot disable PKCE on creation or update", async () => {
     await modules.runtime.close();
   }
 });
+
+afterEach(() => vi.useRealTimers());

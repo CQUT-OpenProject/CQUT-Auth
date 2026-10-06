@@ -12,8 +12,68 @@ import {
   defaultRuntimePolicy,
   RuntimePolicyModule,
 } from "../src/runtime-policy.js";
+import { ClientManagementError } from "../src/management/management-error.js";
 
 const secret = "test-runtime-policy-key";
+
+test("runtime policy rejects default secret grace above the maximum without saving", async () => {
+  const store = new AppSettingsRepositoryImpl(() => undefined);
+  const defaults = defaultRuntimePolicy(config());
+  const service = new RuntimePolicyModule(store, secret, defaults);
+  await service.initialize();
+  await assert.rejects(
+    service.update(
+      {
+        expectedVersion: 0,
+        policy: {
+          ...defaults.policy,
+          clientSecretDefaultGraceSeconds: 10,
+          clientSecretMaxGraceSeconds: 9,
+        },
+        email: emptyEmailSettings(),
+      },
+      { subjectId: "admin" },
+    ),
+    (error: unknown) =>
+      error instanceof ClientManagementError &&
+      error.field === "clientSecretDefaultGraceSeconds",
+  );
+  assert.equal((await service.getView()).version, 0);
+});
+
+test("runtime policy rejects non-positive email verification rate limits without saving", async () => {
+  const store = new AppSettingsRepositoryImpl(() => undefined);
+  const defaults = defaultRuntimePolicy(config());
+  const service = new RuntimePolicyModule(store, secret, defaults);
+  await service.initialize();
+  const keys = [
+    "emailVerifyRateLimitSubjectMax",
+    "emailVerifyRateLimitSubjectWindowSeconds",
+    "emailVerifyRateLimitEmailMax",
+    "emailVerifyRateLimitEmailWindowSeconds",
+    "emailVerifyRateLimitDomainMax",
+    "emailVerifyRateLimitDomainWindowSeconds",
+    "emailVerifyRateLimitIpMax",
+    "emailVerifyRateLimitIpWindowSeconds",
+  ] as const;
+  for (const key of keys) {
+    for (const value of [0, -1]) {
+      await assert.rejects(
+        service.update(
+          {
+            expectedVersion: 0,
+            policy: { ...defaults.policy, [key]: value },
+            email: emptyEmailSettings(),
+          },
+          { subjectId: "admin" },
+        ),
+        (error: unknown) =>
+          error instanceof ClientManagementError && error.field === key,
+      );
+      assert.equal((await service.getView()).version, 0);
+    }
+  }
+});
 
 class FakeEmailSender implements EmailSender {
   readonly sent: SendVerificationCodeInput[] = [];

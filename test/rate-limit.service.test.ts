@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "vite-plus/test";
 import type { StaticConfig } from "../src/config.js";
-import { RateLimitService } from "../src/persistence/rate-limit.service.js";
+import {
+  RateLimitService,
+  RateLimitUnavailableError,
+} from "../src/persistence/rate-limit.service.js";
 
 function createConfig(overrides: Partial<StaticConfig> = {}): StaticConfig {
   return {
@@ -97,7 +100,7 @@ test("fail-closed mode throws RateLimitUnavailableError when redis is unavailabl
   try {
     await assert.rejects(
       () => service.consume("key-1", 10, 60),
-      (error: unknown) => error instanceof Error && error.name === "Error",
+      RateLimitUnavailableError,
     );
     assert.equal(await service.checkReadiness(), false);
   } finally {

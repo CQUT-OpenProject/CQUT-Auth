@@ -1,4 +1,4 @@
-import { test } from "vite-plus/test";
+import { afterEach, test, vi } from "vite-plus/test";
 import {
   ClientManagementService,
   ProjectAccessService,
@@ -358,6 +358,7 @@ test("csrf rejects malformed percent-encoded cookies without 500", async () => {
 });
 
 test("csrf rejects expired token", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
   const { app, state } = await createTestApp({
     OIDC_CSRF_TOKEN_TTL_SECONDS: "1",
   });
@@ -368,7 +369,7 @@ test("csrf rejects expired token", async () => {
   );
   const csrf = extractCsrf(loginPage.text);
 
-  await new Promise((resolve) => setTimeout(resolve, 2100));
+  vi.setSystemTime(Date.now() + 2100);
 
   const response = await agent
     .post(`${interactionLocation}/login`)
@@ -558,6 +559,7 @@ test("redirect uri updates take effect immediately without restart", async () =>
 });
 
 test("client secret rotation honors dual-secret grace and expiry without restart", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
   const { app, state } = await createTestApp();
   const beforeRotation = await request(app)
     .post("/token")
@@ -606,7 +608,7 @@ test("client secret rotation honors dual-secret grace and expiry without restart
       refresh_token: "missing-token-new-secret",
     });
   assert.notEqual(newSecret.body.error, "invalid_client");
-  await new Promise((resolve) => setTimeout(resolve, 1_100));
+  vi.setSystemTime(Date.now() + 1_100);
   const expiredOldSecret = await request(app)
     .post("/token")
     .auth("demo-site", TEST_DEMO_CLIENT_SECRET, { type: "basic" })
@@ -657,3 +659,5 @@ test("signing key refresh updates jwks within configured interval", async () => 
 
   await state.persistence.runtime.close();
 });
+
+afterEach(() => vi.useRealTimers());

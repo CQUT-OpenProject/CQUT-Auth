@@ -1,4 +1,4 @@
-import { test } from "vite-plus/test";
+import { afterEach, test, vi } from "vite-plus/test";
 import {
   FakeEmailSender,
   FlakyEmailSender,
@@ -106,6 +106,7 @@ test("email verification rejects wrong code after max attempts", async () => {
 });
 
 test("email verification expires and requires resending code", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
   const { app, state, emailSender } = await createTestApp({
     OIDC_EMAIL_VERIFY_CODE_TTL_SECONDS: "1",
   });
@@ -116,7 +117,7 @@ test("email verification expires and requires resending code", async () => {
     "email-verify-expired",
   );
   const verifyCsrf = extractCsrf(sendCode.text);
-  await new Promise((resolve) => setTimeout(resolve, 1200));
+  vi.setSystemTime(Date.now() + 1200);
   const verify = await agent.post(profileLocation).type("form").send({
     csrf: verifyCsrf,
     action: "verify_code",
@@ -359,3 +360,5 @@ test("email verification rate limit outage rolls back partially consumed budget"
     await state.persistence.runtime.close();
   }
 });
+
+afterEach(() => vi.useRealTimers());
