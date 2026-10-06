@@ -48,6 +48,37 @@ async function createApp(overrides: NodeJS.ProcessEnv = {}) {
   });
 }
 
+test("Agent API CORS requires an exact configured origin", async () => {
+  const { app, state } = await createApp({
+    OIDC_AGENT_API_CORS_ORIGINS: "https://docs.example.com",
+  });
+  try {
+    const allowed = await request(app)
+      .options("/api/agent/auth/login")
+      .set("Origin", "https://docs.example.com")
+      .set("Access-Control-Request-Method", "POST")
+      .set("Access-Control-Request-Headers", "authorization,content-type");
+    assert.equal(allowed.status, 204);
+    assert.equal(
+      allowed.headers["access-control-allow-origin"],
+      "https://docs.example.com",
+    );
+    assert.equal(
+      allowed.headers["access-control-allow-headers"],
+      "Authorization, Content-Type",
+    );
+
+    const denied = await request(app)
+      .options("/api/agent/auth/login")
+      .set("Origin", "https://attacker.example")
+      .set("Access-Control-Request-Method", "POST")
+      .set("Access-Control-Request-Headers", "authorization");
+    assert.equal(denied.headers["access-control-allow-origin"], undefined);
+  } finally {
+    await state.persistence.runtime.close();
+  }
+});
+
 async function seedAdmin(
   state: Awaited<ReturnType<typeof createApp>>["state"],
 ) {

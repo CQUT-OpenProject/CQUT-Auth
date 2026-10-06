@@ -79,6 +79,7 @@ export type StaticConfig = {
   autoSeedSigningKey: boolean;
   adminSubjectIds: string[];
   agentApiEnabled: boolean;
+  agentApiCorsOrigins: string[];
   smallDeployment: boolean;
 };
 
@@ -103,6 +104,32 @@ function parseCsv(value: string | undefined): string[] {
         .map((entry) => entry.trim())
         .filter(Boolean)
     : [];
+}
+
+function parseCorsOrigins(
+  value: string | undefined,
+  key: string,
+  isProduction: boolean,
+) {
+  const origins = parseCsv(value);
+  for (const origin of origins) {
+    let parsed: URL;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error(`${key} must contain valid HTTP origins`);
+    }
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.origin !== origin ||
+      parsed.username ||
+      parsed.password ||
+      (isProduction && parsed.protocol !== "https:")
+    ) {
+      throw new Error(`${key} must contain valid HTTP origins`);
+    }
+  }
+  return origins;
 }
 
 function assertStrongEncryptionSecret(
@@ -437,6 +464,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
     agentApiEnabledRaw === undefined
       ? !isProduction
       : agentApiEnabledRaw === "true";
+  const agentApiCorsOrigins = parseCorsOrigins(
+    env["OIDC_AGENT_API_CORS_ORIGINS"],
+    "OIDC_AGENT_API_CORS_ORIGINS",
+    isProduction,
+  );
   return {
     port,
     appEnv,
@@ -529,6 +561,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env): StaticConfig {
         ? env["OIDC_AUTO_SEED_SIGNING_KEY"] === "true"
         : appEnv === "test",
     agentApiEnabled,
+    agentApiCorsOrigins,
     smallDeployment,
   };
 }

@@ -32,6 +32,7 @@ export default defineConfig({
             { text: "本地启动", link: "/guide/getting-started" },
             { text: "开发", link: "/guide/development" },
             { text: "Agent API", link: "/guide/agent-api" },
+            { text: "Agent API 交互式参考", link: "/guide/agent-api-reference" },
             { text: "安全说明", link: "/guide/security" },
           ],
         },

@@ -588,6 +588,42 @@ test("config allows loopback http issuer in test", () => {
   assert.equal(config.issuer, "http://127.0.0.1:3003");
 });
 
+test("config accepts exact Agent API CORS origins and requires HTTPS in production", () => {
+  const config = readConfig({
+    APP_ENV: "development",
+    OIDC_ISSUER: "https://verify.local",
+    OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
+    OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
+    OIDC_AGENT_API_CORS_ORIGINS:
+      "http://localhost:5173,https://docs.example.com",
+  });
+  assert.deepEqual(config.agentApiCorsOrigins, [
+    "http://localhost:5173",
+    "https://docs.example.com",
+  ]);
+
+  assert.throws(
+    () =>
+      readConfig({
+        APP_ENV: "development",
+        OIDC_ISSUER: "https://verify.local",
+        OIDC_KEY_ENCRYPTION_SECRET: PROD_KEY_SECRET,
+        OIDC_ARTIFACT_ENCRYPTION_SECRET: PROD_ARTIFACT_SECRET,
+        OIDC_AGENT_API_CORS_ORIGINS: "https://docs.example.com/path",
+      }),
+    /OIDC_AGENT_API_CORS_ORIGINS must contain valid HTTP origins/,
+  );
+  assert.throws(
+    () =>
+      readConfig(
+        createProductionConfigEnv({
+          OIDC_AGENT_API_CORS_ORIGINS: "http://docs.example.com",
+        }),
+      ),
+    /OIDC_AGENT_API_CORS_ORIGINS must contain valid HTTP origins/,
+  );
+});
+
 test("config rejects AUTH_PROVIDER=mock outside test", () => {
   assert.throws(
     () =>

@@ -50,6 +50,35 @@ export function createAgentRouter(
   const jsonParser = express.json({ limit: "64kb", strict: true });
   const { sessions, projects, clients, adminIds } =
     createManagementDomainServices(config, persistence);
+  const corsOrigins = new Set(config.agentApiCorsOrigins);
+
+  router.use((request, response, next) => {
+    const origin = request.get("origin");
+    if (!origin) {
+      next();
+      return;
+    }
+    response.vary("Origin");
+    if (!corsOrigins.has(origin)) {
+      next();
+      return;
+    }
+    response.setHeader("Access-Control-Allow-Origin", origin);
+    if (request.method === "OPTIONS") {
+      response.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+      );
+      response.setHeader(
+        "Access-Control-Allow-Headers",
+        "Authorization, Content-Type",
+      );
+      response.setHeader("Access-Control-Max-Age", "600");
+      response.status(204).end();
+      return;
+    }
+    next();
+  });
 
   router.use((_request, response, next) => {
     response.setHeader("Cache-Control", "no-store");

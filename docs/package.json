@@ -9,6 +9,7 @@
     "preview": "vitepress preview"
   },
   "devDependencies": {
+    "@scalar/api-reference": "1.72.2",
     "vitepress": "2.0.0-alpha.20"
   }
 }
