@@ -27,3 +27,4 @@ data/
 # OS/editor/tooling
 .DS_Store
 .serena/
+.vitest/

@@ -73,7 +73,6 @@
     "tsx": "4.20.6",
     "typescript": "^7.0.2",
     "vite": "catalog:",
-    "vitest": "catalog:",
     "vite-plus": "catalog:"
   }
 }

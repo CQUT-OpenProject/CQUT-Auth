@@ -32,8 +32,9 @@ const clientHash = (clientId: string) =>
   createHmac("sha256", artifactSecret).update(clientId).digest("hex");
 const projectId = "pg_project";
 
-(databaseUrl ? describe.sequential : describe.skip)(
+describe.skipIf(!databaseUrl)(
   "PostgreSQL enforces client revision transactions and concurrency",
+  { concurrent: false },
   () => {
     const pool = new Pool({ connectionString: databaseUrl });
     let schema = "";
