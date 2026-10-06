@@ -21,6 +21,7 @@ services:
       OIDC_ARTIFACT_CLEANUP_CRON: "${OIDC_ARTIFACT_CLEANUP_CRON:-*/5 * * * *}"
     ports:
       - "${OIDC_APP_PORT:-3003}:3003"
+      - "127.0.0.1:5173:5173"
     volumes:
       - ../:/app
       # Anonymous volume keeps the container's Linux-native node_modules from

@@ -15,7 +15,7 @@
     "check:env-source": "node scripts/check-single-env-source.mjs",
     "dev": "concurrently -k \"vp run dev:server\" \"vp run dev:ui\"",
     "dev:server": "vp exec tsx watch --env-file=deploy/.env src/main.ts",
-    "dev:ui": "vp build --watch --config web/vite.config.ts",
+    "dev:ui": "vp dev web --host 0.0.0.0 --strictPort --port 5173",
     "dev:oidc": "vp exec tsx watch --env-file=deploy/.env src/main.ts",
     "docker:build": "docker build -t cqut-auth-oidc .",
     "docker:up": "docker compose -f deploy/docker-compose.yml up -d --build",
