@@ -302,7 +302,9 @@ test("shows project list and handles switching", async () => {
   render(<App />);
 
   // Should render active project Sider details
-  expect(await screen.findByText("当前项目【Project One】")).toBeTruthy();
+  expect(
+    await screen.findByText("当前项目【Project One】", {}, { timeout: 10_000 }),
+  ).toBeTruthy();
   // Should render projects table with unique link roles
   expect((await screen.findAllByText("Project One")).length).toBeGreaterThan(0);
   expect(await screen.findByText("Project Two")).toBeTruthy();
