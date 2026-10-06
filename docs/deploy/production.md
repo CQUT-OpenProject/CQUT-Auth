@@ -22,7 +22,7 @@ vp run init-env -- --profile production --issuer https://auth.example.com
 
 `init-env` 还会生成演示客户端。请在首次启动前检查 `deploy/oidc-clients.json` 的 Redirect URI 和 Scope；不需要引导客户端时，可以将 `clients` 改为空数组。
 
-生产模式要求 PostgreSQL、邮箱验证、安全密钥和可信代理配置有效。应用会尝试用 PostgreSQL 的 `pg_cron` 扩展注册 Artifact 清理任务；扩展不可用时，应用会记录警告并继续启动。标准生产部署还需要 Redis 且 `OIDC_RATE_LIMIT_FAIL_CLOSED=true`；单实例小部署见下文。
+生产模式要求 PostgreSQL、邮箱验证、安全密钥和可信代理配置有效。应用会尝试用 PostgreSQL 的 `pg_cron` 扩展注册 Artifact 清理任务；扩展不可用时，应用会记录警告并继续启动。标准生产部署还需要 Redis 6.2 或更新版本，且 `OIDC_RATE_LIMIT_FAIL_CLOSED=true`；单实例小部署见下文。
 
 ## 小部署（无 Redis）
 
