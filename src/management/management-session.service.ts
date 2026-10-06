@@ -27,7 +27,6 @@ export class ManagementSessionService {
     const expiresAt = new Date(
       now.getTime() + this.absoluteTtlSeconds * 1000,
     ).toISOString();
-    await this.sessions.deleteExpiredManagementSessions(now.toISOString());
     await this.sessions.deleteManagementSessionsBySubjectId(subjectId);
     await this.sessions.createManagementSession({
       tokenHash,

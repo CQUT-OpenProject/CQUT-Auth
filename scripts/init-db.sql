@@ -183,6 +183,8 @@ create table if not exists management_sessions (
 
 create index if not exists idx_management_sessions_expires_at
 on management_sessions (expires_at);
+create index if not exists idx_management_sessions_subject_id
+on management_sessions (subject_id);
 
 create table if not exists oidc_artifacts (
   id text primary key,

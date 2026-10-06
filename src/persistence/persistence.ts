@@ -29,6 +29,8 @@ import { AppSettingsRepositoryImpl } from "./app-settings.repository.js";
 export class PersistenceRuntimeImpl implements PersistenceRuntime {
   private readonly logger = console;
   private pool: Pool | undefined;
+  private sessionCleanupTimer: ReturnType<typeof setInterval> | undefined;
+  private sessionCleanupInFlight: Promise<void> | undefined;
   private readonly artifactPayloadCipherService: ArtifactPayloadCipherServiceImpl;
   readonly identityRepository: IdentityRepositoryImpl;
   oidcClientRepository!: OidcClientRepository;
@@ -89,6 +91,7 @@ export class PersistenceRuntimeImpl implements PersistenceRuntime {
         );
         await this.projectRepository.ensureSystemProject();
         this.selectClientRepository();
+        this.startSessionCleanup();
         return;
       }
       throw new Error("DATABASE_URL is required for oidc-op");
@@ -120,6 +123,23 @@ export class PersistenceRuntimeImpl implements PersistenceRuntime {
       await this.projectRepository.ensureSystemProject();
     }
     this.selectClientRepository();
+    this.startSessionCleanup();
+  }
+
+  private startSessionCleanup() {
+    this.sessionCleanupTimer = setInterval(() => {
+      if (this.sessionCleanupInFlight) return;
+      this.sessionCleanupInFlight = this.managementSessionRepository
+        .deleteExpiredManagementSessions(new Date().toISOString())
+        .then(() => undefined)
+        .catch((error: unknown) => {
+          this.logger.warn("management session cleanup failed", error);
+        })
+        .finally(() => {
+          this.sessionCleanupInFlight = undefined;
+        });
+    }, 60_000);
+    this.sessionCleanupTimer.unref();
   }
 
   selectClientRepository() {
@@ -146,6 +166,8 @@ export class PersistenceRuntimeImpl implements PersistenceRuntime {
   }
 
   async close() {
+    clearInterval(this.sessionCleanupTimer);
+    await this.sessionCleanupInFlight;
     await this.pool?.end();
   }
 
@@ -361,6 +383,8 @@ export class PersistenceRuntimeImpl implements PersistenceRuntime {
     await this.pool.query(`
       create index if not exists idx_management_sessions_expires_at
       on management_sessions (expires_at);
+      create index if not exists idx_management_sessions_subject_id
+      on management_sessions (subject_id);
     `);
     await this.pool.query(`
       create table if not exists oidc_artifacts (

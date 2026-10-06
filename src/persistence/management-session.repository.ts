@@ -99,7 +99,10 @@ export class ManagementSessionRepositoryImpl implements ManagementSessionReposit
     ]);
   }
 
-  async deleteExpiredManagementSessions(now: string): Promise<number> {
+  async deleteExpiredManagementSessions(
+    now: string,
+    limit = 1000,
+  ): Promise<number> {
     const pool = this.poolProvider();
     if (!pool) {
       let deleted = 0;
@@ -107,13 +110,21 @@ export class ManagementSessionRepositoryImpl implements ManagementSessionReposit
         if (session.expiresAt <= now) {
           this.sessions.delete(tokenHash);
           deleted += 1;
+          if (deleted >= limit) break;
         }
       }
       return deleted;
     }
     const result = await pool.query(
-      "delete from management_sessions where expires_at <= $1::timestamptz",
-      [now],
+      `with expired as (
+         select token_hash from management_sessions
+         where expires_at <= $1::timestamptz
+         order by expires_at, token_hash
+         limit $2 for update skip locked
+       )
+       delete from management_sessions s using expired
+       where s.token_hash = expired.token_hash`,
+      [now, limit],
     );
     return result.rowCount ?? 0;
   }
