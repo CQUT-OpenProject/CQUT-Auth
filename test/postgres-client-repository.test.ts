@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { afterAll, beforeAll, describe, test } from "vite-plus/test";
+import { afterAll, beforeAll, describe, test, vi } from "vite-plus/test";
 import { Pool } from "pg";
 import { ClientManagementService } from "../src/clients/client-management.service.js";
 import { ClientManagementError } from "../src/management/management-error.js";
@@ -13,6 +13,7 @@ import { PostgresOidcClientRepository } from "../src/persistence/oidc-client.rep
 import { ProjectRepositoryImpl } from "../src/persistence/project.repository.js";
 import { ProjectAccessService } from "../src/projects/project-access.js";
 import { ProjectManagementService } from "../src/projects/project-management.service.js";
+import { ManagementSessionRepositoryImpl } from "../src/persistence/management-session.repository.js";
 
 const databaseUrl = process.env["TEST_DATABASE_URL"];
 const owner = { subjectId: "subj_pg_owner", isAdmin: false };
@@ -94,6 +95,88 @@ describe.skipIf(!databaseUrl)(
       const created = await service.create(owner, projectId, input);
       return created.client;
     }
+
+    test("client lists use bounded queries and preserve complete client details", async () => {
+      const { repository, service } = await reset();
+      const created = await Promise.all([
+        service.create(owner, projectId, webInput),
+        service.create(owner, projectId, webInput),
+        service.create(owner, projectId, input),
+      ]);
+      const details = await Promise.all(
+        created.map(({ client }) =>
+          repository.findManagedOidcClient(client.clientId),
+        ),
+      );
+      const queries = vi.spyOn(pool, "query");
+      try {
+        const listed = await repository.listOidcClientsByProject(projectId);
+        assert.equal(queries.mock.calls.length, 2);
+        assert.equal(listed.length, 3);
+        for (const detail of details) {
+          assert.deepEqual(
+            listed.find(
+              (entry) => entry.client.clientId === detail!.client.clientId,
+            ),
+            detail,
+          );
+        }
+        queries.mockClear();
+        assert.equal(
+          (await repository.listOidcClientsByProject("missing-project")).length,
+          0,
+        );
+        assert.equal(queries.mock.calls.length, 1);
+        queries.mockClear();
+        const uris = await repository.listActiveOidcClientRedirectUris();
+        assert.deepEqual(
+          uris.sort(),
+          details
+            .flatMap((detail) => detail!.activeRevision!.redirectUris)
+            .sort(),
+        );
+        assert.equal(queries.mock.calls.length, 1);
+      } finally {
+        queries.mockRestore();
+      }
+    });
+
+    test("PostgreSQL session cleanup bounds deletes and skips locked expired rows", async () => {
+      await reset();
+      await pool.query(
+        `insert into management_sessions(token_hash,subject_id,created_at,last_seen_at,expires_at)
+         select 'synthetic-expired-' || i, $1, now(), now(), now() - interval '1 hour'
+         from generate_series(1,3) i`,
+        [owner.subjectId],
+      );
+      const sessions = new ManagementSessionRepositoryImpl(() => pool);
+      const connection = await pool.connect();
+      try {
+        await connection.query("begin");
+        await connection.query(
+          "select token_hash from management_sessions where token_hash='synthetic-expired-1' for update",
+        );
+        const now = new Date().toISOString();
+        assert.equal(await sessions.deleteExpiredManagementSessions(now, 1), 1);
+        assert.equal(
+          await sessions.deleteExpiredManagementSessions(now, 10),
+          1,
+        );
+        assert.ok(await sessions.findManagementSession("synthetic-expired-1"));
+        await connection.query("rollback");
+        assert.equal(
+          await sessions.deleteExpiredManagementSessions(now, 10),
+          1,
+        );
+        const indexes = await pool.query(
+          "select indexname from pg_indexes where tablename='management_sessions' and indexname='idx_management_sessions_subject_id'",
+        );
+        assert.equal(indexes.rowCount, 1);
+      } finally {
+        await connection.query("rollback");
+        connection.release();
+      }
+    });
 
     test("rejects a client update after its maintainer is concurrently removed", async () => {
       const { repository, projects, service } = await reset();

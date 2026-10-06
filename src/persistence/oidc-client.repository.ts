@@ -20,6 +20,27 @@ import {
 } from "../projects/project-access.js";
 import { ClientManagementError } from "../management/management-error.js";
 
+const MANAGED_CLIENT_SELECT = `select c.*, ar.revision_id as ar_revision_id, ar.revision_number as ar_revision_number,
+         ar.review_status as ar_review_status, ar.redirect_uris as ar_redirect_uris,
+         ar.post_logout_redirect_uris as ar_post_logout_redirect_uris,
+         ar.scope_whitelist as ar_scope_whitelist, ar.rejection_reason as ar_rejection_reason,
+         ar.created_at as ar_created_at, ar.updated_at as ar_updated_at, ar.version as ar_version,
+         pr.revision_id as pr_revision_id, pr.revision_number as pr_revision_number,
+         pr.review_status as pr_review_status, pr.redirect_uris as pr_redirect_uris,
+         pr.post_logout_redirect_uris as pr_post_logout_redirect_uris,
+         pr.scope_whitelist as pr_scope_whitelist, pr.rejection_reason as pr_rejection_reason,
+         pr.created_at as pr_created_at, pr.updated_at as pr_updated_at, pr.version as pr_version
+       from oidc_clients c
+       left join oidc_client_revisions ar on ar.revision_id = c.active_revision_id
+       left join lateral (
+         select * from oidc_client_revisions r
+         where c.lifecycle_status <> 'disabled'
+           and r.client_id = c.client_id
+           and r.review_status in ('draft', 'pending', 'rejected')
+           and (ar.revision_number is null or r.revision_number > ar.revision_number)
+         order by r.revision_number desc limit 1
+       ) pr on true`;
+
 type Queryable = Pick<Pool, "query"> | Pick<PoolClient, "query">;
 
 class OidcClientRepositoryImpl implements OidcClientRepository {
@@ -952,26 +973,7 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
     const pool = this.poolProvider();
     if (!pool) return this.memoryManaged(clientId);
     const result = await pool.query(
-      `select c.*, ar.revision_id as ar_revision_id, ar.revision_number as ar_revision_number,
-         ar.review_status as ar_review_status, ar.redirect_uris as ar_redirect_uris,
-         ar.post_logout_redirect_uris as ar_post_logout_redirect_uris,
-         ar.scope_whitelist as ar_scope_whitelist, ar.rejection_reason as ar_rejection_reason,
-         ar.created_at as ar_created_at, ar.updated_at as ar_updated_at, ar.version as ar_version,
-         pr.revision_id as pr_revision_id, pr.revision_number as pr_revision_number,
-         pr.review_status as pr_review_status, pr.redirect_uris as pr_redirect_uris,
-         pr.post_logout_redirect_uris as pr_post_logout_redirect_uris,
-         pr.scope_whitelist as pr_scope_whitelist, pr.rejection_reason as pr_rejection_reason,
-         pr.created_at as pr_created_at, pr.updated_at as pr_updated_at, pr.version as pr_version
-       from oidc_clients c
-       left join oidc_client_revisions ar on ar.revision_id = c.active_revision_id
-       left join lateral (
-         select * from oidc_client_revisions r
-         where c.lifecycle_status <> 'disabled'
-           and r.client_id = c.client_id
-           and r.review_status in ('draft', 'pending', 'rejected')
-           and (ar.revision_number is null or r.revision_number > ar.revision_number)
-         order by r.revision_number desc limit 1
-       ) pr on true where c.client_id = $1`,
+      `${MANAGED_CLIENT_SELECT} where c.client_id = $1`,
       [clientId],
     );
     const managed = this.mapManagedRow(result.rows[0]);
@@ -1029,6 +1031,26 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
             ),
           ]
         : [],
+    );
+  }
+
+  async listActiveOidcClientRedirectUris(): Promise<string[]> {
+    const pool = this.poolProvider();
+    if (!pool) {
+      return [...this.clients.values()].flatMap((client) =>
+        client.lifecycleStatus === "active" && client.activeRevisionId
+          ? (this.revisions.get(client.activeRevisionId)?.redirectUris ?? [])
+          : [],
+      );
+    }
+    const result = await pool.query(
+      `select ar.redirect_uris
+       from oidc_clients c
+       join oidc_client_revisions ar on ar.revision_id = c.active_revision_id
+       where c.lifecycle_status = 'active'`,
+    );
+    return result.rows.flatMap(
+      (row: { redirect_uris: string[] }) => row.redirect_uris,
     );
   }
 
@@ -1106,15 +1128,31 @@ class OidcClientRepositoryImpl implements OidcClientRepository {
         )
         .map((client) => this.memoryManaged(client.clientId)!);
     }
-    const ids = await pool.query(
-      `select c.client_id from oidc_clients c where ${where} order by c.updated_at desc, c.client_id`,
+    const result = await pool.query(
+      `${MANAGED_CLIENT_SELECT} where ${where} order by c.updated_at desc, c.client_id`,
       values,
     );
-    return Promise.all(
-      ids.rows.map((row: Record<string, unknown>) =>
-        this.findManagedOidcClient(String(row["client_id"])),
-      ),
-    ) as Promise<ManagedOidcClientRecord[]>;
+    const clients = result.rows.map((row: Record<string, unknown>) =>
+      this.mapManagedRow(row)!,
+    );
+    if (clients.length === 0) return clients;
+    const secrets = await pool.query(
+      `select * from oidc_client_secrets
+       where client_id = any($1::text[])
+       order by created_at desc, secret_id`,
+      [clients.map((entry: ManagedOidcClientRecord) => entry.client.clientId)],
+    );
+    const byId = new Map<string, ManagedOidcClientRecord>(
+      clients.map((entry: ManagedOidcClientRecord) => [
+        entry.client.clientId,
+        entry,
+      ]),
+    );
+    for (const row of secrets.rows) {
+      const secret = this.mapSecretRow(row);
+      byId.get(secret.clientId)!.secrets.push(secret);
+    }
+    return clients;
   }
 
   private memoryManaged(clientId: string): ManagedOidcClientRecord | null {

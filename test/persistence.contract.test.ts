@@ -106,6 +106,10 @@ test("persistence modules preserve the memory-mode contract", async () => {
   assert.equal(clients.length, 1);
   assert.equal(clients[0]?.clientId, "demo-site");
   assert.equal(clients[0]?.allowRefreshTokenForPublicClient, false);
+  assert.deepEqual(
+    await persistence.clients.listActiveOidcClientRedirectUris(),
+    ["http://localhost:3002/demo/callback"],
+  );
 
   let releaseLateIssue!: () => void;
   const revocationCommitted = new Promise<void>((resolve) => {
@@ -175,6 +179,10 @@ test("persistence modules preserve the memory-mode contract", async () => {
     },
   );
   assert.ok(disabled);
+  assert.deepEqual(
+    await persistence.clients.listActiveOidcClientRedirectUris(),
+    [],
+  );
   assert.equal(
     await persistence.artifacts.findArtifact("AccessToken:new-generation"),
     undefined,

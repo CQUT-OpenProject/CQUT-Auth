@@ -1,4 +1,4 @@
-import { test } from "vite-plus/test";
+import { test, vi } from "vite-plus/test";
 import {
   assert,
   createApp,
@@ -57,13 +57,15 @@ test("runtime policy restart is admin-only and runs after the response", async (
 
 test("liveness does not depend on dynamic client CSP lookup", async () => {
   const { app, state } = await createApp();
-  state.persistence.clients.listActiveOidcClients = async () => {
+  const lookup = vi.fn<() => Promise<string[]>>(async () => {
     throw new Error("database unavailable");
-  };
+  });
+  state.persistence.clients.listActiveOidcClientRedirectUris = lookup;
   try {
     assert.deepEqual((await request(app).get("/health/live")).body, {
       status: "live",
     });
+    assert.equal(lookup.mock.calls.length, 0);
   } finally {
     await state.close();
   }

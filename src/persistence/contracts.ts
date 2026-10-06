@@ -341,6 +341,7 @@ export interface OidcClientRepository {
   ): Promise<ManagedOidcClientRecord | null>;
   findOidcClient(clientId: string): Promise<ActiveOidcClientRecord | null>;
   listActiveOidcClients(): Promise<ActiveOidcClientRecord[]>;
+  listActiveOidcClientRedirectUris(): Promise<string[]>;
   listOidcClientsByProject(
     projectId: string,
   ): Promise<ManagedOidcClientRecord[]>;
@@ -414,7 +415,7 @@ export interface ManagementSessionRepository {
   touchManagementSession(tokenHash: string, lastSeenAt: string): Promise<void>;
   deleteManagementSession(tokenHash: string): Promise<void>;
   deleteManagementSessionsBySubjectId(subjectId: string): Promise<void>;
-  deleteExpiredManagementSessions(now: string): Promise<number>;
+  deleteExpiredManagementSessions(now: string, limit?: number): Promise<number>;
 }
 
 export interface OidcArtifactRepository {

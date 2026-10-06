@@ -19,6 +19,7 @@ import { createManagementRouter } from "./routes/management.js";
 import { createAgentRouter } from "./routes/agent.js";
 import type { EmailSender } from "./email/email-sender.js";
 import { withAuthorizationContext } from "./oidc/authorization-context.js";
+import { ClientRedirectUriCache } from "./oidc/client-redirect-uri-cache.js";
 
 type AppState = {
   config: StaticConfig;
@@ -141,19 +142,15 @@ export async function createOidcApp(
   const app = express();
   app.disable("x-powered-by");
   app.set("trust proxy", config.trustProxyHops);
+  const clientRedirectUris = new ClientRedirectUriCache(persistence.clients);
+  const invalidateClientOrigins = () => clientRedirectUris.invalidate();
+  let loadedRedirectUris: string[] | undefined;
   let formActionSources = buildFormActionSources(config, []);
-  let formActionSourcesExpiresAt = 0;
-  const invalidateClientOrigins = () => {
-    formActionSourcesExpiresAt = 0;
-  };
   const getFormActionSources = async () => {
-    if (Date.now() >= formActionSourcesExpiresAt) {
-      const clients = await persistence.clients.listActiveOidcClients();
-      formActionSources = buildFormActionSources(
-        config,
-        clients.flatMap((client) => client.redirectUris),
-      );
-      formActionSourcesExpiresAt = Date.now() + 5_000;
+    const uris = await clientRedirectUris.get();
+    if (uris !== loadedRedirectUris) {
+      formActionSources = buildFormActionSources(config, uris);
+      loadedRedirectUris = uris;
     }
     return formActionSources;
   };
