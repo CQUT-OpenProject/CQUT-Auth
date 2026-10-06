@@ -43,6 +43,12 @@ select,
   min-height: 100dvh;
 }
 
+.dashboard-sidebar > .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
 .dashboard-header-main,
 .dashboard-header-actions {
   min-width: 0;

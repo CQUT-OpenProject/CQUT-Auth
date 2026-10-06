@@ -156,7 +156,7 @@ export const ProjectOverview: React.FC = () => {
         open={editVisible}
         onCancel={() => setEditVisible(false)}
         onOk={() => form.submit()}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleEdit}>
           <Form.Item

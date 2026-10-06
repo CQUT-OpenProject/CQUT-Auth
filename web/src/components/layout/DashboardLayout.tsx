@@ -30,6 +30,7 @@ import { useThemeMode } from "../../contexts/theme-context";
 import { useBreakpoint } from "../../hooks/useBreakpoint";
 import logoMonoLight from "../../assets/logo-mono-light.svg";
 import logoColor from "../../assets/logo-color.svg";
+import packageJson from "../../../../package.json";
 
 const { Header, Sider, Content } = Layout;
 const { Text } = Typography;
@@ -205,9 +206,25 @@ export const DashboardLayout: React.FC = () => {
       mode="inline"
       selectedKeys={[location.pathname]}
       items={getMenuItems()}
-      style={{ borderRight: 0 }}
+      style={{ borderRight: 0, flex: 1, minHeight: 0, overflowY: "auto" }}
       onClick={() => setMobileDrawerVisible(false)}
     />
+  );
+  const versionElement = (
+    <div
+      aria-label="应用版本"
+      style={{
+        borderTop: "1px solid rgba(255, 255, 255, 0.12)",
+        padding: "12px 16px",
+        textAlign: collapsed ? "center" : "left",
+      }}
+    >
+      <Text style={{ color: "rgba(255, 255, 255, 0.65)", fontSize: 12 }}>
+        {collapsed
+          ? `v${packageJson.version}`
+          : `当前版本 v${packageJson.version}`}
+      </Text>
+    </div>
   );
 
   return (
@@ -220,18 +237,20 @@ export const DashboardLayout: React.FC = () => {
       </a>
       {/* Desktop Sider */}
       <Sider
+        className="dashboard-sidebar"
         breakpoint="lg"
         collapsedWidth="0"
         trigger={null}
         collapsible
         collapsed={collapsed}
         style={{
-          overflow: "auto",
+          overflow: "hidden",
           height: "100dvh",
           position: "sticky",
           top: 0,
           left: 0,
-          display: usesDrawerNavigation ? "none" : "block",
+          display: usesDrawerNavigation ? "none" : "flex",
+          flexDirection: "column",
         }}
       >
         <div
@@ -246,6 +265,7 @@ export const DashboardLayout: React.FC = () => {
           />
         </div>
         {menuElement}
+        {versionElement}
       </Sider>
 
       <Layout
@@ -368,10 +388,18 @@ export const DashboardLayout: React.FC = () => {
           placement="left"
           onClose={() => setMobileDrawerVisible(false)}
           open={usesDrawerNavigation && mobileDrawerVisible}
-          styles={{ body: { padding: 0, background: "#0b1f33" } }}
+          styles={{
+            body: {
+              padding: 0,
+              background: "#0b1f33",
+              display: "flex",
+              flexDirection: "column",
+            },
+          }}
           width="min(320px, calc(100vw - 24px))"
         >
           {menuElement}
+          {versionElement}
         </Drawer>
 
         <div

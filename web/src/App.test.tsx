@@ -308,6 +308,15 @@ test("shows project list and handles switching", async () => {
   expect(await screen.findByText("Project Two")).toBeTruthy();
 });
 
+test("shows the current application version in the navigation footer", async () => {
+  mockApi();
+  window.history.pushState({}, "", "/manage/projects");
+  render(<App />);
+
+  const versionLabels = await screen.findAllByText(/^当前版本 v\d/);
+  expect(versionLabels.length).toBeGreaterThan(0);
+});
+
 test("does not send Refine telemetry from the management app", async () => {
   const imageSources: string[] = [];
   vi.stubGlobal(

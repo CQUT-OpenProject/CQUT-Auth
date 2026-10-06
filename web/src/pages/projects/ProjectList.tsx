@@ -8,7 +8,7 @@ import {
   Input,
   Space,
   Typography,
-  message,
+  App as AntdApp,
 } from "antd";
 import { PlusOutlined, LoginOutlined } from "@ant-design/icons";
 import { useProject } from "../../contexts/project-context";
@@ -23,6 +23,7 @@ export const ProjectList: React.FC = () => {
   const [form] = Form.useForm();
   const navigate = useNavigate();
   const { isMobile } = useBreakpoint();
+  const { message } = AntdApp.useApp();
   const visibleProjects = projects.filter(
     (project) => project.projectId !== "system",
   );
@@ -135,7 +136,7 @@ export const ProjectList: React.FC = () => {
         open={createVisible}
         onCancel={() => setCreateVisible(false)}
         onOk={() => form.submit()}
-        destroyOnClose
+        destroyOnHidden
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item

@@ -54,7 +54,7 @@ export const ConfirmActionModal: React.FC<ConfirmActionModalProps> = ({
         disabled: inputValue !== expectedValue,
         loading: loading,
       }}
-      destroyOnClose
+      destroyOnHidden
     >
       <Space direction="vertical" style={{ width: "100%" }} size="middle">
         <Alert

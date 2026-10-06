@@ -58,7 +58,7 @@ export const OneTimeSecretModal: React.FC<OneTimeSecretModalProps> = ({
           我已安全保存
         </Button>,
       ]}
-      destroyOnClose
+      destroyOnHidden
       maskClosable={false}
       keyboard={false}
     >

@@ -13,7 +13,7 @@ import zhCN from "antd/locale/zh_CN";
 import { getThemeConfig } from "../theme/theme";
 import { ThemeModeProvider, useThemeMode } from "../contexts/theme-context";
 
-export const AppContent: React.FC = () => {
+const AppContent: React.FC = () => {
   const { themeMode } = useThemeMode();
   const dynamicTheme = getThemeConfig(themeMode === "dark");
 
