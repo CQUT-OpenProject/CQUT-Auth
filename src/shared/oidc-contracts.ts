@@ -16,7 +16,6 @@ export const OIDC_CLAIMS = [
   "email_verified",
   "status",
 ] as const;
-export type OidcClaim = (typeof OIDC_CLAIMS)[number];
 
 export const STUDENT_STATUS = ["active", "not_student", "unknown"] as const;
 export type StudentStatus = (typeof STUDENT_STATUS)[number];

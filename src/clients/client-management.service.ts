@@ -31,9 +31,9 @@ import {
   type ProjectWriteAuthorization,
 } from "../projects/project-access.js";
 
-export type ClientActor = ProjectActor;
+type ClientActor = ProjectActor;
 
-export type PublicClientRevision = {
+type PublicClientRevision = {
   revisionId: number;
   revisionNumber: number;
   status: ClientRevisionStatus;
@@ -46,7 +46,7 @@ export type PublicClientRevision = {
   version: number;
 };
 
-export type PublicOidcClient = {
+type PublicOidcClient = {
   clientId: string;
   projectId: string;
   displayName: string;
@@ -63,7 +63,7 @@ export type PublicOidcClient = {
   clientVersion: number;
 };
 
-export type PublicClientSecret = {
+type PublicClientSecret = {
   secretId: string;
   status: OidcClientSecretRecord["status"];
   createdAt: string;
@@ -842,9 +842,7 @@ export class ClientManagementService {
   }
 }
 
-export function toPublicClient(
-  managed: ManagedOidcClientRecord,
-): PublicOidcClient {
+function toPublicClient(managed: ManagedOidcClientRecord): PublicOidcClient {
   const client = managed.client;
   return {
     clientId: client.clientId,

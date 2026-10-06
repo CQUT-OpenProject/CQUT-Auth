@@ -3,7 +3,7 @@ import type { StaticConfig } from "../config.js";
 import { ManagementSessionService } from "../management/management-session.service.js";
 import { resolveTrustedExpressRequestIp } from "../request-ip.js";
 
-export function readAgentAccessToken(request: Request) {
+function readAgentAccessToken(request: Request) {
   const header = request.get("authorization");
   if (!header) {
     return undefined;
