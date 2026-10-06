@@ -687,6 +687,27 @@ function asStringArray(value: unknown): string[] {
   );
 }
 
+const OIDC_SCOPE_LABELS: Readonly<Record<string, string>> = {
+  openid: "身份认证",
+  profile: "基本资料",
+  email: "电子邮箱",
+  address: "联系地址",
+  phone: "电话号码",
+  offline_access: "离线访问",
+  student: "学籍信息",
+};
+
+function formatScopeList(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((scope) => {
+      const label = OIDC_SCOPE_LABELS[scope];
+      return label ? `${label}（${scope}）` : scope;
+    })
+    .join(" · ");
+}
+
 function consentView(
   response: Response,
   uid: string,
@@ -719,7 +740,7 @@ function consentView(
 
   if (missingScopes.length > 0) {
     sections.push(
-      `<p><strong>申请范围：</strong>${escapeHtml(missingScopes.join(" "))}</p>`,
+      `<p><strong>申请范围：</strong>${escapeHtml(formatScopeList(missingScopes.join(" ")))}</p>`,
     );
   }
   if (missingClaims.length > 0) {
@@ -746,7 +767,7 @@ function consentView(
     `
     <h1>确认授权请求</h1>
     <p class="hint">客户端 <strong>${escapeHtml(clientId)}</strong> 正在请求访问权限。</p>
-    ${requestedScope ? `<p class="hint"><strong>请求范围：</strong>${escapeHtml(requestedScope)}</p>` : ""}
+    ${requestedScope ? `<p class="hint"><strong>请求范围：</strong>${escapeHtml(formatScopeList(requestedScope))}</p>` : ""}
     ${error ? `<p class="error">${escapeHtml(error)}</p>` : ""}
     ${sections.join("")}
     <form class="login-form" method="post" action="/interaction/${encodeURIComponent(uid)}/consent" data-consent-form>
