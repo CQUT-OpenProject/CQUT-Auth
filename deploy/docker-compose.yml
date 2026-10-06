@@ -10,6 +10,7 @@ services:
     env_file:
       - ./.env
     environment:
+      VITE_DEV_HOST: "0.0.0.0"
       PORT: 3003
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       DATABASE_URL: postgres://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}

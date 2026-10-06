@@ -1,14 +1,7 @@
 import { expect, test } from "vite-plus/test";
-import { rewriteDevelopmentApiOrigin } from "../vite.config";
+import { resolveDevelopmentHost } from "../vite.config";
 
-test("rewrites only local Vite origins to the development API origin", () => {
-  expect(rewriteDevelopmentApiOrigin("http://127.0.0.1:5173")).toBe(
-    "http://127.0.0.1:3003",
-  );
-  expect(rewriteDevelopmentApiOrigin("http://localhost:5173")).toBe(
-    "http://127.0.0.1:3003",
-  );
-  expect(rewriteDevelopmentApiOrigin("https://attacker.example")).toBe(
-    "https://attacker.example",
-  );
+test("development server binds locally unless the container opts in", () => {
+  expect(resolveDevelopmentHost({})).toBe("127.0.0.1");
+  expect(resolveDevelopmentHost({ VITE_DEV_HOST: "0.0.0.0" })).toBe("0.0.0.0");
 });

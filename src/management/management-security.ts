@@ -102,12 +102,19 @@ export function issueManagementCsrf(
 
 export function validateManagementCsrf(
   request: Request,
-  config: Pick<StaticConfig, "csrfSigningSecret" | "issuer">,
+  config: Pick<StaticConfig, "appEnv" | "csrfSigningSecret" | "issuer">,
   binding: string,
   now = Math.floor(Date.now() / 1000),
 ) {
   const origin = request.get("origin");
-  if (origin && origin !== new URL(config.issuer).origin) {
+  const isDevelopmentOrigin =
+    (config.appEnv === "development" || config.appEnv === "test") &&
+    (origin === "http://localhost:5173" || origin === "http://127.0.0.1:5173");
+  if (
+    origin &&
+    origin !== new URL(config.issuer).origin &&
+    !isDevelopmentOrigin
+  ) {
     return false;
   }
   const token = request.get("x-csrf-token");
