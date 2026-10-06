@@ -1,15 +1,15 @@
 # Dev target: full install (incl. devDependencies) for Vite+ hot reload.
 # Source is bind-mounted at runtime; only node_modules is baked in so the
 # compose anonymous volume can seed a Linux-native install over the Windows host.
-FROM ghcr.io/voidzero-dev/vite-plus:0.3.3 AS dev
+FROM ghcr.io/voidzero-dev/vite-plus:1.0.0 AS dev
 WORKDIR /app
 ENV NODE_ENV=development
 COPY --chown=vp:vp package.json pnpm-lock.yaml pnpm-workspace.yaml .node-version ./
-RUN vp install --frozen-lockfile --prod=false
+RUN vp install --frozen-lockfile
 EXPOSE 3003
 CMD ["vp", "run", "dev"]
 
-FROM ghcr.io/voidzero-dev/vite-plus:0.3.3 AS builder
+FROM ghcr.io/voidzero-dev/vite-plus:1.0.0 AS builder
 WORKDIR /app
 COPY --chown=vp:vp package.json pnpm-lock.yaml pnpm-workspace.yaml .node-version ./
 RUN vp install --frozen-lockfile
@@ -20,7 +20,7 @@ COPY --chown=vp:vp scripts ./scripts
 RUN vp run build
 RUN cp "$(vp env which node | head -1)" /tmp/node
 
-FROM ghcr.io/voidzero-dev/vite-plus:0.3.3 AS deps
+FROM ghcr.io/voidzero-dev/vite-plus:1.0.0 AS deps
 WORKDIR /app
 COPY --chown=vp:vp package.json pnpm-lock.yaml pnpm-workspace.yaml .node-version ./
 RUN vp install --frozen-lockfile --prod
