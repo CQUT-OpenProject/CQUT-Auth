@@ -63,8 +63,8 @@ importers:
         specifier: ^6.2.12
         version: 6.2.12
       nodemailer:
-        specifier: ^10.0.10
-        version: 10.0.10
+        specifier: ^10.1.4
+        version: 10.1.4
       oidc-provider:
         specifier: ^9.12.2
         version: 9.12.2
@@ -3167,8 +3167,8 @@ packages:
   neverpanic@0.0.8:
     resolution: {integrity: sha512-vVdkelrLxaow/fdWDumzNBO+jwm6X8bxeLJc34THtpj70u0C5QBkcV6CRCu2X726km7XD45N0A3QtYCla4RvKw==}
 
-  nodemailer@10.0.10:
-    resolution: {integrity: sha512-He9XskOFms62SyAKkLu8CcGcYHAo+BSHSsORI8s4PJH8qZgZY4L4lDfvyN0twvmbpyG+eGrxpyBlskj9d9rJ8A==}
+  nodemailer@10.1.4:
+    resolution: {integrity: sha512-EsMnOR2oRv4LGnWvHgcVYkkQ4O2j8KO4WTw6l+PHR4sOXo8SAgIraxtEnGDmotjbhv0hDsu3IuDIFZm8iXwO4A==}
     engines: {node: '>=20.0.0'}
 
   object-assign@4.1.1:
@@ -7599,7 +7599,7 @@ snapshots:
 
   neverpanic@0.0.8: {}
 
-  nodemailer@10.0.10: {}
+  nodemailer@10.1.4: {}
 
   object-assign@4.1.1: {}
 
